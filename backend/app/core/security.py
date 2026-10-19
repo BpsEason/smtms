@@ -35,6 +35,8 @@ class AuthenticatedUser:
     is_active: bool
     roles: tuple[str, ...]
     permissions: frozenset[str]
+    must_change_password: bool = False
+    supplier_id: int | None = None
 
 
 def normalize_permission_code(permission: str) -> str:
@@ -177,13 +179,33 @@ def get_current_user(
         is_active=user.is_active,
         roles=role_names,
         permissions=permission_codes,
+        must_change_password=bool(user.must_change_password),
+        supplier_id=user.supplier_id,
     )
+
+
+def ensure_supplier_access(current_user: AuthenticatedUser, supplier_id: int) -> None:
+    """Block supplier login accounts from reaching other suppliers' data.
+
+    Internal accounts (``supplier_id is None``) are unaffected.
+    """
+    if current_user.supplier_id is not None and current_user.supplier_id != supplier_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+def _ensure_password_changed(current_user: AuthenticatedUser) -> None:
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required before accessing this resource",
+        )
 
 
 def require_permission(*required_permissions: str):
     def dependency(
         current_user: AuthenticatedUser = Depends(get_current_user),
     ) -> AuthenticatedUser:
+        _ensure_password_changed(current_user)
         granted_permissions = {
             normalize_permission_code(permission)
             for permission in current_user.permissions
@@ -203,6 +225,7 @@ def require_role(*allowed_roles: str):
     def dependency(
         current_user: AuthenticatedUser = Depends(get_current_user),
     ) -> AuthenticatedUser:
+        _ensure_password_changed(current_user)
         if not set(allowed_roles).intersection(current_user.roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         return current_user

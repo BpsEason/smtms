@@ -263,7 +263,7 @@ def list_supplier_lots(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("suppliers:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:read")),
 ):
     statement = select(SupplierLotORM).join(SupplierORM, SupplierLotORM.supplier_id == SupplierORM.id).join(
         MaterialORM,
@@ -276,6 +276,9 @@ def list_supplier_lots(
         MaterialORM,
         SupplierLotORM.material_id == MaterialORM.id,
     )
+    if current_user.supplier_id is not None:
+        statement = statement.where(SupplierLotORM.supplier_id == current_user.supplier_id)
+        count_statement = count_statement.where(SupplierLotORM.supplier_id == current_user.supplier_id)
     if keyword:
         pattern = f"%{keyword.strip()}%"
         criterion = (

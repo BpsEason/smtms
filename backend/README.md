@@ -96,14 +96,33 @@ Seeder 只允許在 `APP_ENV=development` 或 `test` 環境中，連線至本機
 uv run python scripts/seed_dev.py
 ```
 
-所有 Seeder 測試帳號共用本機測試密碼：`SmtmsLocal2026!`。測試帳號如下：
+所有 Seeder 測試帳號共用本機測試密碼：`SmtmsLocal2026!`。內部測試帳號如下：
 
 - `seed_admin`：開發測試管理者
 - `seed_qa_1`：品保人員
 - `seed_qa_2`：備援品保人員
 - `seed_receiver_1`：收料人員
 
+Seeder 亦會為每家示範供應商建立一個供應商登入帳號 `seed_supplier_001` 至 `seed_supplier_006`（共用相同本機測試密碼）。這些帳號透過 `users.supplier_id` 對應各自的 `SEED-SUP-*` 供應商，僅具備 `Supplier Portal User` 角色（`suppliers:read`），**不得**持有 Super Admin 或內部管理員權限，且 `must_change_password` 為真，首次登入必須修改密碼。
+
+Seeder 建立的示範資料量（以唯一鍵 `SEED-*` 識別，可重複執行而不產生重複資料）：6 家供應商（含統編與狀態）、12 種物料、24 筆供應商供貨關聯、20 筆供應商批次、20 筆收料、25 筆內部批次（其中 5 筆收料各拆分為 2 筆內部批次）、25 筆 IQC 紀錄。
+
 上述帳號及密碼僅供本機開發／測試使用，不可用於正式環境。Seeder 仍會檢查執行環境及資料庫目標；如需覆寫測試密碼，可在目前的 PowerShell 工作階段設定 `SMTMS_SEED_PASSWORD` 環境變數。
+
+## 供應商匯入範例檔
+
+產生獨立的 Excel 匯入範例檔（不需連線資料庫）：
+
+```powershell
+uv run python scripts/generate_import_samples.py
+```
+
+範例檔會寫入 `backend/samples/`：
+
+- `supplier_import_valid.xlsx`：3 筆可成功匯入的供應商（`DEMO-SUP-201`~`203`），與 Seeder 的 `SEED-*` 資料不衝突。
+- `supplier_import_errors.xlsx`：6 筆刻意違反驗證規則的資料，涵蓋重複供應商編號、重複統一編號、重複登入帳號與必填欄位缺漏。
+
+範例檔使用 `supplier_import.TEMPLATE_HEADERS` 產生，欄位與正式範本一致，可直接上傳至匯入預覽／確認端點進行驗收測試。
 
 ## 程式碼檢查
 

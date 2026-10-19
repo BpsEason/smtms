@@ -20,6 +20,12 @@ class UserProfile(BaseModel):
     is_active: bool = True
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+    must_change_password: bool = False
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=72)
 
 
 class LogoutResponse(BaseModel):

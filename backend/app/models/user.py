@@ -52,6 +52,19 @@ class UserORM(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True, comment="聯絡信箱")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="bcrypt 雜湊後密碼")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="帳號是否啟用")
+    supplier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id"),
+        nullable=True,
+        unique=True,
+        index=True,
+        comment="對應供應商主鍵（供應商登入帳號專用）",
+    )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="是否須於下次登入變更密碼",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

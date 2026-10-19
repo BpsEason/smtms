@@ -1,13 +1,25 @@
 """Populate deterministic SMTMS development/test QA data.
 
 Run from backend/: uv run python scripts/seed_dev.py
-The shared local test password is restricted to the guarded development/test seeder.
+
+The seeder is idempotent and non-destructive:
+
+* every seeded record is identified by a stable ``SEED-*`` business key;
+* existing seeded rows are updated in place, so primary keys stay stable;
+* rows the seeder does not own are never modified, and a business-key clash
+  with foreign data aborts the run with an explicit error instead of
+  overwriting anything;
+* nothing is ever deleted, so ``LIVE-*`` and other manually created records
+  are left untouched.
+
+The shared local test password is restricted to this guarded seeder.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -32,10 +44,16 @@ from app.models.user import (
     UserORM,
     UserRoleORM,
 )
-from sqlalchemy import and_, delete, func, or_, select, text
+from app.services.supplier_import import (
+    SUPPLIER_ROLE_DESCRIPTION,
+    SUPPLIER_ROLE_NAME,
+    SUPPLIER_ROLE_PERMISSION,
+)
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 SEED_USER_PREFIX = "seed_"
+SEED_SUPPLIER_USER_PREFIX = "seed_supplier_"
 SEED_ROLE_NAMES = ("SMTMS Seed Administrator", "SMTMS Seed QA", "SMTMS Seed Receiver")
 SEED_PERMISSION_PREFIX = "seed:"
 SEED_SUPPLIER_PREFIX = "SEED-SUP-"
@@ -43,15 +61,36 @@ SEED_MATERIAL_PREFIX = "SEED-MAT-"
 SEED_SUPPLIER_LOT_PREFIX = "SEED-SLOT-"
 SEED_RECEIPT_PREFIX = "SEED-REC-"
 SEED_INTERNAL_LOT_PREFIX = "SEED-ILOT-"
+SEED_DOCUMENT_PREFIX = "SEED-CERT-"
+SEED_IQC_REMARK_PREFIX = "Seeded inspection outcome:"
 LOCAL_SEED_PASSWORD = "SmtmsLocal2026!"
+SEED_REQUIRED_REVISION = "20261019_autoincrement_pks"
 
 SUPPLIER_DATA = (
-    ("Harbor Industrial Supply", "林怡君", "02-2550-1001", "harbor@example.test", "Taiwan"),
-    ("Evergreen Polymer Co.", "陳冠宇", "04-2300-2002", "evergreen@example.test", "Taiwan"),
-    ("Northstar Components", "王雅婷", "03-5500-3003", "northstar@example.test", "Taiwan"),
-    ("Pacific Precision Materials", "李承翰", "07-3300-4004", "pacific@example.test", "Taiwan"),
-    ("Summit Chemical Works", "張家豪", "06-2200-5005", "summit@example.test", "Taiwan"),
-    ("Cedar Packaging Group", "黃詩涵", "02-2600-6006", "cedar@example.test", "Taiwan"),
+    (
+        "Harbor Industrial Supply", "林怡君", "02-2550-1001", "harbor@example.test",
+        "Taiwan", "91000001", "active",
+    ),
+    (
+        "Evergreen Polymer Co.", "陳冠宇", "04-2300-2002", "evergreen@example.test",
+        "Taiwan", "91000002", "active",
+    ),
+    (
+        "Northstar Components", "王雅婷", "03-5500-3003", "northstar@example.test",
+        "Taiwan", "91000003", "active",
+    ),
+    (
+        "Pacific Precision Materials", "李承翰", "07-3300-4004", "pacific@example.test",
+        "Taiwan", "91000004", "active",
+    ),
+    (
+        "Summit Chemical Works", "張家豪", "06-2200-5005", "summit@example.test",
+        "Taiwan", "91000005", "inactive",
+    ),
+    (
+        "Cedar Packaging Group", "黃詩涵", "02-2600-6006", "cedar@example.test",
+        "Taiwan", "91000006", "active",
+    ),
 )
 
 MATERIAL_DATA = (
@@ -81,6 +120,19 @@ PERMISSIONS = (
     ("users:manage", "Manage user access"),
 )
 
+INTERNAL_USERS = (
+    ("seed_admin", "seed_admin@example.test"),
+    ("seed_qa_1", "seed_qa_1@example.test"),
+    ("seed_qa_2", "seed_qa_2@example.test"),
+    ("seed_receiver_1", "seed_receiver_1@example.test"),
+)
+
+ROLE_PERMISSION_CODES = {
+    "admin": tuple(code for code, _ in PERMISSIONS),
+    "qa": ("suppliers:read", "materials:read", "receipts:read", "iqc:read", "iqc:write"),
+    "receiver": ("suppliers:read", "materials:read", "receipts:read", "receipts:write"),
+}
+
 # Supported values are stored as strings by the current schema (no database ENUM/check constraints).
 # Keep related QC, release, and inventory states aligned in this mapping.
 BATCH_OUTCOMES = (
@@ -105,6 +157,23 @@ BATCH_OUTCOMES = (
     "passed",
     "passed",
 )
+
+EXPECTED_SEEDED_COUNTS = {
+    "suppliers": 6,
+    "supplier_accounts": 6,
+    "internal_users": 4,
+    "materials": 12,
+    "supplier_materials": 24,
+    "qualification_documents": 6,
+    "supplier_lots": 20,
+    "material_receipts": 20,
+    "internal_material_lots": 25,
+    "iqc_records": 25,
+    "roles": 3,
+    "permissions": len(PERMISSIONS),
+    "user_roles": 10,
+    "role_permissions": 18,
+}
 
 
 def _require_safe_environment() -> str:
@@ -139,489 +208,499 @@ def _require_safe_environment() -> str:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one_or_none()
-        if revision != "20261019_comments_first_schema":
-            raise RuntimeError(f"Expected current schema revision, found {revision!r}.")
+        if revision != SEED_REQUIRED_REVISION:
+            raise RuntimeError(
+                f"Expected schema revision {SEED_REQUIRED_REVISION!r}, found {revision!r}."
+            )
     return password
 
 
-def _ids(session: Session, model, *criteria) -> list[int]:
-    return list(session.scalars(select(model.id).where(*criteria)))
+def _owned_by_prefix(attribute: str, prefix: str) -> Callable[[object], bool]:
+    def predicate(row: object) -> bool:
+        return str(getattr(row, attribute) or "").startswith(prefix)
+
+    return predicate
 
 
-def _delete_ids(session: Session, model, ids: list[int]) -> None:
-    if ids:
-        session.execute(
-            delete(model).where(model.id.in_(ids)),
-            execution_options={"synchronize_session": False},
+def _upsert(
+    session: Session,
+    model,
+    identity: dict[str, object],
+    values: dict[str, object] | None = None,
+    *,
+    owned: Callable[[object], bool] | None = None,
+    label: str = "record",
+):
+    """Create the row, or update it only when the seeder owns it.
+
+    A matching row that the seeder does not own aborts with an explicit error
+    instead of being overwritten.
+    """
+    filters = [getattr(model, column) == value for column, value in identity.items()]
+    row = session.scalar(select(model).where(*filters))
+    if row is None:
+        row = model(**identity, **(values or {}))
+        session.add(row)
+        session.flush()
+        return row
+
+    if owned is not None and not owned(row):
+        raise RuntimeError(
+            f"Refusing to overwrite non-seeder data: {label} matching {identity} "
+            "already exists and is not managed by this seeder."
         )
 
-
-def _remove_previous_seed(session: Session) -> None:
-    user_ids = _ids(session, UserORM, UserORM.username.like(f"{SEED_USER_PREFIX}%"))
-    role_ids = _ids(session, RoleORM, RoleORM.name.in_(SEED_ROLE_NAMES))
-    permission_ids = _ids(
-        session,
-        PermissionORM,
-        PermissionORM.code.like(f"{SEED_PERMISSION_PREFIX}%"),
-    )
-    supplier_ids = _ids(
-        session,
-        SupplierORM,
-        SupplierORM.supplier_code.like(f"{SEED_SUPPLIER_PREFIX}%"),
-    )
-    material_ids = _ids(
-        session,
-        MaterialORM,
-        MaterialORM.material_code.like(f"{SEED_MATERIAL_PREFIX}%"),
-    )
-    supplier_lot_ids = _ids(
-        session,
-        SupplierLotORM,
-        SupplierLotORM.supplier_lot_no.like(f"{SEED_SUPPLIER_LOT_PREFIX}%"),
-    )
-    receipt_ids = _ids(
-        session,
-        MaterialReceiptORM,
-        MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"),
-    )
-    internal_lot_ids = _ids(
-        session,
-        InternalMaterialLotORM,
-        InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"),
-    )
-
-    iqc_criteria = []
-    if receipt_ids:
-        iqc_criteria.append(IQCRecordORM.receipt_id.in_(receipt_ids))
-    if internal_lot_ids:
-        iqc_criteria.append(IQCRecordORM.internal_lot_id.in_(internal_lot_ids))
-    if user_ids:
-        iqc_criteria.append(IQCRecordORM.inspector_user_id.in_(user_ids))
-    if iqc_criteria:
-        session.execute(
-            delete(IQCRecordORM).where(or_(*iqc_criteria)),
-            execution_options={"synchronize_session": False},
-        )
-
-    _delete_ids(session, InternalMaterialLotORM, internal_lot_ids)
-    _delete_ids(session, MaterialReceiptORM, receipt_ids)
-    _delete_ids(session, SupplierLotORM, supplier_lot_ids)
-
-    doc_criteria = []
-    if supplier_ids:
-        doc_criteria.append(SupplierQualificationDocumentORM.supplier_id.in_(supplier_ids))
-    if user_ids:
-        doc_criteria.append(SupplierQualificationDocumentORM.approved_by_user_id.in_(user_ids))
-    if doc_criteria:
-        session.execute(
-            delete(SupplierQualificationDocumentORM).where(or_(*doc_criteria)),
-            execution_options={"synchronize_session": False},
-        )
-
-    supplier_material_criteria = []
-    if supplier_ids:
-        supplier_material_criteria.append(SupplierMaterialORM.supplier_id.in_(supplier_ids))
-    if material_ids:
-        supplier_material_criteria.append(SupplierMaterialORM.material_id.in_(material_ids))
-    if supplier_material_criteria:
-        session.execute(
-            delete(SupplierMaterialORM).where(or_(*supplier_material_criteria)),
-            execution_options={"synchronize_session": False},
-        )
-
-    role_permission_criteria = []
-    if role_ids:
-        role_permission_criteria.append(RolePermissionORM.role_id.in_(role_ids))
-    if permission_ids:
-        role_permission_criteria.append(RolePermissionORM.permission_id.in_(permission_ids))
-    if role_permission_criteria:
-        session.execute(
-            delete(RolePermissionORM).where(or_(*role_permission_criteria)),
-            execution_options={"synchronize_session": False},
-        )
-
-    user_role_criteria = []
-    if user_ids:
-        user_role_criteria.append(UserRoleORM.user_id.in_(user_ids))
-    if role_ids:
-        user_role_criteria.append(UserRoleORM.role_id.in_(role_ids))
-    if user_role_criteria:
-        session.execute(
-            delete(UserRoleORM).where(or_(*user_role_criteria)),
-            execution_options={"synchronize_session": False},
-        )
-
-    _delete_ids(session, UserORM, user_ids)
-    _delete_ids(session, SupplierORM, supplier_ids)
-    _delete_ids(session, MaterialORM, material_ids)
-    _delete_ids(session, RoleORM, role_ids)
-    _delete_ids(session, PermissionORM, permission_ids)
-    session.flush()
+    changed = False
+    for column, value in (values or {}).items():
+        if getattr(row, column) != value:
+            setattr(row, column, value)
+            changed = True
+    if changed:
+        session.flush()
+    return row
 
 
-def _create_seed(session: Session, password: str) -> None:
-    id_models = (
-        UserORM,
-        RoleORM,
-        PermissionORM,
-        UserRoleORM,
-        RolePermissionORM,
-        SupplierORM,
-        SupplierQualificationDocumentORM,
-        MaterialORM,
-        SupplierMaterialORM,
-        SupplierLotORM,
-        MaterialReceiptORM,
-        InternalMaterialLotORM,
-        IQCRecordORM,
-    )
-    next_ids = {
-        model: (session.scalar(select(func.max(model.id))) or 0) + 1
-        for model in id_models
-    }
-
-    def allocate_id(model) -> int:
-        value = next_ids[model]
-        next_ids[model] += 1
-        return value
-
+def _sync_seed(session: Session, password: str) -> None:
+    """Upsert every seeded record. No row is deleted and IDs are DB-assigned."""
     password_hash = get_password_hash(password)
+
+    # Shared supplier-portal role/permission, created on demand like the Excel
+    # import flow does. These are intentionally not "seed:"-prefixed.
+    portal_role = _upsert(
+        session,
+        RoleORM,
+        {"name": SUPPLIER_ROLE_NAME},
+        {"description": SUPPLIER_ROLE_DESCRIPTION},
+        owned=lambda row: True,
+        label="supplier portal role",
+    )
+    portal_permission = _upsert(
+        session,
+        PermissionORM,
+        {"code": SUPPLIER_ROLE_PERMISSION},
+        {"name": "讀取供應商資料", "description": "供應商入口帳號可讀取供應商基本資料。"},
+        owned=lambda row: True,
+        label="supplier portal permission",
+    )
+    _upsert(
+        session,
+        RolePermissionORM,
+        {"role_id": portal_role.id, "permission_id": portal_permission.id},
+        owned=lambda row: True,
+        label="supplier portal role-permission link",
+    )
+
     users = {
-        "admin": UserORM(
-            id=allocate_id(UserORM),
-            username="seed_admin",
-            email="seed_admin@example.test",
-            password_hash=password_hash,
-            is_active=True,
-        ),
-        "qa": UserORM(
-            id=allocate_id(UserORM),
-            username="seed_qa_1",
-            email="seed_qa_1@example.test",
-            password_hash=password_hash,
-            is_active=True,
-        ),
-        "qa_backup": UserORM(
-            id=allocate_id(UserORM),
-            username="seed_qa_2",
-            email="seed_qa_2@example.test",
-            password_hash=password_hash,
-            is_active=True,
-        ),
-        "receiver": UserORM(
-            id=allocate_id(UserORM),
-            username="seed_receiver_1",
-            email="seed_receiver_1@example.test",
-            password_hash=password_hash,
-            is_active=True,
-        ),
+        username: _upsert(
+            session,
+            UserORM,
+            {"username": username},
+            {"email": email, "password_hash": password_hash, "is_active": True},
+            owned=_owned_by_prefix("username", SEED_USER_PREFIX),
+            label="internal user",
+        )
+        for username, email in INTERNAL_USERS
     }
-    session.add_all(users.values())
-    session.flush()
 
     roles = {
-        "admin": RoleORM(
-            id=allocate_id(RoleORM),
-            name=SEED_ROLE_NAMES[0],
-            description="Development-only test administrator",
-        ),
-        "qa": RoleORM(
-            id=allocate_id(RoleORM),
-            name=SEED_ROLE_NAMES[1],
-            description="Development-only quality inspector",
-        ),
-        "receiver": RoleORM(
-            id=allocate_id(RoleORM),
-            name=SEED_ROLE_NAMES[2],
-            description="Development-only receiving clerk",
-        ),
+        key: _upsert(
+            session,
+            RoleORM,
+            {"name": name},
+            {"description": description},
+            owned=lambda row: True,
+            label="seed role",
+        )
+        for key, (name, description) in zip(
+            ("admin", "qa", "receiver"),
+            (
+                (SEED_ROLE_NAMES[0], "Development-only test administrator"),
+                (SEED_ROLE_NAMES[1], "Development-only quality inspector"),
+                (SEED_ROLE_NAMES[2], "Development-only receiving clerk"),
+            ),
+            strict=True,
+        )
     }
-    session.add_all(roles.values())
-    session.flush()
 
-    permission_models = {
-        code: PermissionORM(
-            id=allocate_id(PermissionORM),
-            code=f"{SEED_PERMISSION_PREFIX}{code}",
-            name=name,
-            description=f"Seed permission: {name}",
+    permissions = {
+        code: _upsert(
+            session,
+            PermissionORM,
+            {"code": f"{SEED_PERMISSION_PREFIX}{code}"},
+            {"name": name, "description": f"Seed permission: {name}"},
+            owned=_owned_by_prefix("code", SEED_PERMISSION_PREFIX),
+            label="seed permission",
         )
         for code, name in PERMISSIONS
     }
-    session.add_all(permission_models.values())
-    session.flush()
 
-    role_permissions = {
-        "admin": tuple(permission_models),
-        "qa": ("suppliers:read", "materials:read", "receipts:read", "iqc:read", "iqc:write"),
-        "receiver": ("suppliers:read", "materials:read", "receipts:read", "receipts:write"),
-    }
-    session.add_all(
-        RolePermissionORM(
-            id=allocate_id(RolePermissionORM),
-            role_id=roles[role_key].id,
-            permission_id=permission_models[code].id,
+    for role_key, codes in ROLE_PERMISSION_CODES.items():
+        for code in codes:
+            _upsert(
+                session,
+                RolePermissionORM,
+                {"role_id": roles[role_key].id, "permission_id": permissions[code].id},
+                owned=lambda row: True,
+                label="seed role-permission link",
+            )
+
+    for user_key, role_key in (
+        ("seed_admin", "admin"),
+        ("seed_qa_1", "qa"),
+        ("seed_qa_2", "qa"),
+        ("seed_receiver_1", "receiver"),
+    ):
+        _upsert(
+            session,
+            UserRoleORM,
+            {"user_id": users[user_key].id, "role_id": roles[role_key].id},
+            owned=lambda row: True,
+            label="seed user-role link",
         )
-        for role_key, codes in role_permissions.items()
-        for code in codes
-    )
-    session.add_all(
-        (
-            UserRoleORM(
-                id=allocate_id(UserRoleORM),
-                user_id=users["admin"].id,
-                role_id=roles["admin"].id,
-            ),
-            UserRoleORM(
-                id=allocate_id(UserRoleORM),
-                user_id=users["qa"].id,
-                role_id=roles["qa"].id,
-            ),
-            UserRoleORM(
-                id=allocate_id(UserRoleORM),
-                user_id=users["qa_backup"].id,
-                role_id=roles["qa"].id,
-            ),
-            UserRoleORM(
-                id=allocate_id(UserRoleORM),
-                user_id=users["receiver"].id,
-                role_id=roles["receiver"].id,
-            ),
-        )
-    )
 
     suppliers = [
-        SupplierORM(
-            id=allocate_id(SupplierORM),
-            supplier_code=f"{SEED_SUPPLIER_PREFIX}{index:03d}",
-            supplier_name=name,
-            contact_name=contact,
-            phone=phone,
-            email=email,
-            status="active",
-            address=f"No. {index + 10}, Industrial Road",
-            country=country,
+        _upsert(
+            session,
+            SupplierORM,
+            {"supplier_code": f"{SEED_SUPPLIER_PREFIX}{index:03d}"},
+            {
+                "supplier_name": name,
+                "tax_id": tax_id,
+                "contact_name": contact,
+                "phone": phone,
+                "email": email,
+                "status": status,
+                "address": f"No. {index + 10}, Industrial Road",
+                "country": country,
+            },
+            owned=_owned_by_prefix("supplier_code", SEED_SUPPLIER_PREFIX),
+            label="supplier",
         )
-        for index, (name, contact, phone, email, country) in enumerate(SUPPLIER_DATA, start=1)
+        for index, (name, contact, phone, email, country, tax_id, status) in enumerate(
+            SUPPLIER_DATA, start=1
+        )
     ]
+
     materials = [
-        MaterialORM(
-            id=allocate_id(MaterialORM),
-            material_code=f"{SEED_MATERIAL_PREFIX}{index:03d}",
-            material_name=name,
-            material_type=material_type,
-            spec=spec,
-            uom=uom,
-            status="active",
+        _upsert(
+            session,
+            MaterialORM,
+            {"material_code": f"{SEED_MATERIAL_PREFIX}{index:03d}"},
+            {
+                "material_name": name,
+                "material_type": material_type,
+                "spec": spec,
+                "uom": uom,
+                "status": "active",
+            },
+            owned=_owned_by_prefix("material_code", SEED_MATERIAL_PREFIX),
+            label="material",
         )
         for index, (name, material_type, spec, uom) in enumerate(MATERIAL_DATA, start=1)
     ]
-    session.add_all([*suppliers, *materials])
-    session.flush()
+
+    for index, supplier in enumerate(suppliers, start=1):
+        account = _upsert(
+            session,
+            UserORM,
+            {"username": f"{SEED_SUPPLIER_USER_PREFIX}{index:03d}"},
+            {
+                "email": f"seed_supplier_{index:03d}@example.test",
+                "password_hash": password_hash,
+                "is_active": True,
+                "supplier_id": supplier.id,
+                "must_change_password": True,
+            },
+            owned=_owned_by_prefix("username", SEED_USER_PREFIX),
+            label="supplier account",
+        )
+        _upsert(
+            session,
+            UserRoleORM,
+            {"user_id": account.id, "role_id": portal_role.id},
+            owned=lambda row: True,
+            label="supplier account role link",
+        )
 
     today = date.today()
-    qualification_documents = []
     for index, supplier in enumerate(suppliers):
         if index % 3 == 0:
             expires_at = today + timedelta(days=330)
-            status = "active"
+            doc_status = "active"
         elif index % 3 == 1:
             expires_at = today + timedelta(days=20)
-            status = "expiring"
+            doc_status = "expiring"
         else:
             expires_at = today - timedelta(days=30)
-            status = "expired"
-        qualification_documents.append(
-            SupplierQualificationDocumentORM(
-                id=allocate_id(SupplierQualificationDocumentORM),
-                supplier_id=supplier.id,
-                doc_type="ISO 9001",
-                doc_code=f"SEED-CERT-{index + 1:03d}",
-                doc_name=f"{supplier.supplier_name} Quality Certificate",
-                file_path=f"seed-documents/suppliers/{supplier.supplier_code}/iso-9001.pdf",
-                issued_at=datetime.combine(expires_at - timedelta(days=365), time.min),
-                expires_at=datetime.combine(expires_at, time.min),
-                approved_by_user_id=users["qa"].id,
-                status=status,
-            )
+            doc_status = "expired"
+        _upsert(
+            session,
+            SupplierQualificationDocumentORM,
+            {"doc_code": f"{SEED_DOCUMENT_PREFIX}{index + 1:03d}"},
+            {
+                "supplier_id": supplier.id,
+                "doc_type": "ISO 9001",
+                "doc_name": f"{supplier.supplier_name} Quality Certificate",
+                "file_path": f"seed-documents/suppliers/{supplier.supplier_code}/iso-9001.pdf",
+                "issued_at": datetime.combine(expires_at - timedelta(days=365), time.min),
+                "expires_at": datetime.combine(expires_at, time.min),
+                "approved_by_user_id": users["seed_qa_1"].id,
+                "status": doc_status,
+            },
+            owned=_owned_by_prefix("doc_code", SEED_DOCUMENT_PREFIX),
+            label="qualification document",
         )
-    session.add_all(qualification_documents)
 
-    supplier_materials = []
     for material_index, material in enumerate(materials):
         first_supplier_index = material_index % len(suppliers)
         for supplier_index in (first_supplier_index, (first_supplier_index + 1) % len(suppliers)):
             supplier = suppliers[supplier_index]
-            supplier_materials.append(
-                SupplierMaterialORM(
-                    id=allocate_id(SupplierMaterialORM),
-                    supplier_id=supplier.id,
-                    material_id=material.id,
-                    supplier_material_code=f"{supplier.supplier_code}-{material.material_code[-3:]}",
-                    is_preferred=supplier_index == first_supplier_index,
-                )
+            supplier_material_code = f"{supplier.supplier_code}-{material.material_code[-3:]}"
+            _upsert(
+                session,
+                SupplierMaterialORM,
+                {"supplier_id": supplier.id, "material_id": material.id},
+                {
+                    "supplier_material_code": supplier_material_code,
+                    "is_preferred": supplier_index == first_supplier_index,
+                },
+                owned=lambda row: True,
+                label="supplier material link",
             )
-    session.add_all(supplier_materials)
-    session.flush()
-
-    supplier_lots: list[SupplierLotORM] = []
-    receipts: list[MaterialReceiptORM] = []
-    internal_lots: list[InternalMaterialLotORM] = []
-    iqc_records: list[IQCRecordORM] = []
 
     for index, outcome in enumerate(BATCH_OUTCOMES):
         supplier_index = index % len(suppliers)
         material_index = index % len(materials)
         supplier = suppliers[supplier_index]
         material = materials[material_index]
-        batch_number = f"{SEED_SUPPLIER_LOT_PREFIX}{index + 1:03d}"
         received_at = datetime.combine(today - timedelta(days=35 - index), time(9, 30))
         batch_quantity = Decimal("100.0000") + Decimal(index * 10)
 
-        supplier_lot = SupplierLotORM(
-            id=allocate_id(SupplierLotORM),
-            supplier_id=supplier.id,
-            material_id=material.id,
-            supplier_lot_no=batch_number,
-            manufacturing_date=received_at - timedelta(days=30),
-            expiry_date=received_at + timedelta(days=365),
-            qty_received=batch_quantity,
-            uom=material.uom,
-            qc_status=outcome,
+        supplier_lot = _upsert(
+            session,
+            SupplierLotORM,
+            {"supplier_lot_no": f"{SEED_SUPPLIER_LOT_PREFIX}{index + 1:03d}"},
+            {
+                "supplier_id": supplier.id,
+                "material_id": material.id,
+                "manufacturing_date": received_at - timedelta(days=30),
+                "expiry_date": received_at + timedelta(days=365),
+                "qty_received": batch_quantity,
+                "uom": material.uom,
+                "qc_status": outcome,
+            },
+            owned=_owned_by_prefix("supplier_lot_no", SEED_SUPPLIER_LOT_PREFIX),
+            label="supplier lot",
         )
-        supplier_lots.append(supplier_lot)
-        session.add(supplier_lot)
-        session.flush()
 
-        receipt = MaterialReceiptORM(
-            id=allocate_id(MaterialReceiptORM),
-            supplier_id=supplier.id,
-            material_id=material.id,
-            supplier_lot_id=supplier_lot.id,
-            receipt_no=f"{SEED_RECEIPT_PREFIX}{index + 1:03d}",
-            received_at=received_at,
-            received_by_user_id=users["receiver"].id,
-            qty_received=batch_quantity,
-            qty_remaining=batch_quantity if outcome == "passed" else Decimal("0.0000"),
-            status="received",
-            notes=f"Development QA scenario: {outcome}",
+        receipt = _upsert(
+            session,
+            MaterialReceiptORM,
+            {"receipt_no": f"{SEED_RECEIPT_PREFIX}{index + 1:03d}"},
+            {
+                "supplier_id": supplier.id,
+                "material_id": material.id,
+                "supplier_lot_id": supplier_lot.id,
+                "received_at": received_at,
+                "received_by_user_id": users["seed_receiver_1"].id,
+                "qty_received": batch_quantity,
+                "qty_remaining": batch_quantity if outcome == "passed" else Decimal("0.0000"),
+                "status": "received",
+                "notes": f"Development QA scenario: {outcome}",
+            },
+            owned=_owned_by_prefix("receipt_no", SEED_RECEIPT_PREFIX),
+            label="material receipt",
         )
-        receipts.append(receipt)
-        session.add(receipt)
-        session.flush()
 
         split_count = 2 if index < 5 else 1
         child_quantity = batch_quantity / split_count
+        lot_status, release_status = {
+            "passed": ("available", "released"),
+            "pending": ("quarantine", "hold"),
+            "failed": ("rejected", "rejected"),
+        }[outcome]
         for part in range(split_count):
-            lot_status, release_status = {
-                "passed": ("available", "released"),
-                "pending": ("quarantine", "hold"),
-                "failed": ("rejected", "rejected"),
-            }[outcome]
-            internal_lot = InternalMaterialLotORM(
-                id=allocate_id(InternalMaterialLotORM),
-                material_id=material.id,
-                supplier_lot_id=supplier_lot.id,
-                receipt_id=receipt.id,
-                internal_lot_no=f"{SEED_INTERNAL_LOT_PREFIX}{index + 1:03d}-{part + 1}",
-                qty_on_hand=child_quantity if outcome == "passed" else Decimal("0.0000"),
-                qty_reserved=Decimal("0.0000"),
-                uom=material.uom,
-                lot_status=lot_status,
-                expiry_date=supplier_lot.expiry_date,
+            internal_lot = _upsert(
+                session,
+                InternalMaterialLotORM,
+                {"internal_lot_no": f"{SEED_INTERNAL_LOT_PREFIX}{index + 1:03d}-{part + 1}"},
+                {
+                    "material_id": material.id,
+                    "supplier_lot_id": supplier_lot.id,
+                    "receipt_id": receipt.id,
+                    "qty_on_hand": child_quantity if outcome == "passed" else Decimal("0.0000"),
+                    "qty_reserved": Decimal("0.0000"),
+                    "uom": material.uom,
+                    "lot_status": lot_status,
+                    "expiry_date": supplier_lot.expiry_date,
+                },
+                owned=_owned_by_prefix("internal_lot_no", SEED_INTERNAL_LOT_PREFIX),
+                label="internal material lot",
             )
-            internal_lots.append(internal_lot)
-            session.add(internal_lot)
-            session.flush()
-
-            iqc_records.append(
-                IQCRecordORM(
-                    id=allocate_id(IQCRecordORM),
-                    receipt_id=receipt.id,
-                    internal_lot_id=internal_lot.id,
-                    inspector_user_id=users[
-                        "qa" if index % 2 == 0 else "qa_backup"
+            _upsert(
+                session,
+                IQCRecordORM,
+                {"internal_lot_id": internal_lot.id},
+                {
+                    "receipt_id": receipt.id,
+                    "inspector_user_id": users[
+                        "seed_qa_1" if index % 2 == 0 else "seed_qa_2"
                     ].id,
-                    sample_qty=Decimal("0.2500"),
-                    inspection_result=outcome,
-                    inspection_date=(
-                        None
-                        if outcome == "pending"
-                        else received_at + timedelta(days=1)
+                    "sample_qty": Decimal("0.2500"),
+                    "inspection_result": outcome,
+                    "inspection_date": (
+                        None if outcome == "pending" else received_at + timedelta(days=1)
                     ),
-                    release_status=release_status,
-                    remarks=f"Seeded inspection outcome: {outcome}",
-                )
+                    "release_status": release_status,
+                    "remarks": f"{SEED_IQC_REMARK_PREFIX} {outcome}",
+                },
+                owned=lambda row: str(getattr(row, "remarks", "") or "").startswith(
+                    SEED_IQC_REMARK_PREFIX
+                ),
+                label="IQC record",
             )
-
-    session.add_all(iqc_records)
-    session.flush()
 
 
 def _validate_seed(session: Session) -> dict[str, int]:
-    models = (
-        UserORM,
-        RoleORM,
-        PermissionORM,
-        UserRoleORM,
-        RolePermissionORM,
-        SupplierORM,
-        SupplierQualificationDocumentORM,
-        MaterialORM,
-        SupplierMaterialORM,
-        SupplierLotORM,
-        MaterialReceiptORM,
-        InternalMaterialLotORM,
-        IQCRecordORM,
+    seed_supplier_ids = list(
+        session.scalars(
+            select(SupplierORM.id).where(
+                SupplierORM.supplier_code.like(f"{SEED_SUPPLIER_PREFIX}%")
+            )
+        )
     )
+    seed_material_ids = list(
+        session.scalars(
+            select(MaterialORM.id).where(
+                MaterialORM.material_code.like(f"{SEED_MATERIAL_PREFIX}%")
+            )
+        )
+    )
+    seed_user_ids = list(
+        session.scalars(
+            select(UserORM.id).where(UserORM.username.like(f"{SEED_USER_PREFIX}%"))
+        )
+    )
+    seed_role_ids = list(
+        session.scalars(select(RoleORM.id).where(RoleORM.name.in_(SEED_ROLE_NAMES)))
+    )
+    seed_permission_ids = list(
+        session.scalars(
+            select(PermissionORM.id).where(
+                PermissionORM.code.like(f"{SEED_PERMISSION_PREFIX}%")
+            )
+        )
+    )
+    seed_internal_lot_ids = list(
+        session.scalars(
+            select(InternalMaterialLotORM.id).where(
+                InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%")
+            )
+        )
+    )
+
+    def count(statement) -> int:
+        return session.scalar(statement) or 0
+
     counts = {
-        model.__tablename__: session.scalar(select(func.count()).select_from(model)) or 0
-        for model in models
+        "suppliers": len(seed_supplier_ids),
+        "materials": len(seed_material_ids),
+        "supplier_lots": count(
+            select(func.count())
+            .select_from(SupplierLotORM)
+            .where(SupplierLotORM.supplier_lot_no.like(f"{SEED_SUPPLIER_LOT_PREFIX}%"))
+        ),
+        "material_receipts": count(
+            select(func.count())
+            .select_from(MaterialReceiptORM)
+            .where(MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"))
+        ),
+        "internal_material_lots": len(seed_internal_lot_ids),
+        "iqc_records": count(
+            select(func.count())
+            .select_from(IQCRecordORM)
+            .where(IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids))
+        )
+        if seed_internal_lot_ids
+        else 0,
+        "supplier_materials": count(
+            select(func.count())
+            .select_from(SupplierMaterialORM)
+            .where(
+                SupplierMaterialORM.supplier_id.in_(seed_supplier_ids),
+                SupplierMaterialORM.material_id.in_(seed_material_ids),
+            )
+        ),
+        "qualification_documents": count(
+            select(func.count())
+            .select_from(SupplierQualificationDocumentORM)
+            .where(
+                SupplierQualificationDocumentORM.doc_code.like(f"{SEED_DOCUMENT_PREFIX}%")
+            )
+        ),
+        "roles": len(seed_role_ids),
+        "permissions": len(seed_permission_ids),
+        "supplier_accounts": count(
+            select(func.count())
+            .select_from(UserORM)
+            .where(UserORM.username.like(f"{SEED_SUPPLIER_USER_PREFIX}%"))
+        ),
+        "internal_users": count(
+            select(func.count())
+            .select_from(UserORM)
+            .where(
+                UserORM.username.in_([username for username, _ in INTERNAL_USERS])
+            )
+        ),
+        "user_roles": count(
+            select(func.count())
+            .select_from(UserRoleORM)
+            .where(UserRoleORM.user_id.in_(seed_user_ids))
+        ),
+        "role_permissions": count(
+            select(func.count())
+            .select_from(RolePermissionORM)
+            .where(RolePermissionORM.role_id.in_(seed_role_ids))
+        ),
     }
 
-    expected_minimums = {
-        "users": 4,
-        "roles": 3,
-        "permissions": len(PERMISSIONS),
-        "user_roles": 4,
-        "role_permissions": 1,
-        "suppliers": 6,
-        "supplier_qualification_documents": 6,
-        "materials": 12,
-        "supplier_materials": 24,
-        "supplier_lots": 20,
-        "material_receipts": 20,
-        "internal_material_lots": 25,
-        "iqc_records": 20,
-    }
-    for table, minimum in expected_minimums.items():
-        if counts[table] < minimum:
+    for table, expected in EXPECTED_SEEDED_COUNTS.items():
+        if counts[table] != expected:
             raise RuntimeError(
-                f"Validation failed: {table} has {counts[table]} rows; "
-                f"expected at least {minimum}."
+                f"Validation failed: seeded {table} is {counts[table]}; expected {expected}."
             )
 
     broken_relationships = {
         "receipt_supplier": select(func.count()).select_from(MaterialReceiptORM).outerjoin(
             SupplierORM, MaterialReceiptORM.supplier_id == SupplierORM.id
-        ).where(SupplierORM.id.is_(None)),
-        "receipt_material": select(func.count()).select_from(MaterialReceiptORM).outerjoin(
-            MaterialORM, MaterialReceiptORM.material_id == MaterialORM.id
-        ).where(MaterialORM.id.is_(None)),
+        ).where(
+            MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"),
+            SupplierORM.id.is_(None),
+        ),
         "receipt_supplier_lot": select(func.count()).select_from(MaterialReceiptORM).outerjoin(
             SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id
-        ).where(SupplierLotORM.id.is_(None)),
+        ).where(
+            MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"),
+            SupplierLotORM.id.is_(None),
+        ),
         "internal_lot_material": select(func.count()).select_from(InternalMaterialLotORM).outerjoin(
             MaterialORM, InternalMaterialLotORM.material_id == MaterialORM.id
-        ).where(MaterialORM.id.is_(None)),
+        ).where(
+            InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"),
+            MaterialORM.id.is_(None),
+        ),
         "iqc_internal_lot": select(func.count()).select_from(IQCRecordORM).outerjoin(
             InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id
-        ).where(InternalMaterialLotORM.id.is_(None)),
+        ).where(
+            IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
+            InternalMaterialLotORM.id.is_(None),
+        )
+        if seed_internal_lot_ids
+        else select(func.count()).select_from(IQCRecordORM).where(
+            IQCRecordORM.internal_lot_id.in_([])
+        ),
     }
-    broken_counts = {
-        name: session.scalar(statement) or 0
-        for name, statement in broken_relationships.items()
-    }
+    broken_counts = {name: count(statement) for name, statement in broken_relationships.items()}
     if any(broken_counts.values()):
         raise RuntimeError(
             f"Validation failed: broken foreign-key relationships: {broken_counts}."
@@ -632,6 +711,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
         .select_from(IQCRecordORM)
         .join(InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id)
         .where(
+            IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
             or_(
                 and_(
                     IQCRecordORM.inspection_result == "passed",
@@ -654,7 +734,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
                         InternalMaterialLotORM.lot_status != "rejected",
                     ),
                 ),
-            )
+            ),
         )
     ) or 0
     if inconsistent:
@@ -667,6 +747,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
         select(func.count())
         .select_from(
             select(InternalMaterialLotORM.supplier_lot_id)
+            .where(InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"))
             .group_by(InternalMaterialLotORM.supplier_lot_id)
             .having(func.count(InternalMaterialLotORM.id) > 1)
             .subquery()
@@ -676,6 +757,49 @@ def _validate_seed(session: Session) -> dict[str, int]:
         raise RuntimeError(
             f"Validation failed: expected split supplier lots, found {split_supplier_lots}."
         )
+
+    seeded_supplier_id_set = set(seed_supplier_ids)
+    account_supplier_ids = set(
+        session.scalars(
+            select(UserORM.supplier_id).where(
+                UserORM.username.like(f"{SEED_SUPPLIER_USER_PREFIX}%")
+            )
+        )
+    )
+    if account_supplier_ids != seeded_supplier_id_set:
+        raise RuntimeError(
+            "Validation failed: seeded suppliers and supplier login accounts do not match."
+        )
+
+    non_portal_accounts = count(
+        select(func.count())
+        .select_from(UserORM)
+        .join(UserRoleORM, UserRoleORM.user_id == UserORM.id)
+        .join(RoleORM, RoleORM.id == UserRoleORM.role_id)
+        .where(
+            UserORM.username.like(f"{SEED_SUPPLIER_USER_PREFIX}%"),
+            RoleORM.name != SUPPLIER_ROLE_NAME,
+        )
+    )
+    if non_portal_accounts:
+        raise RuntimeError(
+            "Validation failed: "
+            f"{non_portal_accounts} supplier accounts hold a non-portal role."
+        )
+
+    skipped_password_change = count(
+        select(func.count())
+        .select_from(UserORM)
+        .where(
+            UserORM.username.like(f"{SEED_SUPPLIER_USER_PREFIX}%"),
+            UserORM.must_change_password.is_(False),
+        )
+    )
+    if skipped_password_change:
+        raise RuntimeError(
+            "Validation failed: "
+            f"{skipped_password_change} supplier accounts skip the forced password change."
+        )
     return counts
 
 
@@ -683,19 +807,22 @@ def main() -> int:
     try:
         password = _require_safe_environment()
         with SessionLocal() as session, session.begin():
-            _remove_previous_seed(session)
-            _create_seed(session, password)
+            _sync_seed(session, password)
             counts = _validate_seed(session)
     except Exception as exc:
         print(f"Seeder aborted: {exc}", file=sys.stderr)
         return 1
 
     print("Development/test QA data seeded successfully.")
-    for table, count in counts.items():
-        print(f"{table}: {count}")
+    for table, value in counts.items():
+        print(f"{table}: {value}")
     print(
         "Quality scenarios: available/released, pending/quarantine, failed/rejected, "
         "split lots, and varied supplier certificate expiry."
+    )
+    print(
+        "Supplier portal accounts: seed_supplier_001..006 (role Supplier Portal User, "
+        "forced password change on first login)."
     )
     return 0
 

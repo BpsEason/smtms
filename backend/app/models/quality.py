@@ -16,6 +16,7 @@ class SupplierORM(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="供應商主鍵編號")
     supplier_code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True, comment="供應商代碼")
     supplier_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True, comment="供應商名稱")
+    tax_id: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True, comment="統一編號")
     contact_name: Mapped[str | None] = mapped_column(String(120), nullable=True, comment="聯絡人姓名")
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True, comment="聯絡電話")
     email: Mapped[str | None] = mapped_column(String(160), nullable=True, comment="聯絡信箱")

@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ORMResponse(BaseModel):
@@ -12,12 +12,21 @@ class ORMResponse(BaseModel):
 class SupplierCreate(BaseModel):
     supplier_code: str = Field(min_length=1, max_length=80)
     supplier_name: str = Field(min_length=1, max_length=200)
+    tax_id: str | None = Field(default=None, max_length=20)
     contact_name: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=40)
     email: str | None = Field(default=None, max_length=160)
     status: str = Field(default="active", min_length=1, max_length=20)
     address: str | None = Field(default=None, max_length=255)
     country: str | None = Field(default=None, max_length=80)
+
+    @field_validator("tax_id", mode="before")
+    @classmethod
+    def normalize_tax_id(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
 
 class SupplierUpdate(BaseModel):
@@ -44,6 +53,7 @@ class SupplierResponse(ORMResponse):
     id: int
     supplier_code: str
     supplier_name: str
+    tax_id: str | None
     contact_name: str | None
     phone: str | None
     email: str | None
@@ -66,6 +76,53 @@ class SupplierDocumentResponse(ORMResponse):
     approved_by_user_id: int | None
     status: str
     created_at: datetime
+
+
+class SupplierImportRowError(BaseModel):
+    sheet: str
+    row: int
+    field: str
+    message: str
+
+
+class SupplierImportRowPreview(BaseModel):
+    row: int
+    supplier_code: str | None
+    supplier_name: str | None
+    tax_id: str | None
+    login_username: str | None
+    login_email: str | None
+    status: str | None
+    valid: bool
+
+
+class SupplierImportPreviewResponse(BaseModel):
+    sheet: str
+    total_rows: int
+    valid_rows: int
+    error_rows: int
+    skipped_rows: int
+    rows: list[SupplierImportRowPreview]
+    errors: list[SupplierImportRowError]
+
+
+class SupplierImportCreatedAccount(BaseModel):
+    sheet: str
+    row: int
+    supplier_id: int
+    supplier_code: str
+    login_username: str
+    initial_password: str
+    password_generated: bool
+
+
+class SupplierImportResultResponse(BaseModel):
+    status: Literal["completed", "rejected"]
+    created: int
+    failed: int
+    skipped: int
+    errors: list[SupplierImportRowError]
+    accounts: list[SupplierImportCreatedAccount]
 
 
 class MaterialCreate(BaseModel):

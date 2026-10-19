@@ -349,3 +349,52 @@ def test_supplier_material_relationship_and_preferred_supplier(catalog_environme
 
     assert client.delete("/api/v1/suppliers/2/materials/1", headers=headers).status_code == 204
     assert client.delete("/api/v1/suppliers/2/materials/1", headers=headers).status_code == 404
+
+
+def test_suppliers_without_tax_id_can_be_created(catalog_environment) -> None:
+    client, _ = catalog_environment
+    headers = _headers(client, "catalog-admin", "Catalog-Test-Password-2026!")
+
+    blank = client.post(
+        "/api/v1/suppliers",
+        json={"supplier_code": "SUP-100", "supplier_name": "Blank Tax", "tax_id": ""},
+        headers=headers,
+    )
+    assert blank.status_code == 201, blank.text
+    assert blank.json()["tax_id"] is None
+
+    whitespace = client.post(
+        "/api/v1/suppliers",
+        json={"supplier_code": "SUP-101", "supplier_name": "Whitespace Tax", "tax_id": "   "},
+        headers=headers,
+    )
+    assert whitespace.status_code == 201, whitespace.text
+    assert whitespace.json()["tax_id"] is None
+
+    omitted = client.post(
+        "/api/v1/suppliers",
+        json={"supplier_code": "SUP-102", "supplier_name": "No Tax"},
+        headers=headers,
+    )
+    assert omitted.status_code == 201, omitted.text
+    assert omitted.json()["tax_id"] is None
+
+
+def test_duplicate_valid_tax_id_is_rejected(catalog_environment) -> None:
+    client, _ = catalog_environment
+    headers = _headers(client, "catalog-admin", "Catalog-Test-Password-2026!")
+
+    first = client.post(
+        "/api/v1/suppliers",
+        json={"supplier_code": "SUP-200", "supplier_name": "First Tax", "tax_id": "12345678"},
+        headers=headers,
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["tax_id"] == "12345678"
+
+    duplicate = client.post(
+        "/api/v1/suppliers",
+        json={"supplier_code": "SUP-201", "supplier_name": "Second Tax", "tax_id": "12345678"},
+        headers=headers,
+    )
+    assert duplicate.status_code == 409

@@ -15,7 +15,13 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.user import UserORM
-from app.schemas.auth import LoginRequest, LogoutResponse, TokenResponse, UserProfile
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LogoutResponse,
+    TokenResponse,
+    UserProfile,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -56,7 +62,41 @@ def me(current_user: AuthenticatedUser = Depends(get_current_user)) -> UserProfi
         is_active=current_user.is_active,
         roles=list(current_user.roles),
         permissions=sorted(current_user.permissions),
+        must_change_password=current_user.must_change_password,
     )
+
+
+@router.post("/change-password", response_model=LogoutResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> LogoutResponse:
+    if len(payload.new_password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="new_password must be at most 72 UTF-8 bytes",
+        )
+    if payload.new_password == payload.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must differ from the current password",
+        )
+    user = db.scalar(select(UserORM).where(UserORM.id == current_user.id))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is disabled or not found",
+        )
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    user.password_hash = get_password_hash(payload.new_password)
+    user.must_change_password = False
+    db.commit()
+    return LogoutResponse(message="Password updated")
 
 
 # Shared dependencies are imported here for discoverability by downstream API modules.
