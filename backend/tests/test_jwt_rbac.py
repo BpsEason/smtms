@@ -201,3 +201,46 @@ def test_permission_and_role_dependencies_use_resolved_database_grants(auth_envi
     assert protected_client.get("/iqc", headers=headers).status_code == 200
     assert protected_client.get("/users", headers=headers).status_code == 403
     assert protected_client.get("/qa", headers=headers).status_code == 200
+
+
+def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(auth_environment) -> None:
+    client, session_factory, _ = auth_environment
+    with session_factory() as session:
+        seed_user = UserORM(
+            username="seed_admin_regression",
+            email="seed_admin_regression@example.test",
+            password_hash=get_password_hash("Correct-Test-Password-2026!"),
+            is_active=True,
+        )
+        seed_role = RoleORM(name="SMTMS Seed Administrator", description="seed admin role")
+        seed_permission = PermissionORM(code="seed:suppliers:read", name="Read suppliers")
+        session.add_all([seed_user, seed_role, seed_permission])
+        session.flush()
+        session.add_all([
+            UserRoleORM(user_id=seed_user.id, role_id=seed_role.id),
+            RolePermissionORM(role_id=seed_role.id, permission_id=seed_permission.id),
+        ])
+        session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "seed_admin_regression", "password": "Correct-Test-Password-2026!"},
+    )
+    assert response.status_code == 200, response.text
+    token = response.json()["access_token"]
+
+    profile = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["permissions"] == ["suppliers:read"]
+
+    protected_app = FastAPI()
+    protected_app.dependency_overrides[get_db] = app.dependency_overrides[get_db]
+
+    @protected_app.get("/suppliers")
+    def suppliers_read(
+        user: AuthenticatedUser = Depends(require_permission("suppliers:read")),
+    ) -> dict[str, str]:
+        return {"username": user.username}
+
+    protected_client = TestClient(protected_app)
+    assert protected_client.get("/suppliers", headers={"Authorization": f"Bearer {token}"}).status_code == 200

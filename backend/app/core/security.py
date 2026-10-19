@@ -37,6 +37,10 @@ class AuthenticatedUser:
     permissions: frozenset[str]
 
 
+def normalize_permission_code(permission: str) -> str:
+    return permission.removeprefix("seed:") if permission.startswith("seed:") else permission
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return pwd_context.verify(plain_password, hashed_password)
@@ -158,7 +162,8 @@ def get_current_user(
         ).all()
     )
     permission_codes = frozenset(
-        db.scalars(
+        normalize_permission_code(code)
+        for code in db.scalars(
             select(PermissionORM.code)
             .join(RolePermissionORM, RolePermissionORM.permission_id == PermissionORM.id)
             .join(UserRoleORM, UserRoleORM.role_id == RolePermissionORM.role_id)
@@ -179,16 +184,10 @@ def require_permission(*required_permissions: str):
     def dependency(
         current_user: AuthenticatedUser = Depends(get_current_user),
     ) -> AuthenticatedUser:
-        granted_permissions = set(current_user.permissions)
-        if (
-            settings.app_env.lower() in {"development", "test"}
-            and current_user.username.startswith("seed_")
-        ):
-            granted_permissions.update(
-                permission.removeprefix("seed:")
-                for permission in current_user.permissions
-                if permission.startswith("seed:")
-            )
+        granted_permissions = {
+            normalize_permission_code(permission)
+            for permission in current_user.permissions
+        }
         missing = set(required_permissions) - granted_permissions
         if missing:
             raise HTTPException(

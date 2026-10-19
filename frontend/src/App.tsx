@@ -9,6 +9,22 @@ import { IQCPage, InternalLotsPage, ReceiptsPage } from './pages/WorkflowPages'
 import { LoginPage } from './pages/LoginPage'
 import type { UserProfile } from './types'
 
+function normalizePermissions(permissions: string[] | undefined | null): string[] {
+  const unique = new Set<string>()
+  for (const permission of permissions ?? []) {
+    const normalized = permission.startsWith('seed:') ? permission.slice('seed:'.length) : permission
+    if (normalized) unique.add(normalized)
+  }
+  return [...unique]
+}
+
+function normalizeProfile(profile: UserProfile): UserProfile {
+  return {
+    ...profile,
+    permissions: normalizePermissions(profile.permissions),
+  }
+}
+
 function App() { return <BrowserRouter><AppShell /></BrowserRouter> }
 
 function AppShell() {
@@ -26,7 +42,7 @@ function AppShell() {
   useEffect(() => {
     if (!token || profile) return
     let active = true
-    api.getProfile().then((me) => { if (active) setProfile(me) }).catch(() => { if (active) expireSession() }).finally(() => { if (active) setCheckingSession(false) })
+    api.getProfile().then((me) => { if (active) setProfile(normalizeProfile(me)) }).catch(() => { if (active) expireSession() }).finally(() => { if (active) setCheckingSession(false) })
     return () => { active = false }
   }, [token, profile, expireSession])
 
@@ -35,7 +51,7 @@ function AppShell() {
     saveToken(auth.access_token)
     try {
       const me = await api.getProfile()
-      setProfile(me); setToken(auth.access_token)
+      setProfile(normalizeProfile(me)); setToken(auth.access_token)
     } catch (error) { clearToken(); setProfile(null); setToken(null); throw error }
   }
 
@@ -46,7 +62,7 @@ function AppShell() {
 
   return <Routes>
     <Route path="/login" element={token && profile ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} loading={checkingSession} />} />
-    <Route path="/" element={token ? (checkingSession || !profile ? <div className="grid min-h-screen place-items-center bg-slate-50"><LoadingState label="Verifying session…" /></div> : <AppLayout profile={profile} onLogout={handleLogout} />) : <Navigate to="/login" replace />}>
+    <Route path="/" element={token ? (checkingSession || !profile ? <div className="grid min-h-screen place-items-center bg-slate-50"><LoadingState label="正在驗證登入狀態…" /></div> : <AppLayout profile={profile} onLogout={handleLogout} />) : <Navigate to="/login" replace />}>
       <Route index element={<DashboardPage profile={profile} />} />
       <Route path="suppliers" element={<PermissionPage profile={profile} permission="suppliers:read"><CatalogPages kind="suppliers" profile={profile} /></PermissionPage>} />
       <Route path="materials" element={<PermissionPage profile={profile} permission="materials:read"><CatalogPages kind="materials" profile={profile} /></PermissionPage>} />
@@ -59,7 +75,7 @@ function AppShell() {
 }
 
 function PermissionPage({ profile, permission, children }: { profile: UserProfile | null; permission: string; children: ReactNode }) {
-  if (!profile?.permissions.includes(permission)) return <section><PageHeader eyebrow="Access control" title="Permission required" description="Your account does not have permission to view this operational area." /><EmptyState title="Access unavailable" description={`Required permission: ${permission}. Ask an administrator to review your role assignment.`} /></section>
+  if (!profile?.permissions.includes(permission)) return <section><PageHeader eyebrow="權限控管" title="需要存取權限" description="目前帳號沒有檢視此作業功能的權限。" /><EmptyState title="無法存取此功能" description={`所需權限：${permission}。請洽系統管理員確認角色設定。`} /></section>
   return children
 }
 

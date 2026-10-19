@@ -20,7 +20,7 @@ export function localDateTimeNow() {
 }
 
 export function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Request failed. Please try again.'
+  return error instanceof Error ? `操作失敗：${error.message}` : '請求失敗，請稍後再試。'
 }
 
 export const allSuppliers = () => loadAllPages(api.listSuppliers)
