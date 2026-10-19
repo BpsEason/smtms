@@ -1,0 +1,391 @@
+{
+  "identifiers": {
+    "supplier_code": "QA-RT-20261019-SUP",
+    "material_code": "QA-RT-20261019-MAT",
+    "supplier_lot_no": "QA-RT-20261019-LOT",
+    "receipt_no": "QA-RT-20261019-REC",
+    "internal_lots": [
+      "QA-RT-20261019-ILT-A",
+      "QA-RT-20261019-ILT-B"
+    ],
+    "supplier_id": 7,
+    "material_id": 13,
+    "supplier_lot_id": 21,
+    "receipt_id": 21,
+    "lot_a_id": 26,
+    "lot_b_id": 27,
+    "iqc_a_id": 26,
+    "iqc_b_id": 27
+  },
+  "portal_profile": {
+    "supplier_id": null,
+    "permissions": [
+      "suppliers:read"
+    ],
+    "username": "seed_supplier_001",
+    "id": 5
+  },
+  "http_steps": [
+    {
+      "step": "create supplier",
+      "status": 201,
+      "data": {
+        "id": 7,
+        "supplier_code": "QA-RT-20261019-SUP",
+        "supplier_name": "QA Trace Acceptance Supplier",
+        "tax_id": null,
+        "contact_name": null,
+        "phone": null,
+        "email": null,
+        "status": "active",
+        "address": null,
+        "country": null,
+        "created_at": "2026-10-19T15:58:07",
+        "updated_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":7,\"supplier_code\":\"QA-RT-20261019-SUP\",\"supplier_name\":\"QA Trace Acceptance Supplier\",\"tax_id\":null,\"contact_name\":null,\"phone\":null,\"email\":null,\"status\":\"active\",\"address\":null,\"country\":null,\"created_at\":\"2026-10-19T15:58:07\",\"updated_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "create material",
+      "status": 201,
+      "data": {
+        "id": 13,
+        "material_code": "QA-RT-20261019-MAT",
+        "material_name": "QA Trace Acceptance Material",
+        "material_type": "test",
+        "spec": null,
+        "uom": "kg",
+        "status": "active",
+        "created_at": "2026-10-19T15:58:07",
+        "updated_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":13,\"material_code\":\"QA-RT-20261019-MAT\",\"material_name\":\"QA Trace Acceptance Material\",\"material_type\":\"test\",\"spec\":null,\"uom\":\"kg\",\"status\":\"active\",\"created_at\":\"2026-10-19T15:58:07\",\"updated_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "create supplier material link",
+      "status": 201,
+      "data": {
+        "id": 25,
+        "supplier_id": 7,
+        "material_id": 13,
+        "supplier_material_code": "QA-TRACE",
+        "is_preferred": true,
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":25,\"supplier_id\":7,\"material_id\":13,\"supplier_material_code\":\"QA-TRACE\",\"is_preferred\":true,\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "create supplier lot",
+      "status": 201,
+      "data": {
+        "id": 21,
+        "supplier_id": 7,
+        "material_id": 13,
+        "supplier_lot_no": "QA-RT-20261019-LOT",
+        "manufacturing_date": null,
+        "expiry_date": null,
+        "qty_received": "10.0000",
+        "uom": "kg",
+        "qc_status": "received",
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":21,\"supplier_id\":7,\"material_id\":13,\"supplier_lot_no\":\"QA-RT-20261019-LOT\",\"manufacturing_date\":null,\"expiry_date\":null,\"qty_received\":\"10.0000\",\"uom\":\"kg\",\"qc_status\":\"received\",\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "create mismatched supplier lot",
+      "status": 400,
+      "data": {
+        "detail": "Supplier is not linked to the material"
+      },
+      "raw": "{\"detail\":\"Supplier is not linked to the material\"}"
+    },
+    {
+      "step": "reject receipt above declaration",
+      "status": 400,
+      "data": {
+        "detail": "Receipt quantity exceeds the supplier lot's remaining declared quantity"
+      },
+      "raw": "{\"detail\":\"Receipt quantity exceeds the supplier lot's remaining declared quantity\"}"
+    },
+    {
+      "step": "create valid receipt",
+      "status": 201,
+      "data": {
+        "id": 21,
+        "supplier_id": 7,
+        "material_id": 13,
+        "supplier_lot_id": 21,
+        "receipt_no": "QA-RT-20261019-REC",
+        "received_at": "2026-10-19T09:00:00",
+        "received_by_user_id": 1,
+        "qty_received": "10.0000",
+        "qty_remaining": "10.0000",
+        "status": "received",
+        "notes": null,
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":21,\"supplier_id\":7,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_no\":\"QA-RT-20261019-REC\",\"received_at\":\"2026-10-19T09:00:00\",\"received_by_user_id\":1,\"qty_received\":\"10.0000\",\"qty_remaining\":\"10.0000\",\"status\":\"received\",\"notes\":null,\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "split 4kg internal lot A",
+      "status": 201,
+      "data": {
+        "id": 26,
+        "material_id": 13,
+        "supplier_lot_id": 21,
+        "receipt_id": 21,
+        "internal_lot_no": "QA-RT-20261019-ILT-A",
+        "qty_on_hand": "4.0000",
+        "qty_reserved": "0.0000",
+        "uom": "kg",
+        "lot_status": "quarantine",
+        "expiry_date": null,
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":26,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_id\":21,\"internal_lot_no\":\"QA-RT-20261019-ILT-A\",\"qty_on_hand\":\"4.0000\",\"qty_reserved\":\"0.0000\",\"uom\":\"kg\",\"lot_status\":\"quarantine\",\"expiry_date\":null,\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "split 6kg internal lot B",
+      "status": 201,
+      "data": {
+        "id": 27,
+        "material_id": 13,
+        "supplier_lot_id": 21,
+        "receipt_id": 21,
+        "internal_lot_no": "QA-RT-20261019-ILT-B",
+        "qty_on_hand": "6.0000",
+        "qty_reserved": "0.0000",
+        "uom": "kg",
+        "lot_status": "quarantine",
+        "expiry_date": null,
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":27,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_id\":21,\"internal_lot_no\":\"QA-RT-20261019-ILT-B\",\"qty_on_hand\":\"6.0000\",\"qty_reserved\":\"0.0000\",\"uom\":\"kg\",\"lot_status\":\"quarantine\",\"expiry_date\":null,\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "reject split over remainder",
+      "status": 400,
+      "data": {
+        "detail": "Split quantity exceeds the remaining receipt quantity"
+      },
+      "raw": "{\"detail\":\"Split quantity exceeds the remaining receipt quantity\"}"
+    },
+    {
+      "step": "reject duplicate internal lot",
+      "status": 409,
+      "data": {
+        "detail": "Internal lot number already exists"
+      },
+      "raw": "{\"detail\":\"Internal lot number already exists\"}"
+    },
+    {
+      "step": "reject supplier lot without material link",
+      "status": 400,
+      "data": {
+        "detail": "Supplier is not linked to the material"
+      },
+      "raw": "{\"detail\":\"Supplier is not linked to the material\"}"
+    },
+    {
+      "step": "create passed IQC on lot A",
+      "status": 201,
+      "data": {
+        "id": 26,
+        "receipt_id": null,
+        "internal_lot_id": 26,
+        "inspector_user_id": 1,
+        "sample_qty": "1.0000",
+        "inspection_result": "passed",
+        "inspection_date": "2026-10-19T07:58:08",
+        "release_status": "released",
+        "remarks": "QA trace acceptance 20261019",
+        "created_at": "2026-10-19T15:58:07"
+      },
+      "raw": "{\"id\":26,\"receipt_id\":null,\"internal_lot_id\":26,\"inspector_user_id\":1,\"sample_qty\":\"1.0000\",\"inspection_result\":\"passed\",\"inspection_date\":\"2026-10-19T07:58:08\",\"release_status\":\"released\",\"remarks\":\"QA trace acceptance 20261019\",\"created_at\":\"2026-10-19T15:58:07\"}"
+    },
+    {
+      "step": "create failed IQC on lot B",
+      "status": 201,
+      "data": {
+        "id": 27,
+        "receipt_id": null,
+        "internal_lot_id": 27,
+        "inspector_user_id": 1,
+        "sample_qty": "1.0000",
+        "inspection_result": "failed",
+        "inspection_date": "2026-10-19T07:58:08",
+        "release_status": "rejected",
+        "remarks": "QA trace acceptance 20261019",
+        "created_at": "2026-10-19T15:58:08"
+      },
+      "raw": "{\"id\":27,\"receipt_id\":null,\"internal_lot_id\":27,\"inspector_user_id\":1,\"sample_qty\":\"1.0000\",\"inspection_result\":\"failed\",\"inspection_date\":\"2026-10-19T07:58:08\",\"release_status\":\"rejected\",\"remarks\":\"QA trace acceptance 20261019\",\"created_at\":\"2026-10-19T15:58:08\"}"
+    },
+    {
+      "step": "read receipt trace",
+      "status": 200,
+      "data": {
+        "receipt": {
+          "id": 21,
+          "supplier_id": 7,
+          "material_id": 13,
+          "supplier_lot_id": 21,
+          "receipt_no": "QA-RT-20261019-REC",
+          "received_at": "2026-10-19T09:00:00",
+          "received_by_user_id": 1,
+          "qty_received": "10.0000",
+          "qty_remaining": "0.0000",
+          "status": "received",
+          "notes": null,
+          "created_at": "2026-10-19T15:58:07"
+        },
+        "supplier": {
+          "id": 7,
+          "supplier_code": "QA-RT-20261019-SUP",
+          "supplier_name": "QA Trace Acceptance Supplier",
+          "tax_id": null,
+          "contact_name": null,
+          "phone": null,
+          "email": null,
+          "status": "active",
+          "address": null,
+          "country": null,
+          "created_at": "2026-10-19T15:58:07",
+          "updated_at": "2026-10-19T15:58:07"
+        },
+        "material": {
+          "id": 13,
+          "material_code": "QA-RT-20261019-MAT",
+          "material_name": "QA Trace Acceptance Material",
+          "material_type": "test",
+          "spec": null,
+          "uom": "kg",
+          "status": "active",
+          "created_at": "2026-10-19T15:58:07",
+          "updated_at": "2026-10-19T15:58:07"
+        },
+        "supplier_lot": {
+          "id": 21,
+          "supplier_id": 7,
+          "material_id": 13,
+          "supplier_lot_no": "QA-RT-20261019-LOT",
+          "manufacturing_date": null,
+          "expiry_date": null,
+          "qty_received": "10.0000",
+          "uom": "kg",
+          "qc_status": "received",
+          "created_at": "2026-10-19T15:58:07"
+        },
+        "receipt_iqc_records": [],
+        "internal_lots": [
+          {
+            "internal_lot": {
+              "id": 26,
+              "material_id": 13,
+              "supplier_lot_id": 21,
+              "receipt_id": 21,
+              "internal_lot_no": "QA-RT-20261019-ILT-A",
+              "qty_on_hand": "4.0000",
+              "qty_reserved": "0.0000",
+              "uom": "kg",
+              "lot_status": "available",
+              "expiry_date": null,
+              "created_at": "2026-10-19T15:58:07"
+            },
+            "iqc_records": [
+              {
+                "id": 26,
+                "receipt_id": null,
+                "internal_lot_id": 26,
+                "inspector_user_id": 1,
+                "sample_qty": "1.0000",
+                "inspection_result": "passed",
+                "inspection_date": "2026-10-19T07:58:08",
+                "release_status": "released",
+                "remarks": "QA trace acceptance 20261019",
+                "created_at": "2026-10-19T15:58:07"
+              }
+            ]
+          },
+          {
+            "internal_lot": {
+              "id": 27,
+              "material_id": 13,
+              "supplier_lot_id": 21,
+              "receipt_id": 21,
+              "internal_lot_no": "QA-RT-20261019-ILT-B",
+              "qty_on_hand": "6.0000",
+              "qty_reserved": "0.0000",
+              "uom": "kg",
+              "lot_status": "rejected",
+              "expiry_date": null,
+              "created_at": "2026-10-19T15:58:07"
+            },
+            "iqc_records": [
+              {
+                "id": 27,
+                "receipt_id": null,
+                "internal_lot_id": 27,
+                "inspector_user_id": 1,
+                "sample_qty": "1.0000",
+                "inspection_result": "failed",
+                "inspection_date": "2026-10-19T07:58:08",
+                "release_status": "rejected",
+                "remarks": "QA trace acceptance 20261019",
+                "created_at": "2026-10-19T15:58:08"
+              }
+            ]
+          }
+        ]
+      },
+      "raw": "{\"receipt\":{\"id\":21,\"supplier_id\":7,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_no\":\"QA-RT-20261019-REC\",\"received_at\":\"2026-10-19T09:00:00\",\"received_by_user_id\":1,\"qty_received\":\"10.0000\",\"qty_remaining\":\"0.0000\",\"status\":\"received\",\"notes\":null,\"created_at\":\"2026-10-19T15:58:07\"},\"supplier\":{\"id\":7,\"supplier_code\":\"QA-RT-20261019-SUP\",\"supplier_name\":\"QA Trace Acceptance Supplier\",\"tax_id\":null,\"contact_name\":null,\"phone\":null,\"email\":null,\"status\":\"active\",\"address\":null,\"country\":null,\"created_at\":\"2026-10-19T15:58:07\",\"updated_at\":\"2026-10-19T15:58:07\"},\"material\":{\"id\":13,\"material_code\":\"QA-RT-20261019-MAT\",\"material_name\":\"QA Trace Acceptance Material\",\"material_type\":\"test\",\"spec\":null,\"uom\":\"kg\",\"status\":\"active\",\"created_at\":\"2026-10-19T15:58:07\",\"updated_at\":\"2026-10-19T15:58:07\"},\"supplier_lot\":{\"id\":21,\"supplier_id\":7,\"material_id\":13,\"supplier_lot_no\":\"QA-RT-20261019-LOT\",\"manufacturing_date\":null,\"expiry_date\":null,\"qty_received\":\"10.0000\",\"uom\":\"kg\",\"qc_status\":\"received\",\"created_at\":\"2026-10-19T15:58:07\"},\"receipt_iqc_records\":[],\"internal_lots\":[{\"internal_lot\":{\"id\":26,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_id\":21,\"internal_lot_no\":\"QA-RT-20261019-ILT-A\",\"qty_on_hand\":\"4.0000\",\"qty_reserved\":\"0.0000\",\"uom\":\"kg\",\"lot_status\":\"available\",\"expiry_date\":null,\"created_at\":\"2026-10-19T15:58:07\"},\"iqc_records\":[{\"id\":26,\"receipt_id\":null,\"internal_lot_id\":26,\"inspector_user_id\":1,\"sample_qty\":\"1.0000\",\"inspection_result\":\"passed\",\"inspection_date\":\"2026-10-19T07:58:08\",\"release_status\":\"released\",\"remarks\":\"QA trace acceptance 20261019\",\"created_at\":\"2026-10-19T15:58:07\"}]},{\"internal_lot\":{\"id\":27,\"material_id\":13,\"supplier_lot_id\":21,\"receipt_id\":21,\"internal_lot_no\":\"QA-RT-20261019-ILT-B\",\"qty_on_hand\":\"6.0000\",\"qty_reserved\":\"0.0000\",\"uom\":\"kg\",\"lot_status\":\"rejected\",\"expiry_date\":null,\"created_at\":\"2026-10-19T15:58:07\"},\"iqc_records\":[{\"id\":27,\"receipt_id\":null,\"internal_lot_id\":27,\"inspector_user_id\":1,\"sample_qty\":\"1.0000\",\"inspection_result\":\"failed\",\"inspection_date\":\"2026-10-19T07:58:08\",\"release_status\":\"rejected\",\"remarks\":\"QA trace acceptance 20261019\",\"created_at\":\"2026-10-19T15:58:08\"}]}]}"
+    },
+    {
+      "step": "missing trace returns 404",
+      "status": 404,
+      "data": {
+        "detail": "Receipt not found"
+      },
+      "raw": "{\"detail\":\"Receipt not found\"}"
+    },
+    {
+      "step": "reject duplicate supplier batch",
+      "status": 409,
+      "data": {
+        "detail": "Supplier lot number already exists for this supplier and material"
+      },
+      "raw": "{\"detail\":\"Supplier lot number already exists for this supplier and material\"}"
+    },
+    {
+      "step": "reject duplicate receipt number",
+      "status": 409,
+      "data": {
+        "detail": "Receipt number already exists"
+      },
+      "raw": "{\"detail\":\"Receipt number already exists\"}"
+    },
+    {
+      "step": "portal reads own seeded trace endpoint target check",
+      "status": 403,
+      "data": {
+        "detail": "Password change required before accessing this resource"
+      },
+      "raw": "{\"detail\":\"Password change required before accessing this resource\"}"
+    },
+    {
+      "step": "portal cannot read QA receipt trace",
+      "status": 403,
+      "data": {
+        "detail": "Password change required before accessing this resource"
+      },
+      "raw": "{\"detail\":\"Password change required before accessing this resource\"}"
+    },
+    {
+      "step": "portal cannot create receipt for QA supplier",
+      "status": 403,
+      "data": {
+        "detail": "Password change required before accessing this resource"
+      },
+      "raw": "{\"detail\":\"Password change required before accessing this resource\"}"
+    }
+  ]
+}

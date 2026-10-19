@@ -15,6 +15,30 @@ export type PaginatedResponse<T> = {
   page_size: number;
 };
 
+export type Role = {
+  id: number;
+  name: string;
+  description: string | null;
+  permissions: string[];
+  user_count: number;
+  is_system: boolean;
+};
+
+export type PermissionItem = {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+};
+
+export type AdminUser = {
+  id: number;
+  username: string;
+  email: string | null;
+  is_active: boolean;
+  roles: string[];
+};
+
 export type Supplier = {
   id: number;
   supplier_code: string;
@@ -53,6 +77,35 @@ export type SupplierLot = {
   uom: string;
   qc_status: string;
   created_at: string;
+};
+
+export type SupplierLotCreatePayload = {
+  supplier_id: number;
+  material_id: number;
+  supplier_lot_no: string;
+  manufacturing_date?: string;
+  expiry_date?: string;
+  qty_received: string;
+};
+
+export type ReceiptTraceLot = {
+  internal_lot: InternalLot;
+  iqc_records: IQCRecord[];
+};
+
+export type ReceiptTrace = {
+  receipt: Receipt;
+  supplier: Supplier;
+  material: Material;
+  supplier_lot: SupplierLot;
+  receipt_iqc_records: IQCRecord[];
+  internal_lots: ReceiptTraceLot[];
+};
+
+export type SupplierMaterialCreatePayload = {
+  material_id: number;
+  supplier_material_code?: string;
+  is_preferred?: boolean;
 };
 
 export type Receipt = {
@@ -112,13 +165,19 @@ export type SupplierCreatePayload = Pick<
   "supplier_code" | "supplier_name" | "status"
 > &
   Partial<
-    Pick<Supplier, "contact_name" | "phone" | "email" | "address" | "country">
+    Pick<Supplier, "tax_id" | "contact_name" | "phone" | "email" | "address" | "country">
   >;
+export type SupplierUpdatePayload = Partial<
+  Pick<Supplier, "supplier_code" | "supplier_name" | "contact_name" | "phone" | "email" | "status" | "address" | "country">
+>;
 export type MaterialCreatePayload = Pick<
   Material,
   "material_code" | "material_name" | "material_type" | "uom" | "status"
 > &
   Partial<Pick<Material, "spec">>;
+export type MaterialUpdatePayload = Partial<
+  Pick<Material, "material_code" | "material_name" | "material_type" | "spec" | "uom" | "status">
+>;
 
 export type InternalLotCreatePayload = {
   internal_lot_no: string;

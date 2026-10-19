@@ -109,7 +109,7 @@ def quality_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
                     supplier_id=supplier.id,
                     material_id=material.id,
                     supplier_lot_no="LOT-100",
-                    qty_received=50,
+                    qty_received=100,
                     uom="pcs",
                     qc_status="received",
                     manufacturing_date=datetime(2026, 8, 1),
@@ -213,3 +213,124 @@ def test_receipt_and_iqc_flow_quality_environment(quality_environment) -> None:
     assert patch.status_code == 200, patch.text
     assert patch.json()["inspection_result"] == "failed"
     assert patch.json()["release_status"] == "rejected"
+
+
+def test_end_to_end_receipt_trace_with_multiple_internal_lots(quality_environment) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    supplier_lot = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_no": "LOT-TRACE-201",
+            "qty_received": "20.0000",
+            "manufacturing_date": "2026-09-01T00:00:00Z",
+            "expiry_date": "2027-09-01T00:00:00Z",
+        },
+        headers=headers,
+    )
+    assert supplier_lot.status_code == 201, supplier_lot.text
+    assert supplier_lot.json()["uom"] == "pcs"
+
+    receipt = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_id": supplier_lot.json()["id"],
+            "receipt_no": "REC-TRACE-201",
+            "qty_received": "20.0000",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert receipt.status_code == 201, receipt.text
+    receipt_id = receipt.json()["id"]
+    over_received = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_id": supplier_lot.json()["id"],
+            "receipt_no": "REC-TRACE-201-OVER",
+            "qty_received": "0.0001",
+            "received_at": "2026-10-19T10:00:00Z",
+        },
+        headers=headers,
+    )
+    assert over_received.status_code == 400
+
+    created_lots = []
+    for lot_no, quantity in (("ILT-TRACE-201-A", "7.0000"), ("ILT-TRACE-201-B", "13.0000")):
+        split = client.post(
+            f"/api/v1/receipts/{receipt_id}/internal-lots",
+            json={"internal_lot_no": lot_no, "qty": quantity},
+            headers=headers,
+        )
+        assert split.status_code == 201, split.text
+        assert split.json()["receipt_id"] == receipt_id
+        created_lots.append(split.json())
+
+    exhausted = client.post(
+        f"/api/v1/receipts/{receipt_id}/internal-lots",
+        json={"internal_lot_no": "ILT-TRACE-201-OVER", "qty": "0.0001"},
+        headers=headers,
+    )
+    assert exhausted.status_code == 400
+    current_receipt = client.get(f"/api/v1/receipts/{receipt_id}", headers=headers).json()
+    assert current_receipt["qty_remaining"] == "0.0000"
+    assert sum(float(lot["qty_on_hand"]) for lot in created_lots) == 20
+
+    for lot, result, release in (
+        (created_lots[0], "passed", "released"),
+        (created_lots[1], "failed", "rejected"),
+    ):
+        inspection = client.post(
+            "/api/v1/iqc",
+            json={
+                "internal_lot_id": lot["id"],
+                "sample_qty": "1.0000",
+                "inspection_result": result,
+                "release_status": release,
+                "remarks": f"trace-{result}",
+            },
+            headers=headers,
+        )
+        assert inspection.status_code == 201, inspection.text
+
+    trace = client.get(f"/api/v1/receipts/{receipt_id}/trace", headers=headers)
+    assert trace.status_code == 200, trace.text
+    body = trace.json()
+    assert body["supplier"]["supplier_code"] == "SUP-100"
+    assert body["material"]["material_code"] == "MAT-100"
+    assert body["supplier_lot"]["supplier_lot_no"] == "LOT-TRACE-201"
+    assert body["receipt"]["receipt_no"] == "REC-TRACE-201"
+    assert {item["internal_lot"]["internal_lot_no"] for item in body["internal_lots"]} == {
+        "ILT-TRACE-201-A",
+        "ILT-TRACE-201-B",
+    }
+    trace_results = {
+        item["internal_lot"]["internal_lot_no"]: item["iqc_records"][0]["inspection_result"]
+        for item in body["internal_lots"]
+    }
+    assert trace_results == {"ILT-TRACE-201-A": "passed", "ILT-TRACE-201-B": "failed"}
+    assert client.get("/api/v1/receipts/999999/trace", headers=headers).status_code == 404
+
+
+def test_multi_lot_payload_is_rejected_instead_of_hiding_created_ids(quality_environment) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    response = client.post(
+        "/api/v1/receipts/1/internal-lots",
+        json={"lots": [{"internal_lot_no": "ILT-HIDDEN-A", "qty": "1"}]},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    trace = client.get("/api/v1/receipts/1/trace", headers=headers)
+    assert trace.status_code == 200
+    assert all(
+        item["internal_lot"]["internal_lot_no"] != "ILT-HIDDEN-A"
+        for item in trace.json()["internal_lots"]
+    )

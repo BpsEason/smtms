@@ -1,15 +1,23 @@
 import type {
+  AdminUser,
   IQCCreatePayload,
   IQCRecord,
   InternalLot,
   InternalLotCreatePayload,
   Material,
   MaterialCreatePayload,
+  MaterialUpdatePayload,
   PaginatedResponse,
+  PermissionItem,
   Receipt,
   ReceiptCreatePayload,
+  ReceiptTrace,
+  Role,
   Supplier,
   SupplierCreatePayload,
+  SupplierLotCreatePayload,
+  SupplierMaterialCreatePayload,
+  SupplierUpdatePayload,
   SupplierImportPreview,
   SupplierImportResult,
   SupplierLot,
@@ -143,6 +151,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  updateSupplier: async (supplierId: number, payload: SupplierUpdatePayload) =>
+    request<Supplier>(`/api/v1/suppliers/${supplierId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
   listMaterials: async (
     params?: Record<string, string | number | undefined | null>,
   ) =>
@@ -153,6 +167,12 @@ export const api = {
   createMaterial: async (payload: MaterialCreatePayload) =>
     request<Material>(`/api/v1/materials`, {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateMaterial: async (materialId: number, payload: MaterialUpdatePayload) =>
+    request<Material>(`/api/v1/materials/${materialId}`, {
+      method: "PATCH",
       body: JSON.stringify(payload),
     }),
 
@@ -172,12 +192,30 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  getReceiptTrace: async (receiptId: number) =>
+    request<ReceiptTrace>(`/api/v1/receipts/${receiptId}/trace`),
+
+  createSupplierMaterial: async (
+    supplierId: number,
+    payload: SupplierMaterialCreatePayload,
+  ) =>
+    request(`/api/v1/suppliers/${supplierId}/materials`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   listSupplierLots: async (
     params?: Record<string, string | number | undefined | null>,
   ) =>
     request<PaginatedResponse<SupplierLot>>(
       `/api/v1/supplier-lots${buildQueryString(params ?? {})}`,
     ),
+
+  createSupplierLot: async (payload: SupplierLotCreatePayload) =>
+    request<SupplierLot>(`/api/v1/supplier-lots`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   listInternalLots: async (
     params?: Record<string, string | number | undefined | null>,
@@ -253,4 +291,40 @@ export const api = {
       body: form,
     });
   },
+
+  listRoles: async () => request<Role[]>(`/api/v1/roles`),
+
+  createRole: async (payload: { name: string; description?: string }) =>
+    request<Role>(`/api/v1/roles`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateRole: async (
+    roleId: number,
+    payload: { name?: string; description?: string | null },
+  ) =>
+    request<Role>(`/api/v1/roles/${roleId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteRole: async (roleId: number) =>
+    request<void>(`/api/v1/roles/${roleId}`, { method: "DELETE" }),
+
+  setRolePermissions: async (roleId: number, permissionIds: number[]) =>
+    request<Role>(`/api/v1/roles/${roleId}/permissions`, {
+      method: "PUT",
+      body: JSON.stringify({ permission_ids: permissionIds }),
+    }),
+
+  listPermissions: async () => request<PermissionItem[]>(`/api/v1/permissions`),
+
+  listUsers: async () => request<AdminUser[]>(`/api/v1/users`),
+
+  setUserRoles: async (userId: number, roleIds: number[]) =>
+    request<AdminUser>(`/api/v1/users/${userId}/roles`, {
+      method: "PUT",
+      body: JSON.stringify({ role_ids: roleIds }),
+    }),
 };

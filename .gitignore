@@ -23,3 +23,6 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Local database backups
+backups/

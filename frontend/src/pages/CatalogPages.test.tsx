@@ -29,6 +29,17 @@ const supplier = {
   created_at: "",
   updated_at: "",
 };
+const material = {
+  id: 8,
+  material_code: "MAT-08",
+  material_name: "Alloy Sheet",
+  material_type: "raw",
+  spec: null,
+  uom: "kg",
+  status: "active",
+  created_at: "",
+  updated_at: "",
+};
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -58,8 +69,10 @@ function page<T>(items: T[]) {
 }
 
 function installMock(handlers: { preview?: Response; confirm?: Response }) {
-  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/api/v1/suppliers/4/materials") && init?.method === "POST")
+      return jsonResponse({ id: 12, supplier_id: 4, material_id: 8, supplier_material_code: "SUP-MAT-08", is_preferred: false, created_at: "" }, 201);
     if (url.endsWith("/api/v1/suppliers/import/template"))
       return blobResponse(new Blob(["xlsx"]));
     if (url.endsWith("/api/v1/suppliers/import/preview"))
@@ -68,6 +81,8 @@ function installMock(handlers: { preview?: Response; confirm?: Response }) {
       return handlers.confirm ?? jsonResponse({ detail: "unexpected" }, 500);
     if (url.includes("/api/v1/suppliers"))
       return jsonResponse(page([supplier]));
+    if (url.includes("/api/v1/materials"))
+      return jsonResponse(page([material]));
     return jsonResponse(page([]));
   });
 }
@@ -205,5 +220,22 @@ describe("supplier import panel", () => {
         String(url).endsWith("/api/v1/suppliers/import/template"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("supplier-material setup", () => {
+  it("creates the material association needed before batch registration", async () => {
+    installMock({});
+    render(<CatalogPages kind="suppliers" profile={writerProfile} />);
+    await userEvent.click(await screen.findByRole("button", { name: "連結物料" }));
+    await userEvent.selectOptions(await screen.findByLabelText("物料"), "8");
+    await userEvent.type(screen.getByLabelText("供應商料號"), "SUP-MAT-08");
+    await userEvent.click(screen.getByRole("button", { name: "建立關聯" }));
+
+    expect(await screen.findByText(/已建立「Precision Supply」與所選物料的供應關聯/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/suppliers/4/materials"),
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"material_id":8') }),
+    );
   });
 });

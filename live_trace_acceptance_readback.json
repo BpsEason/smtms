@@ -1,0 +1,123 @@
+[
+  {
+    "step": "supplier",
+    "status": 200,
+    "data": {
+      "id": 7,
+      "supplier_code": "QA-RT-20261019-SUP",
+      "supplier_name": "QA Trace Acceptance Supplier",
+      "tax_id": null,
+      "contact_name": null,
+      "phone": null,
+      "email": null,
+      "status": "active",
+      "address": null,
+      "country": null,
+      "created_at": "2026-10-19T15:58:07",
+      "updated_at": "2026-10-19T15:58:07"
+    }
+  },
+  {
+    "step": "material",
+    "status": 200,
+    "data": {
+      "id": 13,
+      "material_code": "QA-RT-20261019-MAT",
+      "material_name": "QA Trace Acceptance Material",
+      "material_type": "test",
+      "spec": null,
+      "uom": "kg",
+      "status": "active",
+      "created_at": "2026-10-19T15:58:07",
+      "updated_at": "2026-10-19T15:58:07"
+    }
+  },
+  {
+    "step": "receipt",
+    "status": 200,
+    "data": {
+      "id": 21,
+      "supplier_id": 7,
+      "material_id": 13,
+      "supplier_lot_id": 21,
+      "receipt_no": "QA-RT-20261019-REC",
+      "received_at": "2026-10-19T09:00:00",
+      "received_by_user_id": 1,
+      "qty_received": "10.0000",
+      "qty_remaining": "0.0000",
+      "status": "received",
+      "notes": null,
+      "created_at": "2026-10-19T15:58:07"
+    }
+  },
+  {
+    "step": "trace",
+    "status": 200,
+    "receipt_id": 21,
+    "supplier_id": 7,
+    "material_id": 13,
+    "supplier_lot_id": 21,
+    "lots": [
+      {
+        "internal_lot_id": 26,
+        "no": "QA-RT-20261019-ILT-A",
+        "qty": "4.0000",
+        "status": "available",
+        "iqc": [
+          "26:passed/released"
+        ]
+      },
+      {
+        "internal_lot_id": 27,
+        "no": "QA-RT-20261019-ILT-B",
+        "qty": "6.0000",
+        "status": "rejected",
+        "iqc": [
+          "27:failed/rejected"
+        ]
+      }
+    ]
+  },
+  {
+    "step": "lots",
+    "status": 200,
+    "total": 2,
+    "items": [
+      {
+        "id": 26,
+        "lot": "QA-RT-20261019-ILT-A",
+        "receipt": 21,
+        "result": null,
+        "release": null
+      },
+      {
+        "id": 27,
+        "lot": "QA-RT-20261019-ILT-B",
+        "receipt": 21,
+        "result": null,
+        "release": null
+      }
+    ]
+  },
+  {
+    "step": "iqc",
+    "status": 200,
+    "total": 2,
+    "items": [
+      {
+        "id": 26,
+        "lot": null,
+        "receipt": null,
+        "result": "passed",
+        "release": "released"
+      },
+      {
+        "id": 27,
+        "lot": null,
+        "receipt": null,
+        "result": "failed",
+        "release": "rejected"
+      }
+    ]
+  }
+]

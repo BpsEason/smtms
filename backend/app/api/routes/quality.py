@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.security import AuthenticatedUser, require_permission
+from app.core.security import AuthenticatedUser, ensure_supplier_access, require_permission
 from app.db.session import get_db
 from app.models.quality import (
     InternalMaterialLotORM,
@@ -21,22 +21,21 @@ from app.models.quality import (
     SupplierORM,
 )
 from app.schemas.catalog import (
-    IQCRecordResponse,
     IQCCreate,
+    IQCRecordResponse,
     IQCUpdate,
     InternalLotCreate,
     InternalLotResponse,
     PaginatedResponse,
     ReceiptCreate,
     ReceiptResponse,
+    ReceiptTraceLot,
+    ReceiptTraceResponse,
+    SupplierLotCreate,
     SupplierLotResponse,
 )
 
 router = APIRouter(tags=["quality"])
-
-
-def _next_id(db: Session, model: type) -> int:
-    return (db.scalar(select(func.max(model.id))) or 0) + 1
 
 
 def _get_supplier(db: Session, supplier_id: int) -> SupplierORM:
@@ -79,6 +78,24 @@ def _get_iqc_record(db: Session, iqc_id: int) -> IQCRecordORM:
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IQC record not found")
     return record
+
+
+def _ensure_internal_lot_supplier_access(
+    db: Session,
+    current_user: AuthenticatedUser,
+    internal_lot: InternalMaterialLotORM,
+) -> None:
+    if current_user.supplier_id is None:
+        return
+    if internal_lot.receipt_id is not None:
+        receipt = db.get(MaterialReceiptORM, internal_lot.receipt_id)
+        if receipt is not None and receipt.supplier_id == current_user.supplier_id:
+            return
+    elif internal_lot.supplier_lot_id is not None:
+        supplier_lot = db.get(SupplierLotORM, internal_lot.supplier_lot_id)
+        if supplier_lot is not None and supplier_lot.supplier_id == current_user.supplier_id:
+            return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
 
 def _coerce_decimal(value: Any, *, field_name: str) -> Decimal:
@@ -146,7 +163,7 @@ def list_receipts(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("receipts:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("receipts:read")),
 ):
     statement = select(MaterialReceiptORM).join(SupplierORM, MaterialReceiptORM.supplier_id == SupplierORM.id).join(
         MaterialORM,
@@ -160,6 +177,9 @@ def list_receipts(
         MaterialReceiptORM.material_id == MaterialORM.id,
     )
 
+    if current_user.supplier_id is not None:
+        statement = statement.where(MaterialReceiptORM.supplier_id == current_user.supplier_id)
+        count_statement = count_statement.where(MaterialReceiptORM.supplier_id == current_user.supplier_id)
     if keyword:
         pattern = f"%{keyword.strip()}%"
         criterion = (
@@ -197,6 +217,7 @@ def create_receipt(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_permission("receipts:write")),
 ):
+    ensure_supplier_access(current_user, payload.supplier_id)
     supplier = _get_supplier(db, payload.supplier_id)
     material = _get_material(db, payload.material_id)
     supplier_lot = _get_supplier_lot(db, payload.supplier_lot_id)
@@ -206,6 +227,11 @@ def create_receipt(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Supplier lot does not match the supplier and material",
         )
+    locked_supplier_lot = db.execute(
+        select(SupplierLotORM)
+        .where(SupplierLotORM.id == supplier_lot.id)
+        .with_for_update()
+    ).scalar_one()
     link = db.scalar(
         select(SupplierMaterialORM.id).where(
             SupplierMaterialORM.supplier_id == supplier.id,
@@ -221,9 +247,18 @@ def create_receipt(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Receipt number already exists")
     if payload.qty_received <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be greater than zero")
+    previously_received = db.scalar(
+        select(func.coalesce(func.sum(MaterialReceiptORM.qty_received), 0)).where(
+            MaterialReceiptORM.supplier_lot_id == locked_supplier_lot.id
+        )
+    ) or Decimal("0")
+    if previously_received + payload.qty_received > locked_supplier_lot.qty_received:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Receipt quantity exceeds the supplier lot's remaining declared quantity",
+        )
 
     receipt = MaterialReceiptORM(
-        id=_next_id(db, MaterialReceiptORM),
         supplier_id=supplier.id,
         material_id=material.id,
         supplier_lot_id=supplier_lot.id,
@@ -249,9 +284,99 @@ def create_receipt(
 def get_receipt(
     receipt_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("receipts:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("receipts:read")),
 ):
-    return _get_receipt(db, receipt_id)
+    receipt = _get_receipt(db, receipt_id)
+    if current_user.supplier_id is not None and receipt.supplier_id != current_user.supplier_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return receipt
+
+
+@router.get("/receipts/{receipt_id}/trace", response_model=ReceiptTraceResponse)
+def get_receipt_trace(
+    receipt_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_permission("receipts:read")),
+    _materials_user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    _iqc_user: AuthenticatedUser = Depends(require_permission("iqc:read")),
+) -> ReceiptTraceResponse:
+    receipt = db.scalar(
+        select(MaterialReceiptORM)
+        .options(
+            selectinload(MaterialReceiptORM.supplier),
+            selectinload(MaterialReceiptORM.material),
+            selectinload(MaterialReceiptORM.supplier_lot),
+            selectinload(MaterialReceiptORM.iqc_records),
+            selectinload(MaterialReceiptORM.internal_material_lots).selectinload(
+                InternalMaterialLotORM.iqc_records
+            ),
+        )
+        .where(MaterialReceiptORM.id == receipt_id)
+    )
+    if receipt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
+    ensure_supplier_access(current_user, receipt.supplier_id)
+    return ReceiptTraceResponse(
+        receipt=receipt,
+        supplier=receipt.supplier,
+        material=receipt.material,
+        supplier_lot=receipt.supplier_lot,
+        receipt_iqc_records=sorted(receipt.iqc_records, key=lambda record: record.id),
+        internal_lots=[
+            ReceiptTraceLot(
+                internal_lot=lot,
+                iqc_records=sorted(lot.iqc_records, key=lambda record: record.id),
+            )
+            for lot in sorted(receipt.internal_material_lots, key=lambda item: item.id)
+        ],
+    )
+
+
+@router.post(
+    "/supplier-lots",
+    response_model=SupplierLotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_lot(
+    payload: SupplierLotCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
+) -> SupplierLotORM:
+    ensure_supplier_access(current_user, payload.supplier_id)
+    _get_supplier(db, payload.supplier_id)
+    material = _get_material(db, payload.material_id)
+    linked = db.scalar(
+        select(SupplierMaterialORM.id).where(
+            SupplierMaterialORM.supplier_id == payload.supplier_id,
+            SupplierMaterialORM.material_id == payload.material_id,
+        )
+    )
+    if linked is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Supplier is not linked to the material",
+        )
+    supplier_lot = SupplierLotORM(
+        supplier_id=payload.supplier_id,
+        material_id=payload.material_id,
+        supplier_lot_no=payload.supplier_lot_no.strip(),
+        manufacturing_date=payload.manufacturing_date,
+        expiry_date=payload.expiry_date,
+        qty_received=payload.qty_received,
+        uom=material.uom,
+        qc_status="received",
+    )
+    db.add(supplier_lot)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Supplier lot number already exists for this supplier and material",
+        ) from exc
+    db.refresh(supplier_lot)
+    return supplier_lot
 
 
 @router.get("/supplier-lots", response_model=PaginatedResponse[SupplierLotResponse])
@@ -319,13 +444,17 @@ def list_internal_lots(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:read")),
 ):
     statement = select(InternalMaterialLotORM).join(MaterialORM, InternalMaterialLotORM.material_id == MaterialORM.id)
     count_statement = select(func.count()).select_from(InternalMaterialLotORM).join(
         MaterialORM,
         InternalMaterialLotORM.material_id == MaterialORM.id,
     )
+    if current_user.supplier_id is not None:
+        supplier_lot_ids = select(SupplierLotORM.id).where(SupplierLotORM.supplier_id == current_user.supplier_id)
+        statement = statement.where(InternalMaterialLotORM.supplier_lot_id.in_(supplier_lot_ids))
+        count_statement = count_statement.where(InternalMaterialLotORM.supplier_lot_id.in_(supplier_lot_ids))
     if keyword:
         pattern = f"%{keyword.strip()}%"
         criterion = InternalMaterialLotORM.internal_lot_no.ilike(pattern) | MaterialORM.material_name.ilike(pattern)
@@ -358,79 +487,72 @@ def split_receipt_into_internal_lots(
     receipt_id: int,
     payload: Any = Body(...),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("receipts:write")),
+    current_user: AuthenticatedUser = Depends(require_permission("receipts:write")),
 ):
     receipt = _get_receipt(db, receipt_id)
-    original_remaining = receipt.qty_remaining
+    if current_user.supplier_id is not None and receipt.supplier_id != current_user.supplier_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    raw_parts: list[dict[str, Any]]
-    if isinstance(payload, list):
-        raw_parts = payload
-    elif isinstance(payload, dict):
-        if "lots" in payload and isinstance(payload["lots"], list):
-            raw_parts = payload["lots"]
-        else:
-            raw_parts = [payload]
-    else:
+    if not isinstance(payload, dict) or "lots" in payload:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid split payload")
-
-    if not raw_parts:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one internal lot is required")
-
-    total_split_qty = Decimal("0.0000")
-    created_lots: list[InternalMaterialLotORM] = []
-    for index, item in enumerate(raw_parts):
-        if not isinstance(item, dict):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Each internal lot must be an object")
-        lot_payload = InternalLotCreate.model_validate(item)
-        split_qty = lot_payload.qty
-        total_split_qty += split_qty
-        if split_qty <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Each split quantity must be greater than zero")
-        if db.scalar(select(InternalMaterialLotORM.id).where(InternalMaterialLotORM.internal_lot_no == lot_payload.internal_lot_no)):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Internal lot number already exists")
-
-    if total_split_qty > original_remaining:
+    lot_payload = InternalLotCreate.model_validate(payload)
+    if lot_payload.qty <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Each split quantity must be greater than zero")
+    if db.scalar(select(InternalMaterialLotORM.id).where(InternalMaterialLotORM.internal_lot_no == lot_payload.internal_lot_no)):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Internal lot number already exists")
+    locked_receipt = db.execute(
+        select(MaterialReceiptORM).where(MaterialReceiptORM.id == receipt_id).with_for_update()
+    ).scalar_one()
+    original_remaining = locked_receipt.qty_remaining
+    if lot_payload.qty > original_remaining:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Split quantity exceeds the remaining receipt quantity",
         )
 
-    for item in raw_parts:
-        lot_payload = InternalLotCreate.model_validate(item)
-        internal_lot = InternalMaterialLotORM(
-            id=_next_id(db, InternalMaterialLotORM),
-            material_id=receipt.material_id,
-            supplier_lot_id=receipt.supplier_lot_id,
-            receipt_id=receipt.id,
-            internal_lot_no=lot_payload.internal_lot_no,
-            qty_on_hand=lot_payload.qty,
-            qty_reserved=Decimal("0.0000"),
-            uom=receipt.material.uom,
-            lot_status="quarantine",
-            expiry_date=lot_payload.expiry_date or receipt.supplier_lot.expiry_date,
-        )
-        db.add(internal_lot)
-        created_lots.append(internal_lot)
+    internal_lot = InternalMaterialLotORM(
+        material_id=locked_receipt.material_id,
+        supplier_lot_id=locked_receipt.supplier_lot_id,
+        receipt_id=locked_receipt.id,
+        internal_lot_no=lot_payload.internal_lot_no,
+        qty_on_hand=lot_payload.qty,
+        qty_reserved=Decimal("0.0000"),
+        uom=locked_receipt.material.uom,
+        lot_status="quarantine",
+        expiry_date=lot_payload.expiry_date or locked_receipt.supplier_lot.expiry_date,
+    )
+    db.add(internal_lot)
+    locked_receipt.qty_remaining = locked_receipt.qty_remaining - lot_payload.qty
+    db.add(locked_receipt)
+    try:
         db.flush()
-
-    receipt.qty_remaining = receipt.qty_remaining - total_split_qty
-    db.add(receipt)
-    db.flush()
-    db.commit()
-    for lot in created_lots:
-        db.refresh(lot)
-    db.refresh(receipt)
-    return created_lots[0]
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Internal lot number already exists") from exc
+    db.refresh(internal_lot)
+    return internal_lot
 
 
 @router.get("/internal-lots/{internal_lot_id}", response_model=InternalLotResponse)
 def get_internal_lot(
     internal_lot_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:read")),
 ):
-    return _get_internal_lot(db, internal_lot_id)
+    internal_lot = _get_internal_lot(db, internal_lot_id)
+    if current_user.supplier_id is not None:
+        if internal_lot.receipt_id is not None:
+            receipt = db.get(MaterialReceiptORM, internal_lot.receipt_id)
+            if receipt is None or receipt.supplier_id != current_user.supplier_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        elif internal_lot.supplier_lot_id is not None:
+            supplier_lot = db.get(SupplierLotORM, internal_lot.supplier_lot_id)
+            if supplier_lot is None or supplier_lot.supplier_id != current_user.supplier_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return internal_lot
 
 
 @router.get("/iqc", response_model=PaginatedResponse[IQCRecordResponse])
@@ -442,10 +564,29 @@ def list_iqc_records(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("iqc:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("iqc:read")),
 ):
     statement = select(IQCRecordORM)
     count_statement = select(func.count()).select_from(IQCRecordORM)
+    if current_user.supplier_id is not None:
+        supplier_receipt_ids = select(MaterialReceiptORM.id).where(
+            MaterialReceiptORM.supplier_id == current_user.supplier_id
+        )
+        supplier_lot_ids = select(SupplierLotORM.id).where(
+            SupplierLotORM.supplier_id == current_user.supplier_id
+        )
+        supplier_internal_lot_ids = select(InternalMaterialLotORM.id).where(
+            or_(
+                InternalMaterialLotORM.receipt_id.in_(supplier_receipt_ids),
+                InternalMaterialLotORM.supplier_lot_id.in_(supplier_lot_ids),
+            )
+        )
+        own_records = or_(
+            IQCRecordORM.receipt_id.in_(supplier_receipt_ids),
+            IQCRecordORM.internal_lot_id.in_(supplier_internal_lot_ids),
+        )
+        statement = statement.where(own_records)
+        count_statement = count_statement.where(own_records)
     if keyword:
         pattern = f"%{keyword.strip()}%"
         criterion = IQCRecordORM.remarks.ilike(pattern)
@@ -484,14 +625,22 @@ def create_iqc_record(
     else:
         receipt = None
     internal_lot = _get_internal_lot(db, payload.internal_lot_id) if payload.internal_lot_id is not None else None
+    if current_user.supplier_id is not None:
+        if receipt is not None and receipt.supplier_id != current_user.supplier_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        if internal_lot is not None:
+            _ensure_internal_lot_supplier_access(db, current_user, internal_lot)
     if internal_lot is not None and receipt is not None:
         if internal_lot.receipt_id != receipt.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IQC target must match receipt and internal lot")
     if internal_lot is not None and receipt is not None and internal_lot.material_id != receipt.material_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IQC target must match the receipt material")
-    _apply_iqc_to_lot(internal_lot, payload.inspection_result, payload.release_status)
+
+    lot_status = _relationship_status_for_iqc(payload.inspection_result, payload.release_status)
+    if internal_lot is not None:
+        internal_lot.lot_status = lot_status
+
     record = IQCRecordORM(
-        id=_next_id(db, IQCRecordORM),
         receipt_id=receipt.id if receipt else None,
         internal_lot_id=internal_lot.id if internal_lot else None,
         inspector_user_id=current_user.id,
@@ -502,16 +651,16 @@ def create_iqc_record(
         remarks=payload.remarks,
     )
     db.add(record)
+    if internal_lot is not None:
+        db.add(internal_lot)
     try:
+        db.flush()
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="IQC record conflict") from exc
     db.refresh(record)
     if record.internal_lot is not None:
-        record.internal_lot.lot_status = _relationship_status_for_iqc(record.inspection_result, record.release_status)
-        db.add(record.internal_lot)
-        db.commit()
         db.refresh(record.internal_lot)
     return record
 
@@ -524,20 +673,39 @@ def update_iqc_record(
     current_user: AuthenticatedUser = Depends(require_permission("iqc:write")),
 ):
     record = _get_iqc_record(db, iqc_id)
+    if current_user.supplier_id is not None:
+        if record.receipt_id is not None:
+            receipt = db.get(MaterialReceiptORM, record.receipt_id)
+            if receipt is None or receipt.supplier_id != current_user.supplier_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        if record.internal_lot_id is not None:
+            internal_lot = db.get(InternalMaterialLotORM, record.internal_lot_id)
+            if internal_lot is None:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            _ensure_internal_lot_supplier_access(db, current_user, internal_lot)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return record
 
     if "inspector_user_id" in changes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inspector is fixed to the current user")
-    if "receipt_id" in changes and changes["receipt_id"] is not None:
-        if record.internal_lot_id is not None:
-            _get_internal_lot(db, record.internal_lot_id)
-        receipt = _get_receipt(db, changes["receipt_id"])
-        record.receipt_id = receipt.id
-    if "internal_lot_id" in changes and changes["internal_lot_id"] is not None:
-        internal_lot = _get_internal_lot(db, changes["internal_lot_id"])
-        record.internal_lot_id = internal_lot.id
+    target_receipt_id = changes.get("receipt_id", record.receipt_id)
+    target_lot_id = changes.get("internal_lot_id", record.internal_lot_id)
+    target_receipt = _get_receipt(db, target_receipt_id) if target_receipt_id is not None else None
+    target_lot = _get_internal_lot(db, target_lot_id) if target_lot_id is not None else None
+    if current_user.supplier_id is not None:
+        if target_receipt is not None:
+            ensure_supplier_access(current_user, target_receipt.supplier_id)
+        if target_lot is not None:
+            _ensure_internal_lot_supplier_access(db, current_user, target_lot)
+    if target_receipt is not None and target_lot is not None:
+        if target_lot.receipt_id != target_receipt.id or target_lot.material_id != target_receipt.material_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="IQC target must match receipt and internal lot",
+            )
+    record.receipt = target_receipt
+    record.internal_lot = target_lot
 
     new_result = changes.get("inspection_result", record.inspection_result)
     new_release = changes.get("release_status", record.release_status)
@@ -562,7 +730,9 @@ def update_iqc_record(
     if record.internal_lot is not None:
         record.internal_lot.lot_status = _relationship_status_for_iqc(new_result, new_release)
         db.add(record.internal_lot)
+    db.add(record)
     try:
+        db.flush()
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -575,6 +745,19 @@ def update_iqc_record(
 def get_iqc_record(
     iqc_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("iqc:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("iqc:read")),
 ):
-    return _get_iqc_record(db, iqc_id)
+    record = _get_iqc_record(db, iqc_id)
+    if current_user.supplier_id is not None:
+        if record.receipt_id is not None:
+            receipt = db.get(MaterialReceiptORM, record.receipt_id)
+            if receipt is None or receipt.supplier_id != current_user.supplier_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        if record.internal_lot_id is not None:
+            internal_lot = db.get(InternalMaterialLotORM, record.internal_lot_id)
+            if internal_lot is None:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            _ensure_internal_lot_supplier_access(db, current_user, internal_lot)
+        if record.receipt_id is None and record.internal_lot_id is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return record

@@ -2,24 +2,29 @@ from collections.abc import Generator
 from io import BytesIO
 
 import pytest
+from fastapi.testclient import TestClient
+from openpyxl import Workbook
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
 from app.core import redis_client as redis_module
 from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.quality import (
+    InternalMaterialLotORM,
+    IQCRecordORM,
     MaterialORM,
+    MaterialReceiptORM,
     SupplierLotORM,
+    SupplierMaterialORM,
     SupplierORM,
     SupplierQualificationDocumentORM,
 )
 from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRoleORM
 from app.services import supplier_import
-from fastapi.testclient import TestClient
-from openpyxl import Workbook
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 PASSWORD = "Supplier-Isolation-2026!"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -71,7 +76,9 @@ def isolation_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmak
             PermissionORM(code="materials:read", name="Read materials"),
             PermissionORM(code="materials:write", name="Manage materials"),
             PermissionORM(code="receipts:read", name="Read receipts"),
+            PermissionORM(code="receipts:write", name="Create receipts"),
             PermissionORM(code="iqc:read", name="Read IQC"),
+            PermissionORM(code="iqc:write", name="Manage IQC"),
         ]
         admin_role = RoleORM(name="isolation-admin")
         portal_role = RoleORM(name="isolation-portal")
@@ -258,10 +265,135 @@ def test_change_password_only_affects_the_caller(isolation_environment) -> None:
     assert client.post(
         "/api/v1/auth/login", json={"username": "portal-b", "password": PASSWORD}
     ).status_code == 200
+
+
+def test_supplier_portal_requires_supplier_scope_on_material_and_receipt_detail_ids(
+    isolation_environment,
+) -> None:
+    client, TestSession = isolation_environment
+
+    with TestSession.begin() as session:
+        portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
+        permissions = session.scalars(select(PermissionORM)).all()
+        material_read = next(item for item in permissions if item.code == "materials:read")
+        receipts_read = next(item for item in permissions if item.code == "receipts:read")
+        session.add_all(
+            [
+                SupplierMaterialORM(
+                    supplier_id=1,
+                    material_id=1,
+                    supplier_material_code="SUP-A-MAT-1",
+                    is_preferred=True,
+                ),
+                MaterialReceiptORM(
+                    supplier_id=1,
+                    material_id=1,
+                    supplier_lot_id=1,
+                    receipt_no="REC-SUP-A-1",
+                    received_at=__import__("datetime").datetime(2026, 10, 1, 9, 0),
+                    received_by_user_id=1,
+                    qty_received=5,
+                    qty_remaining=5,
+                    status="received",
+                ),
+                RolePermissionORM(role_id=portal_role.id, permission_id=material_read.id),
+                RolePermissionORM(role_id=portal_role.id, permission_id=receipts_read.id),
+            ]
+        )
+
+    portal_a = _headers(client, "portal-a")
+    portal_b = _headers(client, "portal-b")
+
+    assert client.get("/api/v1/materials/1", headers=portal_a).status_code == 200
+    assert client.get("/api/v1/materials/1", headers=portal_b).status_code == 403
+
+    assert client.get("/api/v1/receipts/1", headers=portal_a).status_code == 200
+    assert client.get("/api/v1/receipts/1", headers=portal_b).status_code == 403
     with TestSession() as session:
         portal_b = session.scalar(select(UserORM).where(UserORM.username == "portal-b"))
         assert portal_b is not None
         assert verify_password(PASSWORD, portal_b.password_hash)
+
+
+def test_supplier_scoped_workflow_ids_and_iqc_lists(isolation_environment) -> None:
+    client, TestSession = isolation_environment
+    with TestSession.begin() as session:
+        portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
+        permissions = {item.code: item for item in session.scalars(select(PermissionORM)).all()}
+        for code in ("materials:read", "receipts:read", "receipts:write", "iqc:read", "iqc:write"):
+            session.add(RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id))
+        session.add(SupplierMaterialORM(supplier_id=2, material_id=1))
+        receipt_a = MaterialReceiptORM(
+            supplier_id=1,
+            material_id=1,
+            supplier_lot_id=1,
+            receipt_no="REC-SCOPE-A",
+            received_at=__import__("datetime").datetime(2026, 10, 1, 9, 0),
+            qty_received=5,
+            qty_remaining=5,
+            status="received",
+        )
+        receipt_b = MaterialReceiptORM(
+            supplier_id=2,
+            material_id=1,
+            supplier_lot_id=2,
+            receipt_no="REC-SCOPE-B",
+            received_at=__import__("datetime").datetime(2026, 10, 1, 9, 0),
+            qty_received=5,
+            qty_remaining=5,
+            status="received",
+        )
+        session.add_all([receipt_a, receipt_b])
+        session.flush()
+        lot_a = InternalMaterialLotORM(
+            material_id=1, supplier_lot_id=1, receipt_id=receipt_a.id,
+            internal_lot_no="ILT-SCOPE-A", qty_on_hand=5, qty_reserved=0,
+            uom="kg", lot_status="quarantine",
+        )
+        lot_b = InternalMaterialLotORM(
+            material_id=1, supplier_lot_id=2, receipt_id=receipt_b.id,
+            internal_lot_no="ILT-SCOPE-B", qty_on_hand=5, qty_reserved=0,
+            uom="kg", lot_status="quarantine",
+        )
+        session.add_all([lot_a, lot_b])
+        session.flush()
+        session.add_all([
+            IQCRecordORM(internal_lot_id=lot_a.id, sample_qty=1, inspection_result="pending", release_status="hold"),
+            IQCRecordORM(internal_lot_id=lot_b.id, sample_qty=1, inspection_result="pending", release_status="hold"),
+        ])
+        session.flush()
+        ids = {"receipt_a": receipt_a.id, "receipt_b": receipt_b.id, "lot_a": lot_a.id, "lot_b": lot_b.id}
+        iqc_ids = session.scalars(select(IQCRecordORM.id).order_by(IQCRecordORM.id)).all()
+        ids["iqc_a"], ids["iqc_b"] = iqc_ids[-2:]
+
+    portal_a = _headers(client, "portal-a")
+    other_receipt = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": 2, "material_id": 1, "supplier_lot_id": 2,
+            "receipt_no": "REC-CROSS-SUPPLIER", "qty_received": "1",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=portal_a,
+    )
+    assert other_receipt.status_code == 403
+    assert client.get(f"/api/v1/receipts/{ids['receipt_a']}/trace", headers=portal_a).status_code == 200
+    assert client.get(f"/api/v1/receipts/{ids['receipt_b']}/trace", headers=portal_a).status_code == 403
+
+    iqc_list = client.get("/api/v1/iqc", headers=portal_a)
+    assert iqc_list.status_code == 200
+    assert [item["id"] for item in iqc_list.json()["items"]] == [ids["iqc_a"]]
+    assert client.get(f"/api/v1/iqc/{ids['iqc_b']}", headers=portal_a).status_code == 403
+    assert client.post(
+        "/api/v1/iqc",
+        json={"internal_lot_id": ids["lot_b"], "sample_qty": "1", "inspection_result": "pending", "release_status": "hold"},
+        headers=portal_a,
+    ).status_code == 403
+    assert client.patch(
+        f"/api/v1/iqc/{ids['iqc_a']}",
+        json={"internal_lot_id": ids["lot_b"]},
+        headers=portal_a,
+    ).status_code == 403
 
 
 def test_preview_does_not_write_to_database(isolation_environment) -> None:

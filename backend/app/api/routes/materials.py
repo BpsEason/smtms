@@ -17,11 +17,6 @@ from app.schemas.catalog import (
 router = APIRouter(prefix="/materials", tags=["materials"])
 
 
-def _next_id(db: Session) -> int:
-    """Allocate IDs because the existing MySQL schema has non-AUTO_INCREMENT PKs."""
-    return (db.scalar(select(func.max(MaterialORM.id))) or 0) + 1
-
-
 def _get_material(db: Session, material_id: int) -> MaterialORM:
     material = db.get(MaterialORM, material_id)
     if material is None:
@@ -36,10 +31,16 @@ def list_materials(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:read")),
 ):
     statement = select(MaterialORM)
     count_statement = select(func.count()).select_from(MaterialORM)
+    if current_user.supplier_id is not None:
+        supplier_material_ids = select(SupplierMaterialORM.material_id).where(
+            SupplierMaterialORM.supplier_id == current_user.supplier_id
+        )
+        statement = statement.where(MaterialORM.id.in_(supplier_material_ids))
+        count_statement = count_statement.where(MaterialORM.id.in_(supplier_material_ids))
     if keyword:
         pattern = f"%{keyword.strip()}%"
         criterion = (MaterialORM.material_code.ilike(pattern)) | (
@@ -77,7 +78,7 @@ def create_material(
             detail="Material code already exists",
         )
 
-    material = MaterialORM(id=_next_id(db), **payload.model_dump())
+    material = MaterialORM(**payload.model_dump())
     db.add(material)
     try:
         db.commit()
@@ -95,8 +96,17 @@ def create_material(
 def get_material(
     material_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:read")),
 ):
+    if current_user.supplier_id is not None:
+        material = db.scalar(
+            select(SupplierMaterialORM.id).where(
+                SupplierMaterialORM.material_id == material_id,
+                SupplierMaterialORM.supplier_id == current_user.supplier_id,
+            )
+        )
+        if material is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return _get_material(db, material_id)
 
 
@@ -105,8 +115,17 @@ def update_material(
     material_id: int,
     payload: MaterialUpdate,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:write")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:write")),
 ):
+    if current_user.supplier_id is not None:
+        material_link = db.scalar(
+            select(SupplierMaterialORM.id).where(
+                SupplierMaterialORM.material_id == material_id,
+                SupplierMaterialORM.supplier_id == current_user.supplier_id,
+            )
+        )
+        if material_link is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     material = _get_material(db, material_id)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -142,8 +161,17 @@ def update_material(
 def list_material_suppliers(
     material_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("materials:read")),
+    current_user: AuthenticatedUser = Depends(require_permission("materials:read")),
 ):
+    if current_user.supplier_id is not None:
+        supplier_link = db.scalar(
+            select(SupplierMaterialORM.id).where(
+                SupplierMaterialORM.material_id == material_id,
+                SupplierMaterialORM.supplier_id == current_user.supplier_id,
+            )
+        )
+        if supplier_link is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     _get_material(db, material_id)
     return db.scalars(
         select(SupplierORM)

@@ -192,6 +192,27 @@ class SupplierLotResponse(ORMResponse):
     created_at: datetime
 
 
+class SupplierLotCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supplier_id: int = Field(gt=0)
+    material_id: int = Field(gt=0)
+    supplier_lot_no: str = Field(min_length=1, max_length=120)
+    manufacturing_date: datetime | None = None
+    expiry_date: datetime | None = None
+    qty_received: Decimal = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if (
+            self.manufacturing_date is not None
+            and self.expiry_date is not None
+            and self.expiry_date < self.manufacturing_date
+        ):
+            raise ValueError("Expiry date cannot be earlier than manufacturing date")
+        return self
+
+
 class ReceiptCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -321,6 +342,20 @@ class IQCRecordResponse(ORMResponse):
     release_status: str
     remarks: str | None
     created_at: datetime
+
+
+class ReceiptTraceLot(BaseModel):
+    internal_lot: InternalLotResponse
+    iqc_records: list[IQCRecordResponse]
+
+
+class ReceiptTraceResponse(BaseModel):
+    receipt: ReceiptResponse
+    supplier: SupplierResponse
+    material: MaterialResponse
+    supplier_lot: SupplierLotResponse
+    receipt_iqc_records: list[IQCRecordResponse]
+    internal_lots: list[ReceiptTraceLot]
 
 
 T = TypeVar("T")

@@ -17,6 +17,7 @@ import {
   PageHeader,
 } from "./components/ui";
 import { DashboardPage } from "./pages/DashboardPage";
+import { RolesPermissionsPage } from "./pages/AdminPage";
 import { CatalogPages } from "./pages/CatalogPages";
 import { IQCPage, InternalLotsPage, ReceiptsPage } from "./pages/WorkflowPages";
 import { LoginPage } from "./pages/LoginPage";
@@ -185,6 +186,14 @@ function AppShell() {
           element={
             <PermissionPage profile={profile} permission="iqc:read">
               <IQCPage profile={profile} />
+            </PermissionPage>
+          }
+        />
+        <Route
+          path="admin/roles"
+          element={
+            <PermissionPage profile={profile} permission="users:manage">
+              <RolesPermissionsPage profile={profile} />
             </PermissionPage>
           }
         />

@@ -385,15 +385,10 @@ def validate_supplier_rows(db: Session, parsed: ParsedWorkbook) -> ValidationOut
     )
 
 
-def _next_id(db: Session, model) -> int:
-    return (db.scalar(select(func.max(model.id))) or 0) + 1
-
-
 def _ensure_supplier_role(db: Session) -> RoleORM:
     role = db.scalar(select(RoleORM).where(RoleORM.name == SUPPLIER_ROLE_NAME))
     if role is None:
         role = RoleORM(
-            id=_next_id(db, RoleORM),
             name=SUPPLIER_ROLE_NAME,
             description=SUPPLIER_ROLE_DESCRIPTION,
         )
@@ -405,7 +400,6 @@ def _ensure_supplier_role(db: Session) -> RoleORM:
     )
     if permission is None:
         permission = PermissionORM(
-            id=_next_id(db, PermissionORM),
             code=SUPPLIER_ROLE_PERMISSION,
             name="讀取供應商資料",
             description="供應商入口帳號可讀取供應商基本資料。",
@@ -422,7 +416,6 @@ def _ensure_supplier_role(db: Session) -> RoleORM:
     if link is None:
         db.add(
             RolePermissionORM(
-                id=_next_id(db, RolePermissionORM),
                 role_id=role.id,
                 permission_id=permission.id,
             )
@@ -442,14 +435,10 @@ def execute_supplier_import(db: Session, outcome: ValidationOutcome) -> list[Cre
         return []
 
     role = _ensure_supplier_role(db)
-    next_supplier_id = _next_id(db, SupplierORM)
-    next_user_id = _next_id(db, UserORM)
-    next_user_role_id = _next_id(db, UserRoleORM)
 
     created: list[CreatedAccount] = []
     for row in rows_to_create:
         supplier = SupplierORM(
-            id=next_supplier_id,
             supplier_code=row.supplier_code,
             supplier_name=row.supplier_name,
             tax_id=row.tax_id,
@@ -460,31 +449,28 @@ def execute_supplier_import(db: Session, outcome: ValidationOutcome) -> list[Cre
             address=row.address,
             country=row.country,
         )
-        next_supplier_id += 1
         db.add(supplier)
 
         password_generated = row.login_password is None
         password = row.login_password or _generate_password()
         user = UserORM(
-            id=next_user_id,
             username=row.login_username,
             email=row.login_email,
             password_hash=get_password_hash(password),
             is_active=True,
-            supplier_id=supplier.id,
+            supplier_id=None,
             must_change_password=True,
         )
-        next_user_id += 1
         db.add(user)
+        db.flush()
+        user.supplier_id = supplier.id
 
         db.add(
             UserRoleORM(
-                id=next_user_role_id,
                 user_id=user.id,
                 role_id=role.id,
             )
         )
-        next_user_role_id += 1
 
         created.append(
             CreatedAccount(

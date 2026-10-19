@@ -1,0 +1,22 @@
+{
+  "environment": "live development MySQL via running backend HTTP API",
+  "account": {
+    "username": "qa_portal_925e7b",
+    "supplier_id": 8,
+    "supplier_code": "QA-PORTAL-20261019-925E7B",
+    "permissions": ["suppliers:read"],
+    "must_change_password_after_setup": false
+  },
+  "supplier_lot_id": 23,
+  "listed_supplier_lot_ids": [23],
+  "checks": [
+    { "test": "portal reads own supplier", "http": 200 },
+    { "test": "portal cannot read another supplier by ID", "http": 403, "detail": "Forbidden" },
+    { "test": "portal reads own supplier-lot list", "http": 200, "only_supplier_id": 8 },
+    { "test": "receipt detail blocked by role", "http": 403, "detail": "Missing permissions: ['receipts:read']" },
+    { "test": "full trace blocked by role", "http": 403, "detail": "Missing permissions: ['receipts:read']" },
+    { "test": "IQC list blocked by role", "http": 403, "detail": "Missing permissions: ['iqc:read']" },
+    { "test": "cross-supplier receipt creation blocked", "http": 403, "detail": "Missing permissions: ['receipts:write']" }
+  ],
+  "note": "The pre-existing seed_supplier_001 account was not modified; its forced password-change flag prevented using it for this read-path test. This dedicated prefixed account was imported through the live API and its password was changed only on that newly created test account."
+}

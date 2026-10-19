@@ -32,11 +32,6 @@ from app.services import supplier_import
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
 
-def _next_id(db: Session, model) -> int:
-    """Allocate IDs because the existing MySQL schema has non-AUTO_INCREMENT PKs."""
-    return (db.scalar(select(func.max(model.id))) or 0) + 1
-
-
 def _get_supplier(db: Session, supplier_id: int) -> SupplierORM:
     supplier = db.get(SupplierORM, supplier_id)
     if supplier is None:
@@ -95,7 +90,7 @@ def create_supplier(
             detail="Supplier code already exists",
         )
 
-    supplier = SupplierORM(id=_next_id(db, SupplierORM), **payload.model_dump())
+    supplier = SupplierORM(**payload.model_dump())
     db.add(supplier)
     try:
         db.commit()
@@ -230,8 +225,9 @@ def update_supplier(
     supplier_id: int,
     payload: SupplierUpdate,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
 ):
+    ensure_supplier_access(current_user, supplier_id)
     supplier = _get_supplier(db, supplier_id)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -287,8 +283,9 @@ def add_supplier_material(
     supplier_id: int,
     payload: SupplierMaterialCreate,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
 ):
+    ensure_supplier_access(current_user, supplier_id)
     supplier = _get_supplier(db, supplier_id)
     material = db.get(MaterialORM, payload.material_id)
     if material is None:
@@ -313,7 +310,6 @@ def add_supplier_material(
             .values(is_preferred=False)
         )
     link = SupplierMaterialORM(
-        id=_next_id(db, SupplierMaterialORM),
         supplier_id=supplier.id,
         material_id=material.id,
         supplier_material_code=payload.supplier_material_code,
@@ -337,8 +333,9 @@ def remove_supplier_material(
     supplier_id: int,
     material_id: int,
     db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
 ) -> Response:
+    ensure_supplier_access(current_user, supplier_id)
     _get_supplier(db, supplier_id)
     link = db.scalar(
         select(SupplierMaterialORM).where(

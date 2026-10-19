@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Download, Plus, Search, Upload } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { allMaterials } from "../lib/data";
 import {
   buttonClass,
   DataTable,
@@ -53,12 +54,18 @@ export function CatalogPages({
 function SuppliersPage({ profile }: { profile: UserProfile | null }) {
   const [data, setData] = useState<PaginatedResponse<Supplier> | null>(null);
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [linkingSupplier, setLinkingSupplier] = useState<Supplier | null>(null);
+  const [materialOptions, setMaterialOptions] = useState<Material[]>([]);
+  const [linkBusy, setLinkBusy] = useState(false);
   const canWrite = Boolean(profile?.permissions.includes("suppliers:write"));
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +74,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
       setData(
         await api.listSuppliers({
           keyword: query || undefined,
+          status: status || undefined,
           page,
           page_size: 20,
         }),
@@ -76,7 +84,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
     } finally {
       setLoading(false);
     }
-  }, [query, page]);
+  }, [query, status, page]);
   useEffect(() => {
     const timer = window.setTimeout(
       () => {
@@ -86,28 +94,61 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
     );
     return () => window.clearTimeout(timer);
   }, [load, query]);
+  useEffect(() => {
+    if (!linkingSupplier) return;
+    let active = true;
+    allMaterials().then((items) => { if (active) setMaterialOptions(items) }).catch((err: unknown) => { if (active) setError(message(err)) });
+    return () => { active = false };
+  }, [linkingSupplier]);
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setSuccess("");
     const form = new FormData(event.currentTarget);
+    setSaving(true);
     try {
-      await api.createSupplier({
+      const payload = {
         supplier_code: String(form.get("supplier_code")).trim(),
         supplier_name: String(form.get("supplier_name")).trim(),
         contact_name: optional(form.get("contact_name")),
         email: optional(form.get("email")),
         phone: optional(form.get("phone")),
         country: optional(form.get("country")),
-        status: "active",
-      });
-      setSuccess("供應商已建立。");
+        address: optional(form.get("address")),
+        status: String(form.get("status")),
+      };
+      if (editingSupplier) {
+        await api.updateSupplier(editingSupplier.id, payload);
+        setSuccess(`供應商「${payload.supplier_name}」資料已更新。`);
+      } else {
+        await api.createSupplier({ ...payload, tax_id: optional(form.get("tax_id")) });
+        setSuccess("供應商已建立。");
+      }
       setShowForm(false);
+      setEditingSupplier(null);
       setPage(1);
       await load();
     } catch (err) {
       setError(message(err));
+    } finally {
+      setSaving(false);
     }
+  };
+  const linkMaterial = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!linkingSupplier) return;
+    setError(""); setSuccess(""); setLinkBusy(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      await api.createSupplierMaterial(linkingSupplier.id, {
+        material_id: Number(form.get("material_id")),
+        supplier_material_code: optional(form.get("supplier_material_code")),
+        is_preferred: form.get("is_preferred") === "on",
+      });
+      setSuccess(`已建立「${linkingSupplier.supplier_name}」與所選物料的供應關聯。`);
+      setLinkingSupplier(null);
+    } catch (err) { setError(message(err)); }
+    finally { setLinkBusy(false); }
   };
   return (
     <section>
@@ -130,7 +171,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
               </button>
               <button
                 className={buttonClass}
-                onClick={() => setShowForm((value) => !value)}
+                onClick={() => { setEditingSupplier(null); setShowForm((value) => !value); setError("") }}
               >
                 <Plus className="h-4 w-4" />
                 {showForm ? "關閉" : "新增供應商"}
@@ -148,8 +189,9 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         />
       )}
       {showForm && (
-        <Panel title="新增供應商" className="mb-5">
+        <Panel title={editingSupplier ? `編輯供應商：${editingSupplier.supplier_name}` : "新增供應商"} description="代碼需唯一；停用供應商不會刪除既有追溯紀錄。" className="mb-5">
           <form
+            key={editingSupplier?.id ?? "new-supplier"}
             onSubmit={create}
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
           >
@@ -159,6 +201,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={80}
+                defaultValue={editingSupplier?.supplier_code ?? ""}
               />
             </FormField>
             <FormField label="供應商名稱">
@@ -167,6 +210,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={200}
+                defaultValue={editingSupplier?.supplier_name ?? ""}
               />
             </FormField>
             <FormField label="聯絡人">
@@ -174,6 +218,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 name="contact_name"
                 className={inputClass}
                 maxLength={120}
+                defaultValue={editingSupplier?.contact_name ?? ""}
               />
             </FormField>
             <FormField label="電子郵件">
@@ -182,20 +227,25 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 type="email"
                 className={inputClass}
                 maxLength={160}
+                defaultValue={editingSupplier?.email ?? ""}
               />
             </FormField>
             <FormField label="電話">
-              <input name="phone" className={inputClass} maxLength={40} />
+              <input name="phone" className={inputClass} maxLength={40} defaultValue={editingSupplier?.phone ?? ""} />
             </FormField>
             <FormField label="國家／地區">
-              <input name="country" className={inputClass} maxLength={80} />
+              <input name="country" className={inputClass} maxLength={80} defaultValue={editingSupplier?.country ?? ""} />
             </FormField>
+            {!editingSupplier && <FormField label="統一編號" hint="選填；建立後目前不可透過編輯流程更改。"><input name="tax_id" className={inputClass} maxLength={20} /></FormField>}
+            <FormField label="地址"><input name="address" className={inputClass} maxLength={255} defaultValue={editingSupplier?.address ?? ""} /></FormField>
+            <FormField label="供應商狀態" hint="停用不會刪除供應商及歷史作業資料。"><select name="status" className={inputClass} defaultValue={editingSupplier?.status ?? "active"}><option value="active">啟用</option><option value="inactive">停用</option></select></FormField>
             <div className="sm:col-span-2 xl:col-span-3">
-              <button className={buttonClass}>建立供應商</button>
+              <div className="flex gap-2"><button className={buttonClass} disabled={saving}>{saving ? "儲存中…" : editingSupplier ? "儲存變更" : "建立供應商"}</button><button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => { setShowForm(false); setEditingSupplier(null) }}>取消</button></div>
             </div>
           </form>
         </Panel>
       )}
+      {linkingSupplier && <Panel title={`建立供應物料關聯：${linkingSupplier.supplier_name}`} description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。" className="mb-5"><form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2"><FormField label="物料"><select name="material_id" className={inputClass} required defaultValue=""><option value="">選擇物料</option>{materialOptions.map((material) => <option key={material.id} value={material.id}>{material.material_code} · {material.material_name}</option>)}</select></FormField><FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。"><input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} /></FormField><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="is_preferred" />設為此物料的首選供應商</label><div className="flex gap-2 sm:col-span-2"><button className={buttonClass} disabled={linkBusy || !materialOptions.length}>{linkBusy ? "建立中…" : "建立關聯"}</button><button type="button" className={secondaryButtonClass} disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>取消</button></div></form></Panel>}
       {success && (
         <p role="status" className="mb-4 text-sm text-emerald-800">
           {success}
@@ -211,7 +261,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         description={`共 ${data?.total ?? "—"} 筆供應商資料 · 支援 API 關鍵字搜尋`}
         action={<span className="text-xs text-slate-500">每頁 20 筆</span>}
       >
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex flex-wrap gap-3">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
@@ -225,6 +275,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
               }}
             />
           </div>
+          <label className="text-sm text-slate-700">狀態 <select aria-label="供應商狀態篩選" className={`${inputClass} mt-1 min-w-36`} value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">全部狀態</option><option value="active">啟用</option><option value="inactive">停用</option></select></label>
         </div>
         {loading ? (
           <LoadingState label="正在載入供應商資料…" />
@@ -237,6 +288,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 <Th>聯絡資訊</Th>
                 <Th>國家／地區</Th>
                 <Th>狀態</Th>
+                {canWrite && <Th>操作</Th>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -251,11 +303,12 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <StatusBadge value={supplier.status} />
                   </Td>
+                  {canWrite && <Td><div className="flex gap-2"><button className={secondaryButtonClass} onClick={() => { setLinkingSupplier(supplier); setShowForm(false); setShowImport(false); setError("") }}>連結物料</button><button className={secondaryButtonClass} onClick={() => { setEditingSupplier(supplier); setShowForm(true); setShowImport(false); setLinkingSupplier(null); setError("") }}>編輯資料</button></div></Td>}
                 </TableRow>
               ))}
             </TableBody>
           </DataTable>
-        ) : (
+        ) : error && !data ? null : (
           <EmptyState
             title="查無供應商資料"
             description={
@@ -585,11 +638,14 @@ function csvCell(value: string) {
 function MaterialsPage({ profile }: { profile: UserProfile | null }) {
   const [data, setData] = useState<PaginatedResponse<Material> | null>(null);
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
+  const [saving, setSaving] = useState(false);
   const canWrite = Boolean(profile?.permissions.includes("materials:write"));
   const load = useCallback(async () => {
     setLoading(true);
@@ -598,6 +654,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
       setData(
         await api.listMaterials({
           keyword: query || undefined,
+          status: status || undefined,
           page,
           page_size: 20,
         }),
@@ -607,7 +664,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
     } finally {
       setLoading(false);
     }
-  }, [query, page]);
+  }, [query, status, page]);
   useEffect(() => {
     const timer = window.setTimeout(
       () => {
@@ -622,21 +679,31 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
     setError("");
     setSuccess("");
     const form = new FormData(event.currentTarget);
+    setSaving(true);
     try {
-      await api.createMaterial({
+      const payload = {
         material_code: String(form.get("material_code")).trim(),
         material_name: String(form.get("material_name")).trim(),
         material_type: String(form.get("material_type")).trim(),
         uom: String(form.get("uom")).trim(),
         spec: optional(form.get("spec")),
-        status: "active",
-      });
-      setSuccess("物料已建立。");
+        status: String(form.get("status")),
+      };
+      if (editingMaterial) {
+        await api.updateMaterial(editingMaterial.id, payload);
+        setSuccess(`物料「${payload.material_name}」資料已更新。`);
+      } else {
+        await api.createMaterial(payload);
+        setSuccess("物料已建立。");
+      }
       setShowForm(false);
+      setEditingMaterial(null);
       setPage(1);
       await load();
     } catch (err) {
       setError(message(err));
+    } finally {
+      setSaving(false);
     }
   };
   return (
@@ -649,7 +716,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
           canWrite && (
             <button
               className={buttonClass}
-              onClick={() => setShowForm((value) => !value)}
+              onClick={() => { setEditingMaterial(null); setShowForm((value) => !value); setError("") }}
             >
               <Plus className="h-4 w-4" />
               {showForm ? "關閉" : "新增物料"}
@@ -658,8 +725,9 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
         }
       />
       {showForm && (
-        <Panel title="新增物料" className="mb-5">
+        <Panel title={editingMaterial ? `編輯物料：${editingMaterial.material_name}` : "新增物料"} description="代碼需唯一；停用物料不會刪除既有庫存與追溯紀錄。" className="mb-5">
           <form
+            key={editingMaterial?.id ?? "new-material"}
             onSubmit={create}
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
           >
@@ -669,6 +737,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={80}
+                defaultValue={editingMaterial?.material_code ?? ""}
               />
             </FormField>
             <FormField label="物料名稱">
@@ -677,6 +746,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={200}
+                defaultValue={editingMaterial?.material_name ?? ""}
               />
             </FormField>
             <FormField label="物料類別">
@@ -685,6 +755,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={50}
+                defaultValue={editingMaterial?.material_type ?? ""}
               />
             </FormField>
             <FormField label="計量單位">
@@ -693,13 +764,15 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                 className={inputClass}
                 required
                 maxLength={30}
+                defaultValue={editingMaterial?.uom ?? ""}
               />
             </FormField>
             <FormField label="規格">
-              <input name="spec" className={inputClass} maxLength={255} />
+              <input name="spec" className={inputClass} maxLength={255} defaultValue={editingMaterial?.spec ?? ""} />
             </FormField>
-            <div className="flex items-end">
-              <button className={buttonClass}>建立物料</button>
+            <FormField label="物料狀態"><select name="status" className={inputClass} defaultValue={editingMaterial?.status ?? "active"}><option value="active">啟用</option><option value="inactive">停用</option></select></FormField>
+            <div className="flex items-end gap-2">
+              <button className={buttonClass} disabled={saving}>{saving ? "儲存中…" : editingMaterial ? "儲存變更" : "建立物料"}</button><button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => { setShowForm(false); setEditingMaterial(null) }}>取消</button>
             </div>
           </form>
         </Panel>
@@ -718,7 +791,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
         title="物料清單"
         description={`共 ${data?.total ?? "—"} 筆物料資料 · 支援 API 關鍵字搜尋`}
       >
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex flex-wrap gap-3">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
@@ -732,6 +805,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
               }}
             />
           </div>
+          <label className="text-sm text-slate-700">狀態 <select aria-label="物料狀態篩選" className={`${inputClass} mt-1 min-w-36`} value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">全部狀態</option><option value="active">啟用</option><option value="inactive">停用</option></select></label>
         </div>
         {loading ? (
           <LoadingState label="正在載入物料資料…" />
@@ -745,6 +819,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                 <Th>規格</Th>
                 <Th>計量單位</Th>
                 <Th>狀態</Th>
+                {canWrite && <Th>操作</Th>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -760,11 +835,12 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <StatusBadge value={material.status} />
                   </Td>
+                  {canWrite && <Td><button className={secondaryButtonClass} onClick={() => { setEditingMaterial(material); setShowForm(true); setError("") }}>編輯資料</button></Td>}
                 </TableRow>
               ))}
             </TableBody>
           </DataTable>
-        ) : (
+        ) : error && !data ? null : (
           <EmptyState
             title="查無物料資料"
             description={
