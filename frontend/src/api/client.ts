@@ -4,6 +4,7 @@ import type {
   IQCRecord,
   InternalLot,
   InternalLotCreatePayload,
+  InternalUserCreatePayload,
   Material,
   MaterialCreatePayload,
   MaterialUpdatePayload,
@@ -321,6 +322,12 @@ export const api = {
   listPermissions: async () => request<PermissionItem[]>(`/api/v1/permissions`),
 
   listUsers: async () => request<AdminUser[]>(`/api/v1/users`),
+
+  createUser: async (payload: InternalUserCreatePayload) =>
+    request<AdminUser>(`/api/v1/users`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   setUserRoles: async (userId: number, roleIds: number[]) =>
     request<AdminUser>(`/api/v1/users/${userId}/roles`, {

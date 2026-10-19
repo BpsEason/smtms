@@ -13,6 +13,7 @@ each drop a different manager and leave the system without any administrator.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -23,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import (
     AuthenticatedUser,
+    get_password_hash,
     normalize_permission_code,
     require_permission,
 )
@@ -35,6 +37,7 @@ from app.models.user import (
     UserRoleORM,
 )
 from app.schemas.auth import (
+    InternalUserCreate,
     PermissionSummary,
     RoleCreate,
     RolePermissionUpdate,
@@ -353,6 +356,66 @@ def list_internal_users(
         select(UserORM).where(UserORM.supplier_id.is_(None)).order_by(UserORM.username)
     ).all()
     return [_user_summary(db, user) for user in users]
+
+
+@router.post("/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)
+def create_internal_user(
+    payload: InternalUserCreate,
+    db: Session = Depends(get_db),
+    _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
+) -> UserSummary:
+    username = payload.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", username):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="帳號僅能使用英文字母、數字、句點、底線及連字號。",
+        )
+    if len(payload.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="password must be at most 72 UTF-8 bytes",
+        )
+    if db.scalar(select(UserORM.id).where(UserORM.username == username)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username already exists",
+        )
+
+    role_ids = set(payload.role_ids)
+    roles = (
+        db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all()
+        if role_ids
+        else []
+    )
+    if len(roles) != len(role_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+    if any(role.name == SUPPLIER_ROLE_NAME for role in roles):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="供應商入口角色不可指派給內部使用者。",
+        )
+
+    user = UserORM(
+        username=username,
+        email=str(payload.email) if payload.email is not None else None,
+        password_hash=get_password_hash(payload.password),
+        is_active=True,
+        supplier_id=None,
+        must_change_password=False,
+    )
+    db.add(user)
+    try:
+        db.flush()
+        db.add_all(UserRoleORM(user_id=user.id, role_id=role.id) for role in roles)
+        _commit_keeping_one_manager(db)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username already exists",
+        ) from exc
+    db.refresh(user)
+    return _user_summary(db, user)
 
 
 @router.put("/users/{user_id}/roles", response_model=UserSummary)

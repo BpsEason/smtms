@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from app.api.routes import access as access_module
 from app.core import redis_client as redis_module
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -66,7 +66,9 @@ def access_environment(
         reader_role = RoleORM(name="qc-reader", description="Read-only QC")
         portal_role = RoleORM(name=SUPPLIER_ROLE_NAME, description="Supplier portal")
         session.add_all([*permissions.values(), admin_role, reader_role, portal_role])
-        session.add(SupplierORM(id=1, supplier_code="SUP-A", supplier_name="Supplier A", status="active"))
+        session.add(
+            SupplierORM(id=1, supplier_code="SUP-A", supplier_name="Supplier A", status="active")
+        )
         session.flush()
 
         users = {
@@ -105,10 +107,16 @@ def access_environment(
                 UserRoleORM(user_id=users["admin-two"].id, role_id=admin_role.id),
                 UserRoleORM(user_id=users["staff"].id, role_id=reader_role.id),
                 UserRoleORM(user_id=users["portal-user"].id, role_id=portal_role.id),
-                RolePermissionORM(role_id=admin_role.id, permission_id=permissions["users:manage"].id),
-                RolePermissionORM(role_id=admin_role.id, permission_id=permissions["suppliers:read"].id),
+                RolePermissionORM(
+                    role_id=admin_role.id, permission_id=permissions["users:manage"].id
+                ),
+                RolePermissionORM(
+                    role_id=admin_role.id, permission_id=permissions["suppliers:read"].id
+                ),
                 RolePermissionORM(role_id=reader_role.id, permission_id=permissions["iqc:read"].id),
-                RolePermissionORM(role_id=portal_role.id, permission_id=permissions["suppliers:read"].id),
+                RolePermissionORM(
+                    role_id=portal_role.id, permission_id=permissions["suppliers:read"].id
+                ),
             ]
         )
 
@@ -142,14 +150,16 @@ def test_access_endpoints_require_auth_and_manage_permission(access_environment)
     staff_headers = _headers(client, "staff")
     for path in ("/api/v1/roles", "/api/v1/permissions", "/api/v1/users"):
         assert client.get(path, headers=staff_headers).status_code == 403, path
-    assert (
-        client.post(
+        assert client.post(
             "/api/v1/roles",
             json={"name": "Unauthorized Role"},
             headers=staff_headers,
-        ).status_code
-        == 403
-    )
+        ).status_code == 403
+        assert client.post(
+            "/api/v1/users",
+            json={"username": "unauthorized-user", "password": PASSWORD},
+            headers=staff_headers,
+        ).status_code == 403
 
 
 def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_environment) -> None:
@@ -162,6 +172,78 @@ def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_envir
     assert admin_role["permissions"] == ["suppliers:read", "users:manage"]
     assert admin_role["user_count"] == 2
 
+    def test_admin_can_create_internal_user_with_persisted_roles(access_environment) -> None:
+        client, TestSession, ids = access_environment
+        headers = _headers(client, "admin-one")
+        payload = {
+            "username": "new.internal-user",
+            "email": "new.internal-user@example.test",
+            "password": "New-Internal-Password-2026!",
+            "role_ids": [ids["role_reader"]],
+        }
+
+        created = client.post("/api/v1/users", json=payload, headers=headers)
+        assert created.status_code == 201, created.text
+        assert created.json()["username"] == payload["username"]
+        assert created.json()["email"] == payload["email"]
+        assert created.json()["roles"] == ["qc-reader"]
+
+        with TestSession() as session:
+            user = session.scalar(select(UserORM).where(UserORM.username == payload["username"]))
+            assert user is not None
+            assert user.supplier_id is None
+            assert user.password_hash != payload["password"]
+            assert verify_password(payload["password"], user.password_hash)
+            role_links = session.scalars(
+                select(UserRoleORM).where(UserRoleORM.user_id == user.id)
+            ).all()
+            assert [link.role_id for link in role_links] == [ids["role_reader"]]
+
+        listed = client.get("/api/v1/users", headers=headers)
+        assert listed.status_code == 200
+        created_user = next(
+            item for item in listed.json() if item["id"] == created.json()["id"]
+        )
+        assert created_user["roles"] == ["qc-reader"]
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"username": payload["username"], "password": payload["password"]},
+        )
+        assert login.status_code == 200, login.text
+
+
+    def test_internal_user_creation_rejects_duplicates_supplier_identity_and_invalid_roles(
+        access_environment,
+    ) -> None:
+        client, _, ids = access_environment
+        headers = _headers(client, "admin-one")
+        payload = {"username": "new.internal-user", "password": "New-Internal-Password-2026!"}
+
+        created = client.post("/api/v1/users", json=payload, headers=headers)
+        assert created.status_code == 201, created.text
+        duplicate = client.post("/api/v1/users", json=payload, headers=headers)
+        assert duplicate.status_code == 409
+
+        assert client.post(
+            "/api/v1/users",
+            json={**payload, "username": "supplier-in-disguise", "supplier_id": 1},
+            headers=headers,
+        ).status_code == 422
+        assert client.post(
+            "/api/v1/users",
+            json={**payload, "username": "supplier-role-user", "role_ids": [ids["role_portal"]]},
+            headers=headers,
+        ).status_code == 409
+        assert client.post(
+            "/api/v1/users",
+            json={**payload, "username": "unknown-role-user", "role_ids": [99999]},
+            headers=headers,
+        ).status_code == 404
+        assert client.post(
+            "/api/v1/users",
+            json={**payload, "username": "invalid user"},
+            headers=headers,
+        ).status_code == 422
     permissions = client.get("/api/v1/permissions", headers=headers)
     assert permissions.status_code == 200
     assert "users:manage" in {item["code"] for item in permissions.json()}

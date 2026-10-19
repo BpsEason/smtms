@@ -67,10 +67,19 @@ function installMock(
     permissions?: Response;
     users?: Response;
     createRole?: Response;
+    createUser?: Response;
     savePermissions?: Response;
     saveUserRoles?: Response;
   } = {},
 ) {
+  const currentUsers = [...users];
+  const createdUser = {
+    id: 4,
+    username: "new-staff",
+    email: "new-staff@example.test",
+    is_active: true,
+    roles: ["qc-reader"],
+  };
   fetchMock.mockImplementation(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -81,8 +90,13 @@ function installMock(
         return overrides.roles ?? jsonResponse([adminRole, readerRole]);
       if (url.endsWith("/api/v1/permissions"))
         return overrides.permissions ?? jsonResponse(permissions);
-      if (url.endsWith("/api/v1/users"))
-        return overrides.users ?? jsonResponse(users);
+      if (url.endsWith("/api/v1/users") && method === "POST") {
+        const response = overrides.createUser ?? jsonResponse(createdUser, 201);
+        if (response.ok) currentUsers.push(createdUser);
+        return response;
+      }
+      if (url.endsWith("/api/v1/users") && method === "GET")
+        return overrides.users ?? jsonResponse(currentUsers);
       if (url.endsWith("/permissions") && method === "PUT")
         return overrides.savePermissions ?? jsonResponse(adminRole);
       if (url.includes("/api/v1/users/") && method === "PUT")
@@ -173,6 +187,43 @@ describe("roles and permissions admin page", () => {
     expect([...body.role_ids].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
+  it("creates an internal user with roles and refreshes the list", async () => {
+    installMock();
+    await renderPage();
+    await userEvent.click(
+      screen.getByRole("button", { name: "新增內部使用者" }),
+    );
+    await userEvent.type(screen.getByLabelText("登入帳號"), "new-staff");
+    await userEvent.type(
+      screen.getByLabelText("電子郵件（選填）"),
+      "new-staff@example.test",
+    );
+    await userEvent.type(
+      screen.getByLabelText("初始密碼"),
+      "New-Internal-Password-2026!",
+    );
+    await userEvent.click(screen.getByLabelText("新使用者角色 qc-reader"));
+    await userEvent.click(
+      screen.getByRole("button", { name: "建立內部使用者" }),
+    );
+
+    expect(
+      await screen.findByText("內部使用者已建立並完成角色指派。"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("new-staff")).toBeInTheDocument();
+    const call = findCall("/api/v1/users", "POST");
+    expect(call).toBeTruthy();
+    expect(JSON.parse(String(call?.init?.body))).toEqual({
+      username: "new-staff",
+      email: "new-staff@example.test",
+      password: "New-Internal-Password-2026!",
+      role_ids: [2],
+    });
+    expect(
+      screen.queryByRole("button", { name: "建立內部使用者" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("surfaces API errors without reporting success", async () => {
     installMock({
       createRole: jsonResponse({ detail: "會移除最後一位管理員。" }, 409),
@@ -186,6 +237,25 @@ describe("roles and permissions admin page", () => {
       "操作失敗：會移除最後一位管理員。",
     );
     expect(screen.queryByText("角色已建立。")).not.toBeInTheDocument();
+  });
+
+  it("surfaces internal-user creation errors", async () => {
+    installMock({ createUser: jsonResponse({ detail: "Username already exists" }, 409) });
+    await renderPage();
+    await userEvent.click(
+      screen.getByRole("button", { name: "新增內部使用者" }),
+    );
+    await userEvent.type(screen.getByLabelText("登入帳號"), "staff");
+    await userEvent.type(
+      screen.getByLabelText("初始密碼"),
+      "New-Internal-Password-2026!",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "建立內部使用者" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "操作失敗：Username already exists",
+    );
   });
 
   it("reports a load failure when the roles request is denied", async () => {

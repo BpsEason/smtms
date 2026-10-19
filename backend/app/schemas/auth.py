@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -78,6 +78,15 @@ class UserSummary(BaseModel):
     email: str | None = None
     is_active: bool = True
     roles: list[str] = Field(default_factory=list)
+
+
+class InternalUserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=8, max_length=72)
+    email: EmailStr | None = None
+    role_ids: list[int] = Field(default_factory=list)
 
 
 class UserRolesUpdate(BaseModel):

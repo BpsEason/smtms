@@ -39,6 +39,13 @@ export type AdminUser = {
   roles: string[];
 };
 
+export type InternalUserCreatePayload = {
+  username: string;
+  password: string;
+  email?: string;
+  role_ids: number[];
+};
+
 export type Supplier = {
   id: number;
   supplier_code: string;
