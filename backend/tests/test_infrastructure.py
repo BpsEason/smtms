@@ -1,9 +1,8 @@
-from fastapi.testclient import TestClient
-
-from app.main import app
-from app.db.session import SessionLocal, engine
-from app.core.redis_client import get_redis_client, ping_redis
 from app.api.routes.health import database_health_check, redis_health_check
+from app.core.redis_client import get_redis_client, ping_redis
+from app.db.session import SessionLocal, engine
+from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_database_session_factory_imports() -> None:
