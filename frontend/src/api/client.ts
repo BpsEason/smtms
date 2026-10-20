@@ -6,6 +6,7 @@ import type {
   InternalLotCreatePayload,
   InternalUserCreatePayload,
   Material,
+  Nonconformance,
   MaterialCreatePayload,
   MaterialUpdatePayload,
   PaginatedResponse,
@@ -131,6 +132,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  listNonconformances: async (params?: Record<string, string | number | undefined | null>) =>
+    request<PaginatedResponse<Nonconformance>>(`/api/v1/nonconformances${buildQueryString(params ?? {})}`),
+  getNonconformance: async (id: number) => request<Nonconformance>(`/api/v1/nonconformances/${id}`),
+  createNonconformance: async (payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances`, { method: "POST", body: JSON.stringify(payload) }),
+  updateNonconformance: async (id: number, payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  addNonconformanceDisposition: async (id: number, payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances/${id}/dispositions`, { method: "POST", body: JSON.stringify(payload) }),
+  uploadNonconformanceAttachment: async (id: number, file: File) => {
+    const form = new FormData(); form.append("file", file);
+    return request<{ id: number; original_filename: string }>(`/api/v1/nonconformances/${id}/attachments`, { method: "POST", body: form });
+  },
+  deleteNonconformanceAttachment: async (id: number, attachmentId: number) =>
+    request<void>(`/api/v1/nonconformances/${id}/attachments/${attachmentId}`, { method: "DELETE" }),
+  downloadNonconformanceAttachment: async (id: number, attachmentId: number) => {
+    const headers = new Headers(); const token = readToken(); if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(`${API_BASE_URL}/api/v1/nonconformances/${id}/attachments/${attachmentId}/download`, { headers });
+    if (!response.ok) throw new ApiError(response.status, "附件下載失敗");
+    return response.blob();
+  },
   login: async (username: string, password: string) =>
     request<{ access_token: string; token_type: string }>(
       `/api/v1/auth/login`,

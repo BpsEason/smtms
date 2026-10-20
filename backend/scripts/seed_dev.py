@@ -153,6 +153,8 @@ PERMISSIONS = (
     ("quality:review", "Review incoming inspections"),
     ("quality:approve", "Approve incoming inspections"),
     ("quality:return", "Return incoming inspections for correction"),
+    ("nonconformance:read", "Read quality nonconformance cases"),
+    ("nonconformance:write", "Manage quality nonconformance cases"),
     ("users:manage", "Manage user access"),
 )
 
@@ -174,6 +176,8 @@ ROLE_PERMISSION_CODES = {
         "quality:review",
         "quality:approve",
         "quality:return",
+        "nonconformance:read",
+        "nonconformance:write",
     ),
     "receiver": (
         "suppliers:read",
@@ -223,7 +227,7 @@ EXPECTED_SEEDED_COUNTS = {
     "roles": 3,
     "permissions": len(PERMISSIONS),
     "user_roles": 10,
-    "role_permissions": 26,
+    "role_permissions": 30,
 }
 
 

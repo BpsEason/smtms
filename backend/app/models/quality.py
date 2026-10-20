@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -495,3 +496,93 @@ class QualityReviewORM(Base):
     )
 
     iqc_record: Mapped[IQCRecordORM] = relationship(back_populates="quality_reviews")
+
+
+class NonconformanceORM(Base):
+    __tablename__ = "nonconformances"
+    __table_args__ = (
+        UniqueConstraint("case_no", name="uq_nonconformances_case_no"),
+        {"comment": "品質異常案件"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_no: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(String(4000), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="open", index=True)
+    found_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    found_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    material_id: Mapped[int | None] = mapped_column(ForeignKey("materials.id"), index=True)
+    receipt_id: Mapped[int | None] = mapped_column(ForeignKey("material_receipts.id"), index=True)
+    supplier_lot_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_lots.id"), index=True)
+    internal_lot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("internal_material_lots.id"), index=True
+    )
+    iqc_record_id: Mapped[int | None] = mapped_column(ForeignKey("iqc_records.id"), index=True)
+    defect_qty: Mapped[Decimal | None] = mapped_column(DECIMAL(18, 4))
+    investigation: Mapped[str | None] = mapped_column(String(4000))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class NonconformanceDispositionORM(Base):
+    __tablename__ = "nonconformance_dispositions"
+    __table_args__ = {"comment": "品質異常圍堵與初步處置紀錄"}
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nonconformance_id: Mapped[int] = mapped_column(
+        ForeignKey("nonconformances.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    content: Mapped[str] = mapped_column(String(2000), nullable=False)
+    result: Mapped[str] = mapped_column(String(1000), nullable=False)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class NonconformanceHistoryORM(Base):
+    __tablename__ = "nonconformance_history"
+    __table_args__ = {"comment": "品質異常案件操作歷程"}
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nonconformance_id: Mapped[int] = mapped_column(
+        ForeignKey("nonconformances.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    before_data: Mapped[str | None] = mapped_column(Text)
+    after_data: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class NonconformanceAttachmentORM(Base):
+    __tablename__ = "nonconformance_attachments"
+    __table_args__ = (
+        UniqueConstraint("storage_key", name="uq_nonconformance_attachments_storage_key"),
+        {"comment": "品質異常附件 metadata"},
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nonconformance_id: Mapped[int] = mapped_column(
+        ForeignKey("nonconformances.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

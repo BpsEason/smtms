@@ -86,7 +86,7 @@ function response(body: unknown, status = 200): Response {
 function page<T>(items: T[], total = items.length) {
   return { items, total, page: 1, page_size: 100 };
 }
-function installApiMock(withWorkflowData = false, withQualityPermissions = false) {
+function installApiMock(withWorkflowData = false, withQualityPermissions = false, withNonconformancePermissions = false) {
   let savedReceipt: typeof receipt | null = null;
   let savedLot: typeof internalLot | null = null;
   let savedIqc: Record<string, unknown> | null = null;
@@ -122,6 +122,9 @@ function installApiMock(withWorkflowData = false, withQualityPermissions = false
                 "iqc:write",
                 ...(withQualityPermissions
                   ? ["quality:review", "quality:approve", "quality:return"]
+                  : []),
+                ...(withNonconformancePermissions
+                  ? ["nonconformance:read", "nonconformance:write"]
                   : []),
               ],
         });
@@ -271,6 +274,36 @@ async function signIn() {
 }
 
 describe("SMTMS application", () => {
+  it("shows the nonconformance menu and opens its page for a reader", async () => {
+    installApiMock(false, false, true);
+    render(<App />);
+    await signIn();
+
+    await userEvent.click(await screen.findByRole("link", { name: "品質異常" }));
+
+    expect(await screen.findByRole("heading", { name: "品質異常案件" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/nonconformances"),
+      expect.anything(),
+    );
+  });
+
+  it("hides nonconformance navigation and denies direct route access without read permission", async () => {
+    installApiMock();
+    render(<App />);
+    await signIn();
+    expect(screen.queryByRole("link", { name: "品質異常" })).not.toBeInTheDocument();
+
+    window.history.pushState({}, "", "/nonconformances");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await screen.findByText("所需權限：nonconformance:read。請洽系統管理員確認角色設定。")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/nonconformances"),
+      expect.anything(),
+    );
+  });
+
   it("keeps sign-off controls out of IQC for QA users", async () => {
     installApiMock(false, true);
     render(<App />);
@@ -366,6 +399,7 @@ describe("SMTMS application", () => {
     await screen.findByRole("heading", { name: "儀表板" });
     await userEvent.click(screen.getByRole("link", { name: "收料紀錄" }));
     await screen.findByRole("heading", { name: "收料紀錄" });
+    await userEvent.click(screen.getByRole("button", { name: "新增收料紀錄" }));
 
     await userEvent.click(
       screen.getByRole("button", { name: "新增供應商批號" }),
@@ -407,7 +441,7 @@ describe("SMTMS application", () => {
     );
     expect((await screen.findAllByText("待檢隔離")).length).toBeGreaterThan(0);
     expect(await screen.findByText("來源與品質追溯")).toBeInTheDocument();
-    expect(await screen.findByText("SUPLOT-13")).toBeInTheDocument();
+    expect((await screen.findAllByText("SUPLOT-13")).length).toBeGreaterThan(0);
 
     await userEvent.click(
       screen.getByRole("link", { name: "進料檢驗（IQC）" }),

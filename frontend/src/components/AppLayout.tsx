@@ -1,4 +1,4 @@
-import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck } from 'lucide-react'
+import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck, TriangleAlert } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import type { UserProfile } from '../types'
 import { buttonClass } from './ui'
@@ -6,14 +6,22 @@ import { buttonClass } from './ui'
 type NavItem = { group: string; label: string; to: string; icon: typeof Activity; permission: string | null; permissions?: string[]; anyPermissions?: string[] }
 
 const navigation: NavItem[] = [
+  // 工作總覽
   { group: '工作總覽', label: '儀表板', to: '/', icon: LayoutDashboard, permission: null },
+
+  // 主檔資料
   { group: '主檔資料', label: '供應商', to: '/suppliers', icon: Truck, permission: 'suppliers:read' },
   { group: '主檔資料', label: '物料', to: '/materials', icon: Boxes, permission: 'materials:read' },
+
+  // 進料與追溯（依實際作業順序）
   { group: '進料與追溯', label: '收料紀錄', to: '/receipts', icon: PackageCheck, permission: 'receipts:read' },
   { group: '進料與追溯', label: '內部批號', to: '/internal-lots', icon: Factory, permission: 'materials:read' },
   { group: '進料與追溯', label: '進料檢驗（IQC）', to: '/iqc', icon: ClipboardCheck, permission: 'iqc:read' },
   { group: '進料與追溯', label: '品保簽核', to: '/signoff', icon: ClipboardSignature, permission: null, anyPermissions: ['quality:review', 'quality:approve', 'quality:return'] },
+  { group: '進料與追溯', label: '品質異常', to: '/nonconformances', icon: TriangleAlert, permission: 'nonconformance:read' },
   { group: '進料與追溯', label: '全鏈路追溯', to: '/traceability', icon: SearchCheck, permission: null, permissions: ['receipts:read', 'materials:read', 'iqc:read'] },
+
+  // 系統設定
   { group: '系統設定', label: '角色與權限', to: '/admin/roles', icon: ShieldCheck, permission: 'users:manage' },
 ]
 

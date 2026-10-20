@@ -38,6 +38,8 @@ from app.schemas.catalog import (
     QualityReviewDecision,
     QualityReviewResponse,
     ReceiptCreate,
+    ReceiptIQCSummary,
+    ReceiptListResponse,
     ReceiptResponse,
     ReceiptTraceLot,
     ReceiptTraceResponse,
@@ -277,7 +279,7 @@ def _apply_iqc_to_lot(
         lot.lot_status = "quarantine"
 
 
-@router.get("/receipts", response_model=PaginatedResponse[ReceiptResponse])
+@router.get("/receipts", response_model=PaginatedResponse[ReceiptListResponse])
 def list_receipts(
     keyword: str | None = Query(default=None, max_length=200),
     status: str | None = Query(default=None, max_length=20),
@@ -295,6 +297,7 @@ def list_receipts(
             MaterialORM,
             MaterialReceiptORM.material_id == MaterialORM.id,
         )
+        .join(SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id)
     )
     count_statement = (
         select(func.count())
@@ -307,6 +310,7 @@ def list_receipts(
             MaterialORM,
             MaterialReceiptORM.material_id == MaterialORM.id,
         )
+        .join(SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id)
     )
 
     if current_user.supplier_id is not None:
@@ -319,7 +323,10 @@ def list_receipts(
         criterion = (
             MaterialReceiptORM.receipt_no.ilike(pattern)
             | SupplierORM.supplier_name.ilike(pattern)
+            | SupplierORM.supplier_code.ilike(pattern)
             | MaterialORM.material_name.ilike(pattern)
+            | MaterialORM.material_code.ilike(pattern)
+            | SupplierLotORM.supplier_lot_no.ilike(pattern)
         )
         statement = statement.where(criterion)
         count_statement = count_statement.where(criterion)
@@ -335,10 +342,58 @@ def list_receipts(
 
     total = db.scalar(count_statement) or 0
     receipts = db.scalars(
-        statement.order_by(MaterialReceiptORM.id).offset((page - 1) * page_size).limit(page_size)
+        statement.options(
+            selectinload(MaterialReceiptORM.supplier),
+            selectinload(MaterialReceiptORM.material),
+            selectinload(MaterialReceiptORM.supplier_lot),
+        )
+        .order_by(MaterialReceiptORM.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     ).all()
-    return PaginatedResponse[ReceiptResponse](
-        items=[ReceiptResponse.model_validate(item) for item in receipts],
+    iqc_by_receipt: dict[int, dict[int, ReceiptIQCSummary]] = {}
+    if receipts and "iqc:read" in current_user.permissions:
+        receipt_ids = [item.id for item in receipts]
+        direct_records = db.scalars(
+            select(IQCRecordORM).where(IQCRecordORM.receipt_id.in_(receipt_ids))
+        ).all()
+        linked_records = db.execute(
+            select(IQCRecordORM, InternalMaterialLotORM.receipt_id)
+            .join(InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id)
+            .where(InternalMaterialLotORM.receipt_id.in_(receipt_ids))
+        ).all()
+        records_with_receipt_ids = [
+            *((record, record.receipt_id) for record in direct_records),
+            *linked_records,
+        ]
+        for record, receipt_id in records_with_receipt_ids:
+            if receipt_id in receipt_ids:
+                iqc_by_receipt.setdefault(receipt_id, {})[record.id] = ReceiptIQCSummary(
+                    id=record.id,
+                    inspection_result=record.inspection_result,
+                    release_status=record.release_status,
+                    review_status=record.review_status,
+                )
+
+    return PaginatedResponse[ReceiptListResponse](
+        items=[
+            ReceiptListResponse(
+                **ReceiptResponse.model_validate(item).model_dump(),
+                supplier_code=item.supplier.supplier_code,
+                supplier_name=item.supplier.supplier_name,
+                material_code=item.material.material_code,
+                material_name=item.material.material_name,
+                material_uom=item.material.uom,
+                supplier_lot_no=item.supplier_lot.supplier_lot_no,
+                supplier_lot_uom=item.supplier_lot.uom,
+                iqc_records=(
+                    list(iqc_by_receipt.get(item.id, {}).values())
+                    if "iqc:read" in current_user.permissions
+                    else None
+                ),
+            )
+            for item in receipts
+        ],
         total=total,
         page=page,
         page_size=page_size,

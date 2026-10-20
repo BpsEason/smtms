@@ -67,6 +67,8 @@ def quality_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
             PermissionORM(code="quality:review", name="Review QA decisions"),
             PermissionORM(code="quality:approve", name="Approve QA decisions"),
             PermissionORM(code="quality:return", name="Return QA decisions"),
+            PermissionORM(code="nonconformance:read", name="Read quality cases"),
+            PermissionORM(code="nonconformance:write", name="Manage quality cases"),
         ]
         admin_role = RoleORM(name="quality-admin")
         user = UserORM(
@@ -193,6 +195,10 @@ def quality_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
                     role_id=supplier_role.id,
                     permission_id=permission_by_code["suppliers:read"].id,
                 ),
+                RolePermissionORM(
+                    role_id=supplier_role.id,
+                    permission_id=permission_by_code["nonconformance:read"].id,
+                ),
                 *[
                     RolePermissionORM(role_id=qa_role.id, permission_id=permission_by_code[code].id)
                     for code in ("quality:review", "quality:approve", "quality:return")
@@ -217,6 +223,187 @@ def test_receipt_and_iqc_flow_quality_environment(quality_environment) -> None:
     listing = client.get("/api/v1/receipts?status=received", headers=headers)
     assert listing.status_code == 200, listing.text
     assert listing.json()["total"] >= 1
+
+
+def test_receipt_list_searches_supplier_lot_and_returns_iqc_summary_only_with_permission(
+    quality_environment,
+) -> None:
+    client, sessions = quality_environment
+    admin_headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    with sessions.begin() as session:
+        receipt = session.query(MaterialReceiptORM).filter_by(receipt_no="REC-100").one()
+        lot = session.query(InternalMaterialLotORM).filter_by(receipt_id=receipt.id).one()
+        session.add(
+            IQCRecordORM(
+                receipt_id=None,
+                internal_lot_id=lot.id,
+                sample_qty=1,
+                inspection_result="failed",
+                release_status="rejected",
+                review_status="pending",
+            )
+        )
+
+    found = client.get("/api/v1/receipts?keyword=LOT-100", headers=admin_headers)
+    assert found.status_code == 200, found.text
+    assert found.json()["total"] == 1
+    assert found.json()["items"][0]["iqc_records"][0]["inspection_result"] == "failed"
+
+    with sessions.begin() as session:
+        read_role = RoleORM(name="receipt-reader")
+        reader = UserORM(
+            username="receipt-reader",
+            email="receipt-reader@example.test",
+            password_hash=get_password_hash("Quality-Test-Password-2026!"),
+            is_active=True,
+        )
+        session.add_all([read_role, reader])
+        session.flush()
+        read_permission = session.query(PermissionORM).filter_by(code="receipts:read").one()
+        session.add_all(
+            [
+                UserRoleORM(user_id=reader.id, role_id=read_role.id),
+                RolePermissionORM(role_id=read_role.id, permission_id=read_permission.id),
+            ]
+        )
+    reader_headers = _headers(client, "receipt-reader", "Quality-Test-Password-2026!")
+    without_iqc_access = client.get("/api/v1/receipts", headers=reader_headers)
+    assert without_iqc_access.status_code == 200, without_iqc_access.text
+    assert without_iqc_access.json()["items"][0]["iqc_records"] is None
+
+
+def test_nonconformance_flow_links_iqc_records_history_and_guards_closing(
+    quality_environment,
+) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    iqc = client.post(
+        "/api/v1/iqc",
+        json={
+            "internal_lot_id": 1,
+            "sample_qty": "1",
+            "inspection_result": "failed",
+            "release_status": "rejected",
+        },
+        headers=headers,
+    )
+    assert iqc.status_code == 201, iqc.text
+    created = client.post(
+        "/api/v1/nonconformances",
+        json={
+            "case_no": "NC-TEST-001",
+            "title": "IQC defect",
+            "description": "Surface crack",
+            "source": "iqc",
+            "severity": "high",
+            "found_at": "2026-10-20T10:00:00Z",
+            "iqc_record_id": iqc.json()["id"],
+            "defect_qty": "2",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    case = created.json()
+    assert case["supplier_id"] == 1 and case["material_id"] == 1
+    assert case["receipt_id"] == 1 and case["supplier_lot_id"] == 1
+    assert (
+        client.patch(
+            f"/api/v1/nonconformances/{case['id']}", json={"status": "closed"}, headers=headers
+        ).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/v1/nonconformances/{case['id']}",
+            json={"status": "pending_confirmation"},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/v1/nonconformances/{case['id']}",
+            json={"status": "investigating", "investigation": "Lot review"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/nonconformances/{case['id']}/dispositions",
+            json={
+                "content": "Sort affected lot",
+                "result": "2 defective units isolated",
+                "owner_user_id": 1,
+                "executed_at": "2026-10-20T11:00:00Z",
+            },
+            headers=headers,
+        ).status_code
+        == 201
+    )
+    assert (
+        client.patch(
+            f"/api/v1/nonconformances/{case['id']}",
+            json={"status": "pending_confirmation"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    closed = client.patch(
+        f"/api/v1/nonconformances/{case['id']}", json={"status": "closed"}, headers=headers
+    )
+    assert closed.status_code == 200, closed.text
+    assert len(closed.json()["history"]) >= 5
+    assert client.get("/api/v1/nonconformances", headers=headers).json()["total"] == 1
+
+
+def test_nonconformance_rbac_and_invalid_reference(quality_environment) -> None:
+    client, TestSession = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    denied = _headers(client, "receiver-limited", "Quality-Test-Password-2026!")
+    payload = {
+        "case_no": "NC-TEST-002",
+        "title": "Test",
+        "description": "Test",
+        "source": "other",
+        "severity": "low",
+        "found_at": "2026-10-20T10:00:00Z",
+    }
+    assert client.get("/api/v1/nonconformances").status_code == 401
+    assert client.get("/api/v1/nonconformances", headers=denied).status_code == 403
+    assert client.get("/api/v1/nonconformances", headers=headers).status_code == 200
+    assert client.post("/api/v1/nonconformances", json=payload, headers=denied).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/nonconformances", json={**payload, "receipt_id": 9999}, headers=headers
+        ).status_code
+        == 404
+    )
+    with TestSession.begin() as session:
+        other_supplier = SupplierORM(
+            supplier_code="SUP-200", supplier_name="Other Supplier", status="active"
+        )
+        session.add(other_supplier)
+        session.flush()
+        other_supplier_id = other_supplier.id
+    other_case = client.post(
+        "/api/v1/nonconformances",
+        json={
+            **payload,
+            "case_no": "NC-OTHER",
+            "title": "Other supplier case",
+            "supplier_id": other_supplier_id,
+        },
+        headers=headers,
+    )
+    assert other_case.status_code == 201, other_case.text
+    supplier_headers = _headers(client, "supplier-portal", "Quality-Test-Password-2026!")
+    assert (
+        client.get(
+            f"/api/v1/nonconformances/{other_case.json()['id']}", headers=supplier_headers
+        ).status_code
+        == 403
+    )
 
     created = client.post(
         "/api/v1/receipts",
@@ -269,6 +456,64 @@ def test_receipt_and_iqc_flow_quality_environment(quality_environment) -> None:
     assert patch.status_code == 200, patch.text
     assert patch.json()["inspection_result"] == "failed"
     assert patch.json()["release_status"] == "rejected"
+
+
+def test_nonconformance_attachment_upload_download_delete_and_history(
+    quality_environment, monkeypatch, tmp_path
+) -> None:
+    from types import SimpleNamespace
+
+    from app.services import document_storage
+
+    monkeypatch.setattr(
+        document_storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            document_storage_dir=str(tmp_path), document_max_file_bytes=1024 * 1024
+        ),
+    )
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    created = client.post(
+        "/api/v1/nonconformances",
+        json={
+            "case_no": "NC-ATTACH-001",
+            "title": "Image evidence",
+            "description": "Evidence upload test",
+            "source": "other",
+            "severity": "low",
+            "found_at": "2026-10-20T10:00:00Z",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    case_id = created.json()["id"]
+    image = b"\x89PNG\r\n\x1a\n" + b"evidence"
+    uploaded = client.post(
+        f"/api/v1/nonconformances/{case_id}/attachments",
+        files={"file": ("evidence.png", image, "image/png")},
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert "storage_key" not in uploaded.json()
+    attachment_id = uploaded.json()["id"]
+    downloaded = client.get(
+        f"/api/v1/nonconformances/{case_id}/attachments/{attachment_id}/download",
+        headers=headers,
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == image
+    deleted = client.delete(
+        f"/api/v1/nonconformances/{case_id}/attachments/{attachment_id}", headers=headers
+    )
+    assert deleted.status_code == 204
+    history = client.get(f"/api/v1/nonconformances/{case_id}", headers=headers).json()["history"]
+    assert [entry["action"] for entry in history] == [
+        "created",
+        "attachment_added",
+        "attachment_removed",
+    ]
+    assert history[-1]["after_data"]
 
 
 def test_supplier_lot_creation_validates_relationship_uniqueness_and_precision(

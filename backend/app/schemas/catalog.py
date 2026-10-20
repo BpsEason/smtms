@@ -300,6 +300,25 @@ class ReceiptResponse(ORMResponse):
     created_at: datetime
 
 
+class ReceiptIQCSummary(BaseModel):
+    id: int
+    inspection_result: str
+    release_status: str
+    review_status: str
+
+
+class ReceiptListResponse(ReceiptResponse):
+    # None means this caller cannot read IQC data; [] means the receipt has no IQC records.
+    iqc_records: list[ReceiptIQCSummary] | None = None
+    supplier_code: str
+    supplier_name: str
+    material_code: str
+    material_name: str
+    material_uom: str
+    supplier_lot_no: str
+    supplier_lot_uom: str
+
+
 class InternalLotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

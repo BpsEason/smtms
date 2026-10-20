@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import {
   allInternalLots,
@@ -52,6 +53,10 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [showLotForm, setShowLotForm] = useState(false);
   const [lotSaving, setLotSaving] = useState(false);
   const [receiptQuery, setReceiptQuery] = useState("");
+  const [receiptStatus, setReceiptStatus] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showReceiptForm, setShowReceiptForm] = useState(false);
   const [receiptPage, setReceiptPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
@@ -102,6 +107,9 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     try {
       const response = await api.listReceipts({
         keyword: receiptQuery || undefined,
+        status: receiptStatus || undefined,
+        date_from: dateFrom ? new Date(`${dateFrom}T00:00:00`).toISOString() : undefined,
+        date_to: dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined,
         page: receiptPage,
         page_size: 50,
       });
@@ -117,7 +125,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     } finally {
       setLoading(false);
     }
-  }, [receiptQuery, receiptPage]);
+  }, [receiptQuery, receiptStatus, dateFrom, dateTo, receiptPage]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -305,7 +313,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       <PageHeader
         eyebrow="進料管理"
         title="收料紀錄"
-        description="依既有供應商批號登錄收料數量，再拆分為可追溯的內部批號。"
+        description="檢視收料日期、供應商批號與 IQC 進度；收料登錄依既有供應商批號進行。"
+        action={canWrite ? <button className={buttonClass} onClick={() => setShowReceiptForm((value) => !value)}>{showReceiptForm ? "關閉新增表單" : "新增收料紀錄"}</button> : undefined}
       />
       {error && (
         <div className="mb-4">
@@ -317,8 +326,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           <SuccessMessage>{success}</SuccessMessage>
         </div>
       )}
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]">
-        {canWrite && (
+      <div className="space-y-5">
+        {canWrite && showReceiptForm && (
           <Panel
             title="收料作業"
             description="依序確認供應商、物料、供應商批號，再登錄收料數量。若供應商批號尚未建檔，可先在此登錄。"
@@ -629,8 +638,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         )}
         <Panel
           title="收料清單"
-          description="可依收料單號、供應商名稱或物料名稱搜尋。"
-          className={!canWrite ? "xl:col-span-2" : ""}
+          description="搜尋收料單號、供應商／物料代碼或名稱、供應商批號，並可搭配日期與狀態篩選。"
           action={
             <button
               className={secondaryButtonClass}
@@ -650,7 +658,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
             <input
               className={`${inputClass} pl-9`}
               aria-label="搜尋收料紀錄"
-              placeholder="搜尋收料單號、供應商或物料"
+              placeholder="單號、供應商、物料或供應商批號"
               value={receiptQuery}
               onChange={(event) => {
                 setReceiptQuery(event.target.value);
@@ -662,63 +670,30 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
               }}
             />
           </div>
-          {loading ? (
-            <LoadingState label="正在載入收料紀錄…" />
-          ) : receipts?.items.length ? (
-            <div className="space-y-2">
-              {receipts.items.map((receipt) => {
-                const supplier = suppliers.find(
-                  (item) => item.id === receipt.supplier_id,
-                );
-                const material = materials.find(
-                  (item) => item.id === receipt.material_id,
-                );
-                return (
-                  <button
-                    key={receipt.id}
-                    onClick={() => {
-                      setSelectedId(receipt.id);
-                      setSelectedReceipt(receipt);
-                      setTrace(null);
-                      setTraceError("");
-                      setSelectedLot(null);
-                      setSuccess("");
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-3 text-left ${selectedId === receipt.id ? "border-sky-300 bg-sky-50/60" : "border-slate-200 hover:bg-slate-50"}`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-slate-900">
-                        {receipt.receipt_no}
-                      </span>
-                      <span className="mt-1 block text-xs text-slate-500">
-                        {supplier?.supplier_name ??
-                          `供應商編號 ${receipt.supplier_id}`}{" "}
-                        ·{" "}
-                        {material?.material_name ??
-                          `物料編號 ${receipt.material_id}`}{" "}
-                        ·{" "}
-                        {new Date(receipt.received_at).toLocaleDateString(
-                          "zh-TW",
-                        )}
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusBadge value={receipt.status} />
-                      <span className="text-xs tabular-nums text-slate-500">
-                        剩餘 {receipt.qty_remaining}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : error && !receipts ? null : (
-            <EmptyState
-              title="尚無收料紀錄"
-              description="請使用主檔中既有的供應商批號建立收料紀錄。"
-            />
-          )}
-          <Pagination
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <FormField label="收料日期（起）"><input className={inputClass} type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => { setDateFrom(event.target.value); setReceiptPage(1); }} /></FormField>
+            <FormField label="收料日期（迄）"><input className={inputClass} type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => { setDateTo(event.target.value); setReceiptPage(1); }} /></FormField>
+            <FormField label="收料狀態"><select className={inputClass} value={receiptStatus} onChange={(event) => { setReceiptStatus(event.target.value); setReceiptPage(1); }}><option value="">全部狀態</option><option value="received">已收料</option></select></FormField>
+            <div className="flex items-end"><button className={secondaryButtonClass} disabled={!receiptQuery && !dateFrom && !dateTo && !receiptStatus} onClick={() => { setReceiptQuery(""); setDateFrom(""); setDateTo(""); setReceiptStatus(""); setReceiptPage(1); }}>清除條件</button></div>
+          </div>
+          {receipts && <p className="mb-3 text-xs text-slate-500">共 {receipts.total} 筆，顯示第 {receipts.items.length ? (receiptPage - 1) * receipts.page_size + 1 : 0}–{Math.min(receiptPage * receipts.page_size, receipts.total)} 筆</p>}
+          {loading ? <LoadingState label="正在載入收料紀錄…" /> : receipts?.items.length ? (
+            <DataTable>
+              <TableHead><TableRow><Th>收料單號／日期</Th><Th>供應商</Th><Th>物料</Th><Th>供應商批號</Th><Th>收料數量</Th><Th>IQC</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead>
+              <TableBody>{receipts.items.map((receipt) => {
+                return <TableRow key={receipt.id} className={selectedId === receipt.id ? "bg-sky-50/60" : ""}>
+                  <Td><span className="block font-medium text-slate-950">{receipt.receipt_no}</span><span className="text-xs text-slate-500">{new Date(receipt.received_at).toLocaleString("zh-TW")}</span></Td>
+                  <Td className="max-w-48"><span className="block truncate" title={receipt.supplier_name}>{receipt.supplier_code && receipt.supplier_name ? `${receipt.supplier_code} · ${receipt.supplier_name}` : `供應商 ${receipt.supplier_id}`}</span></Td>
+                  <Td className="max-w-52"><span className="block truncate" title={receipt.material_name}>{receipt.material_code && receipt.material_name ? `${receipt.material_code} · ${receipt.material_name}` : `物料 ${receipt.material_id}`}</span></Td>
+                  <Td className="max-w-40"><span className="block truncate" title={receipt.supplier_lot_no}>{receipt.supplier_lot_no ?? `批號 ${receipt.supplier_lot_id}`}</span></Td>
+                  <Td className="whitespace-nowrap tabular-nums">{receipt.qty_received} {receipt.supplier_lot_uom ?? receipt.material_uom ?? ""}</Td>
+                  <Td>{receipt.iqc_records == null ? <span className="text-xs text-slate-500">需 IQC 權限</span> : receipt.iqc_records.length ? <div className="space-y-1">{receipt.iqc_records.slice(0, 2).map((check) => <div key={check.id} className="whitespace-nowrap"><span className="mr-1 text-xs">IQC-{check.id}</span><StatusBadge value={check.inspection_result} /></div>)}{receipt.iqc_records.length > 2 && <span className="text-xs text-slate-500">另 {receipt.iqc_records.length - 2} 筆</span>}</div> : <span className="whitespace-nowrap text-xs text-slate-500">尚未檢驗</span>}</Td>
+                  <Td><StatusBadge value={receipt.status} /></Td>
+                  <Td><button className={secondaryButtonClass} onClick={() => { setSelectedId(receipt.id); setSelectedReceipt(receipt); setTrace(null); setTraceError(""); setSelectedLot(null); setSuccess(""); }}>查看明細</button></Td>
+                </TableRow>;
+              })}</TableBody>
+            </DataTable>
+          ) : error && !receipts ? null : <EmptyState title={receipts?.total ? "沒有符合條件的收料紀錄" : "尚無收料紀錄"} description={receipts?.total ? "請調整搜尋或篩選條件。" : "請使用主檔中既有的供應商批號建立收料紀錄。"} />}          <Pagination
             page={receiptPage}
             total={receipts?.total ?? 0}
             pageSize={receipts?.page_size ?? 50}
@@ -928,6 +903,12 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                         .join("、")}
                     </div>
                   )}
+                  {trace.receipt_iqc_records.length === 0 &&
+                    trace.internal_lots.every(({ iqc_records }) => iqc_records.length === 0) && (
+                      <p className="text-sm text-slate-600">
+                        尚未檢驗。{profile?.permissions.includes("iqc:read") && <Link className="ml-2 text-sky-700 underline" to="/iqc">前往 IQC 紀錄</Link>}
+                      </p>
+                    )}
                 </div>
               )}
             </div>
@@ -1448,6 +1429,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                   <Th>檢驗日期</Th>
                   <Th>檢驗結果</Th>
                   <Th>放行狀態</Th>
+                  {profile?.permissions.includes("nonconformance:write") && <Th>品質異常</Th>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1482,6 +1464,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                       <Td>
                         <StatusBadge value={record.release_status} />
                       </Td>
+                      {profile?.permissions.includes("nonconformance:write") && <Td><Link className="text-sky-700 underline" to={`/nonconformances?iqc_id=${record.id}`}>建立異常案件</Link></Td>}
                     </TableRow>
                   );
                 })}

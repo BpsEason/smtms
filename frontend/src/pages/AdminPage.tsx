@@ -258,6 +258,9 @@ export function RolesPermissionsPage({
         materials: "物料與批號",
         receipts: "收料作業",
         iqc: "進料檢驗（IQC）",
+        "supplier-lots": "供應商批號",
+        quality: "品保簽核",
+        nonconformance: "品質異常",
         users: "使用者與系統設定",
       };
       const title = titles[prefix] ?? "其他已設定權限";
@@ -403,7 +406,7 @@ export function RolesPermissionsPage({
                     />
                     <span>
                       <span className="block font-medium text-slate-900">{permissionLabel(permission)}</span>
-                      {permission.description && <span className="mt-0.5 block text-xs font-normal text-slate-500">{permission.description}</span>}
+                      {permissionDescription(permission) && <span className="mt-0.5 block text-xs font-normal text-slate-500">{permissionDescription(permission)}</span>}
                     </span>
                   </label>
                 );
@@ -739,21 +742,34 @@ function optional(value: FormDataEntryValue | null) {
 }
 
 function permissionLabel(permission: PermissionItem) {
-  if (/[\u3400-\u9fff]/.test(permission.name)) return permission.name;
-  const [resource, action] = permission.code.split(":");
-  const resources: Record<string, string> = {
-    suppliers: "供應商資料",
-    materials: "物料與批號",
-    receipts: "收料紀錄",
-    iqc: "進料檢驗（IQC）",
-    users: "使用者與系統設定",
+  const labels: Record<string, string> = {
+    "suppliers:read": "查看供應商資料",
+    "suppliers:write": "新增／修改供應商資料",
+    "materials:read": "查看物料與批號",
+    "materials:write": "新增／修改物料與批號",
+    "receipts:read": "查看收料紀錄",
+    "receipts:write": "建立收料紀錄",
+    "supplier-lots:write": "建立供應商批號",
+    "iqc:read": "查看進料檢驗（IQC）",
+    "iqc:write": "建立／修改進料檢驗（IQC）",
+    "quality:review": "審核進料檢驗",
+    "quality:approve": "核准進料檢驗",
+    "quality:return": "退回進料檢驗",
+    "nonconformance:read": "查看品質異常",
+    "nonconformance:write": "新增／修改品質異常",
+    "users:manage": "管理使用者與系統設定",
   };
-  const resourceName = resources[resource];
-  if (!resourceName) return permission.name;
-  if (action === "read") return `查看${resourceName}`;
-  if (action === "write") return `新增／修改${resourceName}`;
-  if (action === "manage") return `管理${resourceName}`;
-  return permission.name;
+  const label = labels[permission.code];
+  if (label) return label;
+
+  const fallback = permission.name.replace(/^Seed permission:\s*/i, "").trim();
+  return fallback || permission.code;
+}
+
+function permissionDescription(permission: PermissionItem) {
+  const description = permission.description?.trim();
+  if (!description || /^Seed permission:/i.test(description)) return null;
+  return description;
 }
 
 function message(error: unknown) {

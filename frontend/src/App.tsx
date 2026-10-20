@@ -23,6 +23,7 @@ import { IQCPage, InternalLotsPage, ReceiptsPage } from "./pages/WorkflowPages";
 import { SignoffPage } from "./pages/SignoffPage";
 import { LoginPage } from "./pages/LoginPage";
 import { TraceabilityPage } from "./pages/TraceabilityPage";
+import { NonconformancePage } from "./pages/NonconformancePage";
 import type { UserProfile } from "./types";
 
 function normalizePermissions(
@@ -217,6 +218,7 @@ function AppShell() {
             </MultiPermissionPage>
           }
         />
+        <Route path="nonconformances" element={<PermissionPage profile={profile} permission="nonconformance:read"><NonconformancePage profile={profile} /></PermissionPage>} />
         <Route
           path="admin/roles"
           element={

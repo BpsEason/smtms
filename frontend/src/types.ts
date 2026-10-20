@@ -8,6 +8,18 @@ export type UserProfile = {
   must_change_password?: boolean;
 };
 
+export type Nonconformance = {
+  id: number; case_no: string; title: string; description: string; source: string;
+  severity: string; status: string; found_at: string; found_by_user_id: number;
+  owner_user_id: number | null; supplier_id: number | null; material_id: number | null;
+  receipt_id: number | null; supplier_lot_id: number | null; internal_lot_id: number | null;
+  iqc_record_id: number | null; defect_qty: string | null; investigation: string | null;
+  closed_at: string | null; created_at: string; updated_at: string;
+  dispositions?: { id: number; content: string; result: string; owner_user_id: number; executed_at: string }[];
+  history?: { id: number; action: string; actor_user_id: number; before_data: string | null; after_data: string; created_at: string }[];
+  attachments?: { id: number; original_filename: string; media_type: string; size_bytes: number; sha256: string }[];
+};
+
 export type PaginatedResponse<T> = {
   items: T[];
   total: number;
@@ -180,6 +192,21 @@ export type Receipt = {
   status: string;
   notes: string | null;
   created_at: string;
+  supplier_code?: string;
+  supplier_name?: string;
+  material_code?: string;
+  material_name?: string;
+  material_uom?: string;
+  supplier_lot_no?: string;
+  supplier_lot_uom?: string;
+  iqc_records?: ReceiptIQCSummary[] | null;
+};
+
+export type ReceiptIQCSummary = {
+  id: number;
+  inspection_result: string;
+  release_status: string;
+  review_status: string;
 };
 
 export type InternalLot = {

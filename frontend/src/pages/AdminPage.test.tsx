@@ -36,6 +36,14 @@ const readerRole = {
 const permissions = [
   { id: 10, code: "users:manage", name: "管理使用者", description: null },
   { id: 11, code: "iqc:read", name: "讀取 IQC", description: null },
+  { id: 12, code: "nonconformance:read", name: "Read quality nonconformance cases", description: "Seed permission: Read quality nonconformance cases" },
+  { id: 13, code: "nonconformance:write", name: "Manage quality nonconformance cases", description: "Seed permission: Manage quality nonconformance cases" },
+  { id: 14, code: "quality:review", name: "Review incoming inspections", description: "Seed permission: Review incoming inspections" },
+  { id: 15, code: "quality:approve", name: "Approve incoming inspections", description: "Seed permission: Approve incoming inspections" },
+  { id: 16, code: "quality:return", name: "Return incoming inspections for correction", description: "Seed permission: Return incoming inspections for correction" },
+  { id: 17, code: "supplier-lots:write", name: "Create supplier lots", description: "Seed permission: Create supplier lots" },
+  { id: 18, code: "receipts:write", name: "Create material receipts", description: "Seed permission: Create material receipts" },
+  { id: 19, code: "legacy:custom", name: "Seed permission: Legacy custom permission", description: "Seed permission: Legacy custom permission" },
 ];
 
 const users = [
@@ -135,7 +143,7 @@ describe("roles and permissions admin page", () => {
     await renderPage();
     expect(screen.getAllByText("qc-reader").length).toBeGreaterThan(0);
     expect(screen.getByText("staff")).toBeInTheDocument();
-    expect(screen.getByText("管理使用者")).toBeInTheDocument();
+    expect(screen.getByText("管理使用者與系統設定")).toBeInTheDocument();
   });
 
   it("creates a role through the API", async () => {
@@ -158,7 +166,18 @@ describe("roles and permissions admin page", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "設定權限 access-admin" }),
     );
+    expect(screen.getByText("品質異常")).toBeInTheDocument();
+    expect(screen.getByLabelText("查看品質異常")).toBeInTheDocument();
+    expect(screen.getByLabelText("新增／修改品質異常")).toBeInTheDocument();
+    expect(screen.getByText("審核進料檢驗")).toBeInTheDocument();
+    expect(screen.getByText("核准進料檢驗")).toBeInTheDocument();
+    expect(screen.getByText("退回進料檢驗")).toBeInTheDocument();
+    expect(screen.getByText("建立供應商批號")).toBeInTheDocument();
+    expect(screen.getByText("建立收料紀錄")).toBeInTheDocument();
+    expect(screen.getByText("Legacy custom permission")).toBeInTheDocument();
+    expect(screen.queryByText(/Seed permission:/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByLabelText("讀取 IQC"));
+    await userEvent.click(screen.getByLabelText("查看品質異常"));
     await userEvent.click(screen.getByRole("button", { name: "儲存權限" }));
 
     expect(
@@ -167,7 +186,7 @@ describe("roles and permissions admin page", () => {
     const call = findCall("/api/v1/roles/1/permissions", "PUT");
     expect(call).toBeTruthy();
     expect(JSON.parse(String(call?.init?.body))).toEqual({
-      permission_ids: [10, 11],
+      permission_ids: [10, 11, 12],
     });
   });
 
