@@ -221,6 +221,25 @@ def require_permission(*required_permissions: str):
     return dependency
 
 
+def require_any_permission(*required_permissions: str):
+    def dependency(
+        current_user: AuthenticatedUser = Depends(get_current_user),
+    ) -> AuthenticatedUser:
+        _ensure_password_changed(current_user)
+        granted_permissions = {
+            normalize_permission_code(permission)
+            for permission in current_user.permissions
+        }
+        if not set(required_permissions).intersection(granted_permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing permissions: {sorted(set(required_permissions))}",
+            )
+        return current_user
+
+    return dependency
+
+
 def require_role(*allowed_roles: str):
     def dependency(
         current_user: AuthenticatedUser = Depends(get_current_user),

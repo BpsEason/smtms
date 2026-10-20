@@ -20,7 +20,9 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { RolesPermissionsPage } from "./pages/AdminPage";
 import { CatalogPages } from "./pages/CatalogPages";
 import { IQCPage, InternalLotsPage, ReceiptsPage } from "./pages/WorkflowPages";
+import { SignoffPage } from "./pages/SignoffPage";
 import { LoginPage } from "./pages/LoginPage";
+import { TraceabilityPage } from "./pages/TraceabilityPage";
 import type { UserProfile } from "./types";
 
 function normalizePermissions(
@@ -190,6 +192,32 @@ function AppShell() {
           }
         />
         <Route
+          path="signoff"
+          element={
+            <AnyPermissionPage
+              profile={profile}
+              permissions={[
+                "quality:review",
+                "quality:approve",
+                "quality:return",
+              ]}
+            >
+              <SignoffPage profile={profile} />
+            </AnyPermissionPage>
+          }
+        />
+        <Route
+          path="traceability"
+          element={
+            <MultiPermissionPage
+              profile={profile}
+              permissions={["receipts:read", "materials:read", "iqc:read"]}
+            >
+              <TraceabilityPage />
+            </MultiPermissionPage>
+          }
+        />
+        <Route
           path="admin/roles"
           element={
             <PermissionPage profile={profile} permission="users:manage">
@@ -330,6 +358,64 @@ function PermissionPage({
         <EmptyState
           title="無法存取此功能"
           description={`所需權限：${permission}。請洽系統管理員確認角色設定。`}
+        />
+      </section>
+    );
+  return children;
+}
+
+function MultiPermissionPage({
+  profile,
+  permissions,
+  children,
+}: {
+  profile: UserProfile | null;
+  permissions: string[];
+  children: ReactNode;
+}) {
+  if (
+    !permissions.every((permission) =>
+      profile?.permissions.includes(permission),
+    )
+  )
+    return (
+      <section>
+        <PageHeader
+          eyebrow="權限控管"
+          title="需要存取權限"
+          description="目前帳號沒有檢視此作業功能的完整權限。"
+        />
+        <EmptyState
+          title="無法存取此功能"
+          description={`所需權限：${permissions.join(", ")}。請洽系統管理員確認角色設定。`}
+        />
+      </section>
+    );
+  return children;
+}
+
+function AnyPermissionPage({
+  profile,
+  permissions,
+  children,
+}: {
+  profile: UserProfile | null;
+  permissions: string[];
+  children: ReactNode;
+}) {
+  if (
+    !permissions.some((permission) => profile?.permissions.includes(permission))
+  )
+    return (
+      <section>
+        <PageHeader
+          eyebrow="權限控管"
+          title="需要存取權限"
+          description="目前帳號沒有檢視此作業功能的權限。"
+        />
+        <EmptyState
+          title="無法存取此功能"
+          description={`所需權限（具備任一即可）：${permissions.join(", ")}。請洽系統管理員確認角色設定。`}
         />
       </section>
     );

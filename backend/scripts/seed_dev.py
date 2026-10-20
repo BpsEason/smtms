@@ -12,7 +12,8 @@ The seeder is idempotent and non-destructive:
 * nothing is ever deleted, so ``LIVE-*`` and other manually created records
   are left untouched.
 
-The shared local test password is restricted to this guarded seeder.
+The local test password is read from SMTMS_SEED_PASSWORD and restricted to this
+guarded development/test seeder.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from app.models.quality import (
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    QualityReviewORM,
     SupplierLotORM,
     SupplierMaterialORM,
     SupplierORM,
@@ -63,8 +65,8 @@ SEED_RECEIPT_PREFIX = "SEED-REC-"
 SEED_INTERNAL_LOT_PREFIX = "SEED-ILOT-"
 SEED_DOCUMENT_PREFIX = "SEED-CERT-"
 SEED_IQC_REMARK_PREFIX = "Seeded inspection outcome:"
-LOCAL_SEED_PASSWORD = "SmtmsLocal2026!"
-SEED_REQUIRED_REVISION = "20261019_autoincrement_pks"
+SEED_REQUIRED_REVISION = "20261019_doc_attachments"
+SEED_REVIEW_NOTE_PREFIX = "SEED-SIGNOFF:"
 
 SUPPLIER_DATA = (
     (
@@ -117,6 +119,10 @@ PERMISSIONS = (
     ("receipts:write", "Create material receipts"),
     ("iqc:read", "Read incoming inspections"),
     ("iqc:write", "Manage incoming inspections"),
+    ("supplier-lots:write", "Create supplier lots"),
+    ("quality:review", "Review incoming inspections"),
+    ("quality:approve", "Approve incoming inspections"),
+    ("quality:return", "Return incoming inspections for correction"),
     ("users:manage", "Manage user access"),
 )
 
@@ -129,8 +135,23 @@ INTERNAL_USERS = (
 
 ROLE_PERMISSION_CODES = {
     "admin": tuple(code for code, _ in PERMISSIONS),
-    "qa": ("suppliers:read", "materials:read", "receipts:read", "iqc:read", "iqc:write"),
-    "receiver": ("suppliers:read", "materials:read", "receipts:read", "receipts:write"),
+    "qa": (
+        "suppliers:read",
+        "materials:read",
+        "receipts:read",
+        "iqc:read",
+        "iqc:write",
+        "quality:review",
+        "quality:approve",
+        "quality:return",
+    ),
+    "receiver": (
+        "suppliers:read",
+        "materials:read",
+        "receipts:read",
+        "receipts:write",
+        "supplier-lots:write",
+    ),
 }
 
 # Supported values are stored as strings by the current schema (no database ENUM/check constraints).
@@ -172,7 +193,7 @@ EXPECTED_SEEDED_COUNTS = {
     "roles": 3,
     "permissions": len(PERMISSIONS),
     "user_roles": 10,
-    "role_permissions": 18,
+    "role_permissions": 26,
 }
 
 
@@ -190,7 +211,9 @@ def _require_safe_environment() -> str:
     if (parsed.port or 3306) != 3306 or database_name != "smtms":
         raise RuntimeError("Seeder is restricted to localhost:3306/smtms.")
 
-    password = os.getenv("SMTMS_SEED_PASSWORD", LOCAL_SEED_PASSWORD)
+    password = get_settings().smtms_seed_password or os.getenv("SMTMS_SEED_PASSWORD")
+    if not password:
+        raise RuntimeError("Set SMTMS_SEED_PASSWORD before running the development seeder.")
     if len(password) < 12:
         raise RuntimeError("SMTMS_SEED_PASSWORD must be at least 12 characters.")
     if len(password.encode("utf-8")) > 72:
@@ -560,6 +583,108 @@ def _sync_seed(session: Session, password: str) -> None:
                 label="IQC record",
             )
 
+    _seed_signoff_examples(session, users)
+
+
+def _seed_signoff_examples(session: Session, users: dict[str, UserORM]) -> None:
+    """Add deterministic QA examples only to untouched, seeder-owned IQC rows.
+
+    Seed decisions are never replayed over an IQC that has any review history.
+    This keeps real QA actions and final statuses intact on subsequent runs.
+    """
+    records = session.scalars(
+        select(IQCRecordORM)
+        .where(IQCRecordORM.remarks.like(f"{SEED_IQC_REMARK_PREFIX}%"))
+        .order_by(IQCRecordORM.id)
+    ).all()
+    if not records:
+        return
+
+    reviewed_ids = set(
+        session.scalars(
+            select(QualityReviewORM.iqc_record_id).where(
+                QualityReviewORM.iqc_record_id.in_([record.id for record in records])
+            )
+        )
+    )
+    untouched = [
+        record
+        for record in records
+        if record.id not in reviewed_ids and record.review_status == "pending"
+    ]
+    seeded_decisions = set(
+        session.scalars(
+            select(QualityReviewORM.review_status).where(
+                QualityReviewORM.decision_note.like(f"{SEED_REVIEW_NOTE_PREFIX}%")
+            )
+        )
+    )
+    approved_example = (
+        next((record for record in untouched if record.inspection_result == "passed"), None)
+        if "approved" not in seeded_decisions
+        else None
+    )
+    returned_example = (
+        next((record for record in untouched if record.inspection_result == "pending"), None)
+        if "returned" not in seeded_decisions
+        else None
+    )
+    if approved_example is not None:
+        _add_seed_review(
+            session,
+            approved_example,
+            status="approved",
+            reviewer=users["seed_qa_2"],
+            decision_note=f"{SEED_REVIEW_NOTE_PREFIX}approved:{approved_example.id}",
+            reason=None,
+        )
+    if returned_example is not None:
+        _add_seed_review(
+            session,
+            returned_example,
+            status="returned",
+            reviewer=users["seed_qa_1"],
+            decision_note=f"{SEED_REVIEW_NOTE_PREFIX}returned:{returned_example.id}",
+            reason="範例退回：請補齊供應商檢驗報告後重新送審。",
+        )
+
+
+def _add_seed_review(
+    session: Session,
+    record: IQCRecordORM,
+    *,
+    status: str,
+    reviewer: UserORM,
+    decision_note: str,
+    reason: str | None,
+) -> None:
+    # Recheck the record before writing in case it already has non-seed history.
+    existing_review = session.scalar(
+        select(QualityReviewORM.id)
+        .where(QualityReviewORM.iqc_record_id == record.id)
+        .limit(1)
+    )
+    if existing_review is not None or record.review_status != "pending":
+        return
+
+    reviewed_at = record.inspection_date or datetime.combine(date.today(), time(9, 0))
+    session.add(
+        QualityReviewORM(
+            iqc_record_id=record.id,
+            review_status=status,
+            decision=status,
+            reviewed_by_user_id=reviewer.id,
+            decision_note=decision_note,
+            reason=reason,
+            reviewed_at=reviewed_at,
+        )
+    )
+    record.review_status = status
+    record.reviewed_by_user_id = reviewer.id
+    record.reviewed_at = reviewed_at
+    record.review_decision_note = decision_note
+    session.flush()
+
 
 def _validate_seed(session: Session) -> dict[str, int]:
     seed_supplier_ids = list(
@@ -623,6 +748,41 @@ def _validate_seed(session: Session) -> dict[str, int]:
         )
         if seed_internal_lot_ids
         else 0,
+        "pending_iqc_signoffs": count(
+            select(func.count())
+            .select_from(IQCRecordORM)
+            .where(
+                IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
+                IQCRecordORM.review_status == "pending",
+            )
+        )
+        if seed_internal_lot_ids
+        else 0,
+        "approved_iqc_signoffs": count(
+            select(func.count())
+            .select_from(IQCRecordORM)
+            .where(
+                IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
+                IQCRecordORM.review_status == "approved",
+            )
+        )
+        if seed_internal_lot_ids
+        else 0,
+        "returned_iqc_signoffs": count(
+            select(func.count())
+            .select_from(IQCRecordORM)
+            .where(
+                IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
+                IQCRecordORM.review_status == "returned",
+            )
+        )
+        if seed_internal_lot_ids
+        else 0,
+        "seed_signoff_history": count(
+            select(func.count())
+            .select_from(QualityReviewORM)
+            .where(QualityReviewORM.decision_note.like(f"{SEED_REVIEW_NOTE_PREFIX}%"))
+        ),
         "supplier_materials": count(
             select(func.count())
             .select_from(SupplierMaterialORM)
@@ -820,6 +980,7 @@ def main() -> int:
         "Quality scenarios: available/released, pending/quarantine, failed/rejected, "
         "split lots, and varied supplier certificate expiry."
     )
+    print("IQC sign-off examples: pending records plus any untouched approved/returned sample histories.")
     print(
         "Supplier portal accounts: seed_supplier_001..006 (role Supplier Portal User, "
         "forced password change on first login)."

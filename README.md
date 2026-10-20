@@ -1,533 +1,428 @@
-# SMTMS — 供應商物料追溯暨品保管理系統
+# SMTMS — Supplier Material Traceability Management System
 
-Supplier Material Traceability Management System（供應商 · 物料 · 追溯 · 品保）。
+SMTMS 是一個以供應商、物料批號與 IQC 品保流程為核心的追溯管理系統，目標是把供應商宣告、實際收料、內部批號拆分與檢驗結果連成一條可稽核的資料鏈。
 
-SMTMS 把「供應商出貨的內容」與「廠內實際檢驗的結果」串在一起：將供應商主檔、收料紀錄、廠內追蹤批號與
-IQC（進料品質檢驗）結果，收斂在同一條具關聯性、可稽核的追溯鏈上。它存在的目的，是取代以試算表為主的
-人工作業——在那些流程裡，供應商批號、廠內批號與檢驗結果容易散失、難以對帳。
+這個專案聚焦於一個常見的製造場景：供應商交貨時宣告批號，倉儲實際收料後，內部需將貨品拆分成內部批號，再由品保進行檢驗與放行。若沒有統一的資料鏈與數量/權限約束，這些資訊很容易散落在 Excel、手工紀錄與不同系統之間，造成追溯困難與資料錯誤。
 
-> 本文件僅描述目前實際已提交的內容。完整規格請見 [spec.md](spec.md)；後端與前端細節分別見
-> [backend/README.md](backend/README.md) 與 [frontend/README.md](frontend/README.md)。
+## 專案概覽
 
----
+- 前端：React 19 + TypeScript + Vite
+- 後端：FastAPI + SQLAlchemy 2.x + Alembic
+- 資料庫：MySQL（外部資料庫，不由 Docker Compose 建立）
+- 快取／狀態：Redis
+- 認證：JWT + RBAC 權限控制
+- 代理：Nginx
+- 部署：Docker Compose
 
-## 1. 專案總覽
+這個 repository 不是泛用型企業模板，而是依照實際程式碼與本機驗收結果建構出的可追溯流程系統。
 
-**要解決的問題**
-
-| 人工作業的痛點                              | SMTMS 的處理方式                                                                    |
-| ------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 供應商與物料資料散落於各檔案                | 單一供應商／物料目錄，並以 `supplier_materials` 表達供貨關聯                        |
-| 供應商批號與廠內追蹤批號缺乏明確關聯        | `supplier_lots` 與 `internal_material_lots` 為各自獨立、以外鍵串接的實體            |
-| 收料、批次拆分與 IQC 結果難以串成完整追溯鏈 | `material_receipts → internal_material_lots → iqc_records` 形成可雙向回溯的關聯鏈   |
-| 人工 Excel 維護容易與現況不一致             | 具驗證機制的供應商 Excel 匯入（預覽 → 確認寫入），以及受保護、具冪等性的開發 Seeder |
-
-**本 Repository 的範圍：** FastAPI + MySQL 後端、React + TypeScript 前端，以及 Docker Compose 部署
-（內含 Redis 與 Nginx）。MySQL 視為**外部**資料庫，不由 Compose 建立。
+> 本 README 依照目前工作區的實際程式碼、配置與驗收結果整理，並保留已知限制與未完成項目。完整資料表與技術規格請見 [spec.md](spec.md)。
 
 ---
 
-## 2. 架構總覽
+## 1. 專案定位
 
-```mermaid
-flowchart LR
-    subgraph Client["瀏覽器"]
-        SPA["React 19 + TypeScript SPA"]
-    end
+SMTMS 解決的是供應鏈與品保領域中常見的追溯問題：供應商宣告批號、實際收料、內部拆批、IQC 檢驗這幾個步驟若沒有連成一個系統，就很難確認每一筆材料的來源、數量與最終狀態。
 
-    subgraph Stack["Docker Compose（smtms-net）"]
-        Nginx["Nginx<br/>對外 :8087 → :80"]
-        Frontend["frontend container<br/>Vite dev server :5173"]
-        Backend["backend container<br/>FastAPI + Uvicorn :8000"]
-        Redis[("Redis 7-alpine<br/>Token 撤銷儲存")]
-    end
+這個專案在程式碼中實作了真實業務約束：
 
-    MySQL[("MySQL 8<br/>外部資料庫，不由 Compose 管理")]
+- 收料數量不能超過供應商批號的宣告總量
+- 內部拆批總量不能超過收料剩餘可拆量
+- 批號狀態只能依照定義的檢驗規則流轉
+- 供應商帳號只能存取自己供應商範圍內的資料
+- 供應商首次登入必須先完成密碼變更，才能使用受保護 API
 
-    SPA -->|"HTTP :8087"| Nginx
-    Nginx -->|"靜態資源"| Frontend
-    Nginx -->|"/api/* 與 /docs"| Backend
-    Backend -->|"SQLAlchemy 2.x<br/>Alembic Migration"| MySQL
-    Backend -->|"Token 撤銷鍵值"| Redis
-```
-
-請求方向：瀏覽器只與 Nginx 溝通。Nginx 將 `/api/*` 與 `/docs` 代理至後端，其餘流量導向前端。後端是唯一
-會連線 MySQL 與 Redis 的元件。
-
-**後端實際存在的分層**（`backend/app/`）：
-
-- `api/routes/` — HTTP 路由（`auth`、`health`、`suppliers`、`materials`、`quality`）
-- `core/` — 設定（`config.py`）、JWT/RBAC 相依（`security.py`）、Redis 客戶端（`redis_client.py`）
-- `models/` — SQLAlchemy ORM 模型（`user.py`、`quality.py`）
-- `schemas/` — Pydantic 請求／回應契約（`auth.py`、`catalog.py`）
-- `services/` — `supplier_import.py`（Excel 解析／驗證／寫入）
-- `db/` — engine、session factory、宣告式 `Base`
-
-除了 Excel 匯入服務之外，並沒有額外獨立的 repository / service 抽象層；路由直接使用 SQLAlchemy session。
-這在目前範圍內是有意為之，並已記錄於 [§11](#11-已知限制)。
+這不是單純的儀表板專案，而是一個有資料邊界、數量約束與權限隔離的追溯流程系統。
 
 ---
 
-## 3. Domain Model（領域模型）
+## 2. 系統畫面與公開展示準備
 
-```mermaid
-erDiagram
-    SUPPLIERS ||--o{ SUPPLIER_MATERIALS : "供貨"
-    MATERIALS ||--o{ SUPPLIER_MATERIALS : "被供應為"
-    SUPPLIERS ||--o{ SUPPLIER_LOTS : "提供"
-    MATERIALS ||--o{ SUPPLIER_LOTS : "對應物料"
-    SUPPLIER_LOTS ||--o{ MATERIAL_RECEIPTS : "收料為"
-    MATERIAL_RECEIPTS ||--o{ INTERNAL_MATERIAL_LOTS : "拆分為"
-    SUPPLIER_LOTS ||--o{ INTERNAL_MATERIAL_LOTS : "回溯至"
-    MATERIALS ||--o{ INTERNAL_MATERIAL_LOTS : "對應物料"
-    MATERIAL_RECEIPTS ||--o{ IQC_RECORDS : "受檢"
-    INTERNAL_MATERIAL_LOTS ||--o{ IQC_RECORDS : "受檢"
-    SUPPLIERS ||--o{ SUPPLIER_QUALIFICATION_DOCUMENTS : "擁有"
-    SUPPLIERS ||--o| USERS : "入口網站帳號"
-    USERS ||--o{ USER_ROLES : "指派"
-    ROLES ||--o{ USER_ROLES : "授與"
-    ROLES ||--o{ ROLE_PERMISSIONS : "授與"
-    PERMISSIONS ||--o{ ROLE_PERMISSIONS : "被授與"
-```
+目前這個 repository 中沒有已提交、可直接公開展示的真實產品截圖。
 
-**實體責任**
+專案的實際 UI 介面位於 [frontend/src/pages](frontend/src/pages)，但尚未找到適合直接放到 GitHub 展示的 screenshot set。建議補拍的畫面如下：
 
-| 實體                                        | 含義                                                                             | 主要關聯                                           |
-| ------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `Supplier`（供應商）                        | 供應商主檔（`supplier_code`、`tax_id`、聯絡資訊、狀態）                          | 1→N 供應商批號、收料、文件；0→1 入口網站帳號       |
-| `Material`（原物料）                        | 物料主檔（`material_code`、`material_type`、`uom`）                              | 1→N 供貨關聯、批號、廠內批次                       |
-| `SupplierMaterial`（供應商供貨關聯）        | 哪個供應商供應哪個物料；含 `is_preferred` 旗標                                   | 唯一鍵（`supplier_id`、`material_id`）             |
-| `SupplierLot`（供應商批號）                 | 供應商所宣告的批號，含 `qc_status`                                               | 隸屬於一位供應商 + 一項物料                        |
-| `MaterialReceipt`（收料事件）               | **實際的收料事件**：`receipt_no`、`received_at`、`qty_received`、`qty_remaining` | 指向供應商、物料與 `supplier_lot`                  |
-| `InternalMaterialLot`（廠內追蹤單位）       | 由收料拆分而生的廠內追蹤單位：`internal_lot_no`、`qty_on_hand`、`lot_status`     | 指回 `receipt_id` 與 `supplier_lot_id`             |
-| `IQCRecord`（來料檢驗紀錄）                 | 檢驗紀錄，含 `inspection_result` 與 `release_status`                             | 關聯至收料與／或廠內批次；記錄 `inspector_user_id` |
-| `SupplierQualificationDocument`（資格文件） | 供應商證書紀錄（`doc_type`、`expires_at`、`status`）                             | 目前 API 僅提供讀取（見 [§11](#11-已知限制)）      |
-| `User / Role / Permission`                  | RBAC 關聯圖：`user_roles` 與 `role_permissions` 中介表                           | 權限於每次請求時自這些表解析                       |
+- 儀表板：角色總覽與導覽權限
+- 供應商目錄：供應商資料與關聯關係
+- 物料目錄：材料主檔與供應商連結
+- 收料流程：供應商批號到收料，並顯示剩餘數量
+- 內部分批：收料拆分為內部批號與狀態顯示
+- IQC 流程：檢驗結果、放行／拒收狀態
+- 追溯查詢：可用供應商批號、收料單、內部批號、IQC 編號或物料代碼查完整分支
+- 供應商資格文件與附件管理：CRUD、受控下載及上傳狀態
 
-**追溯鏈的閱讀方式**
+建議儲存位置：
 
-- `SupplierLot` 回答：**「供應商宣告的批號是什麼？」**
-- `MaterialReceipt` 回答：**「我們實際在何時、收了多少？」**
-- `InternalMaterialLot` 回答：**「廠內實際追蹤的單位是什麼？」** 並保留指回收料與供應商批號的指標，因此廠內
-  批次可回溯至其供應商與收料來源。
-- `IQCRecord` 回答：**「檢驗判定結果是什麼？」** 並掛載於收料與／或廠內批次；由於廠內批次會連回供應商批號
-  與收料，因此 IQC 結果可追溯到供貨的供應商與該收料事件。
-- **拆分：** 一筆收料可拆分為多筆廠內批次。拆分數量加總會與該收料的剩餘數量進行驗證，且 `qty_remaining`
-  會在同一交易內遞減。
+- docs/screenshots/
 
-並非每個欄位都由資料庫層強制約束（例如多數狀態欄位是純字串而非 enum）；凡涉及此點之處，會於
-[§7](#7-技術決策) 與 [§11](#11-已知限制) 明確說明。
+請不要用 AI 生成的介面圖片、開發測試網址擷取圖或假畫面冒充實際產品介面。
 
 ---
 
-## 4. 物料追溯流程
+## 3. 核心業務流程
 
 ```mermaid
 flowchart TD
-    A["供應商 + 物料"] --> B["SupplierMaterial<br/>供貨關聯"]
-    B --> C["SupplierLot<br/>supplier_lot_no · qc_status"]
-    C --> D["MaterialReceipt<br/>receipt_no · qty_received · qty_remaining"]
-    D --> E["InternalMaterialLot<br/>internal_lot_no · qty_on_hand · lot_status"]
-    E --> F["IQCRecord<br/>inspection_result · release_status"]
-    F -->|"passed + released"| G["lot_status = available"]
-    F -->|"pending + hold"| H["lot_status = quarantine"]
-    F -->|"failed + rejected"| I["lot_status = rejected"]
-```
+    A[供應商與物料關聯] --> B[供應商批號]
+    B --> C[收料單]
+    C --> D[內部批號拆分]
+6. 具備審核權限的內部品保人員可核准或退回檢驗；退回時必須填寫理由，所有決策都會留下審核歷程。
+7. 全鏈路追溯可從供應商批號、收料單、內部批號、IQC 編號或物料代碼查詢來源、分批、檢驗及簽核紀錄。
 
-**程式碼中實際使用的狀態值**（為字串，非資料庫 enum）：
+### 實際資料角色
+- `material_receipts`：實際收料事件
+- `internal_material_lots`：由收料拆分出的內部批號
+- `iqc_records`：檢驗結果、放行狀態及目前審核狀態，連結到收料或內部批號
+- `quality_reviews`：IQC 審核決策歷程，保存核准／退回結果、審核人員、時間、意見與退回理由
+- `supplier_qualification_documents`：供應商資格／檢驗文件 metadata
+- `supplier_document_attachments`：附件 metadata；實際檔案儲存在後端設定的本機持久化目錄
 
-| 欄位                                | 位置       | 應用程式使用的值                                                 |
-| ----------------------------------- | ---------- | ---------------------------------------------------------------- |
-| `supplier_lots.qc_status`           | 供應商批號 | 預設 `received`；Seeder 另使用 `passed` / `pending` / `failed`   |
-| `material_receipts.status`          | 收料       | 預設 `received`                                                  |
-| `internal_material_lots.lot_status` | 廠內批次   | `available`、`quarantine`、`rejected`（新建批次為 `quarantine`） |
-| `iqc_records.inspection_result`     | IQC        | `pending`、`passed`、`failed`                                    |
-| `iqc_records.release_status`        | IQC        | `hold`、`released`、`rejected`                                   |
-
-**由 API 強制執行的檢驗／放行規則**（`backend/app/api/routes/quality.py`）：IQC 結果與放行狀態僅接受以下三種
-配對，並同步更新所連結廠內批次的 `lot_status`：
-
-| `inspection_result` | 必須搭配的 `release_status` | 更新後的 `internal_material_lots.lot_status` |
-| ------------------- | --------------------------- | -------------------------------------------- |
-| `passed`            | `released`                  | `available`                                  |
-| `pending`           | `hold`                      | `quarantine`                                 |
-| `failed`            | `rejected`                  | `rejected`                                   |
-
-新拆分的廠內批次起始為 `quarantine`；唯有 `passed` + `released` 的檢驗結果才會將其轉為 `available`。這三組
-配對是 API 唯一接受的組合，其餘組合會被拒絕。
+這些資料映射實作於 [backend/app/models/quality.py](backend/app/models/quality.py)，API 入口則在 [backend/app/api/routes/quality.py](backend/app/api/routes/quality.py)。
 
 ---
 
-## 5. 授權模型
+## 4. 角色與實際功能範圍
 
-- **身分驗證：** 帳號／密碼 → JWT（HS256，`PyJWT`）。Token 帶有 `sub`、`user_id`、`iat`、`exp` 與 `jti`。
-  密碼以 bcrypt（透過 `passlib`）驗證。
-- **Token 撤銷：** 登出時將該 Token 的 `jti` 以 `auth:revoked:{jti}` 寫入 Redis，TTL 等同該 Token 的剩餘
-  效期。每個受保護請求都會檢查此鍵值。
-- **RBAC：** 角色與權限採正規化資料表（`roles`、`permissions`、`user_roles`、`role_permissions`）。
-  `get_current_user` 於每次請求時自資料庫解析呼叫者的角色名稱與權限代碼，再由 `require_permission(...)`
-  逐端點強制檢查。權限以代碼引用（例如 `suppliers:read`、`receipts:write`、`iqc:read`）。
-- **供應商資料隔離：** 使用者若設有 `users.supplier_id`，即為 **Supplier Portal User**。`GET /suppliers` 與
-  `GET /supplier-lots` 的查詢會被過濾至該供應商；`ensure_supplier_access()` 會以 `403` 拒絕存取其他供應商的
-  紀錄。
-- **首次登入強制改密：** 由 Excel 匯入建立的供應商帳號會帶有 `must_change_password = true`。所有受權限保護
-  的端點（`require_permission()`）在密碼變更前都會以 `403` 拒絕；`POST /auth/change-password` 刻意豁免，
-  以便使用者完成變更。（`require_role()` 相依套用相同閘道，但目前沒有任何路由使用它。）
+UI 與 API 都有實際權限控制，不是純前端展示。
 
-**已驗證的供應商權限行為**（由 `tests/test_supplier_isolation.py` 涵蓋）：
+### 內部管理員／系統操作人員
 
-- Supplier Portal User 角色僅被授與 `suppliers:read`。
-- 供應商帳號僅能讀取其自身的供應商紀錄。
-- 存取其他供應商的紀錄會被拒絕（`403`）。
-- 首次登入時，須先完成密碼變更才能使用其他端點。
+已實作功能：
 
-執行中的應用程式實際建立並驗證的角色只有 **Supplier Portal User**（由匯入流程與 Seeder 建立）。其他更廣泛的
-角色（例如「Admin」或「Warehouse」）**不屬於**已實作且已驗證的行為，僅出現於 [§12](#12-後續規劃)。開發
-Seeder 另會建立三個 `SMTMS Seed …` 角色，但那些是本地開發用的固定資料，並非正式角色。
+- 使用者登入與登出
+- JWT token 驗證與使用者資料讀取
+- 角色與權限管理
+- 使用者角色指派
+- 管理頁面存取權限控制
+- `users:manage` 權限同時在後端路由與前端路由中實作
 
----
+相關實作：
 
-## 6. API 設計
+- [backend/app/api/routes/access.py](backend/app/api/routes/access.py)
+- [backend/app/api/routes/auth.py](backend/app/api/routes/auth.py)
+- [frontend/src/App.tsx](frontend/src/App.tsx)
+- [frontend/src/pages/AdminPage.tsx](frontend/src/pages/AdminPage.tsx)
 
-- 所有受保護路由採 JWT Bearer 驗證。
-- 資源導向路徑，統一置於 `/api/v1` 前綴下。
-- 以 Pydantic 模型進行請求／回應驗證；OpenAPI 文件由 FastAPI 產生。
-- 錯誤回應採用 FastAPI 標準結構 `{"detail": ...}`（`HTTPException` 時 `detail` 為字串，請求驗證錯誤時為
-  陣列），前端客戶端已依賴此結構。
+### 物料／收料／品保角色
 
-代表性路由（皆為實際路徑與 HTTP 方法；完整契約請見 [spec.md](spec.md)）：
+已實作功能：
 
-| 領域       | 方法與路徑                                                                                                           | 備註                                    |
-| ---------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Auth       | `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`、`POST /auth/change-password`                                | 簽發／撤銷 JWT、個人資料、強制改密      |
-| Suppliers  | `GET /suppliers`、`POST /suppliers`、`GET /suppliers/{id}`、`PATCH /suppliers/{id}`                                  | 列表對入口網站使用者會依供應商過濾      |
-| Suppliers  | `GET /suppliers/{id}/documents`                                                                                      | 僅讀取的文件列表                        |
-| Suppliers  | `POST /suppliers/{id}/materials`、`DELETE /suppliers/{id}/materials/{material_id}`                                   | 維護供貨關聯                            |
-| 供應商匯入 | `GET /suppliers/import/template`、`POST /suppliers/import/preview`、`POST /suppliers/import/confirm`                 | 下載範本、驗證、寫入                    |
-| Materials  | `GET /materials`、`POST /materials`、`GET /materials/{id}`、`PATCH /materials/{id}`、`GET /materials/{id}/suppliers` |                                         |
-| Receipts   | `GET /receipts`、`POST /receipts`、`GET /receipts/{id}`                                                              |                                         |
-| 廠內批次   | `GET /internal-lots`、`GET /internal-lots/{id}`、`POST /receipts/{id}/internal-lots`                                 | 將收料拆分為廠內批次                    |
-| 供應商批號 | `GET /supplier-lots`                                                                                                 | 僅列表——供應商批號目前無法透過 API 建立 |
-| IQC        | `GET /iqc`、`POST /iqc`、`GET /iqc/{id}`、`PATCH /iqc/{id}`                                                          |                                         |
-| Health     | `GET /health`、`GET /health/live`、`GET /health/ready`、`GET /health/database`、`GET /health/redis`、`GET /ready`    | 存活／就緒檢查                          |
+- 供應商主檔 CRUD
+- 物料主檔 CRUD
+- 供應商與物料關聯維護
+- 供應商資格文件建立、查詢、更新及刪除
+- 文件附件上傳、授權下載及刪除
+- 收料建立與查詢
+- 供應商批號建立與查詢
+- 內部批號建立與狀態查看
+- IQC 建立、更新與狀態轉換
+- IQC 品保審核簽核：待審核清單、歷程檢視、核准與退回（退回理由必填）
+- 全鏈路追溯查詢與本頁 CSV 匯出
 
-並非每個資源都是完整的 CRUD。例如供應商、物料、收料與廠內批次都沒有 `delete`，而供應商批號目前也沒有建立
-端點。
+品保簽核 API 位於 `/api/v1/iqc/{iqc_id}/reviews`，提供歷程查詢；核准及退回操作分別為 `/approve` 與 `/return`。API 以 `quality:review`、`quality:approve`、`quality:return` 權限控管，Seeder 僅將簽核權限指派給內部 QA 與管理員角色，不會授予一般使用者或供應商帳號。簽核歷程另存於 `quality_reviews`，不會以覆寫 IQC 欄位取代歷史決策。
 
----
+供應商資格文件以 `/api/v1/suppliers/{supplier_id}/documents` 為入口，支援 `GET` 列表、`POST` 建立、`GET/PATCH/DELETE /{document_id}` 單筆讀寫；附件由 `/{document_id}/attachments` 上傳／列出、`/{attachment_id}/download` 受控下載，並可 `DELETE` 刪除。讀取要求 `suppliers:read`，寫入要求 `suppliers:write`；供應商帳號另受自身 `supplier_id` 範圍限制。附件目前限制為 PDF、PNG、JPEG，預設上限 10 MiB，後端以檔案內容簽章判斷類型。
 
-## 7. 技術決策
+供應商批號使用既有 `POST /api/v1/supplier-lots` 與 `GET /api/v1/supplier-lots`。建立要求 `suppliers:write` 或窄權限 `supplier-lots:write`，並驗證供應商、物料及 supplier-material 關聯；批號依 `(supplier_id, material_id, supplier_lot_no)` 唯一，數量須為正且符合 `DECIMAL(18,4)` 精度，單位取自物料主檔。收料仍會鎖定批號並限制累計收料數量不超過申報量。
 
-### 廠內批次（`InternalMaterialLot`）
+統一追溯入口為 `GET /api/v1/traceability`，必須同時具備 `receipts:read`、`materials:read`、`iqc:read`，並且一次恰好提供一個識別參數：`supplier_lot_no`、`receipt_no`、`internal_lot_no`、`iqc_id` 或 `material_code`。結果分頁回傳供應商、物料、供應商批號、收料、所有內部批號分支、IQC 與簽核歷程；不存在的識別值回傳 `404`。前端「全鏈路追溯」頁另可匯出目前結果頁 CSV。
 
-- **背景：** 一筆實體收料常會被拆分至不同儲位或產線，因此單憑供應商批號無法辨識架上實際的庫存。
-- **決策：** 將廠內追蹤單位建模為獨立實體（`internal_material_lots`），同時指回 `receipt_id` 與
-  `supplier_lot_id`。
-- **解決的問題：** 讓庫存擁有廠內自有的識別身分，同時保留與供應商批號及收料事件的連結，使 IQC 結果仍可回溯
-  至來源。
-- **限制：** 廠內批次是透過**拆分收料**建立的。目前尚無獨立的批次衍生，或可一次取得完整追溯鏈的查詢端點。
+相關頁面：
 
-### JWT + Redis 撤銷機制
+- [frontend/src/pages/CatalogPages.tsx](frontend/src/pages/CatalogPages.tsx)
+- [frontend/src/pages/WorkflowPages.tsx](frontend/src/pages/WorkflowPages.tsx)
 
-- **背景：** 無狀態 JWT 若無伺服器端狀態，無法在登出時即時失效。
-- **決策：** JWT 維持短效期，並將撤銷的 `jti` 存入 Redis，TTL 對應 Token 到期時間。
-- **解決的問題：** 登出（及強制重新驗證）能立即生效。
-- **取捨：** 若 Redis 無法使用，撤銷檢查會以**失效即拒絕（fail-closed）**方式處理——受保護端點回傳
-  `503 Authentication service unavailable`，而非略過檢查。此設計以安全性優先於可用性，並使 Redis 成為已驗證
-  流量下的硬相依。
+### 供應商帳號範圍隔離
 
-### 關聯式資料庫
+已實作功能：
 
-- **背景：** 此領域是一張由外鍵構成的網路（收料、批次、檢驗、RBAC）。
-- **決策：** 採用 MySQL，搭配 SQLAlchemy 2.x 模型與 Alembic 進行結構版本控管。
-- **解決的問題：** 提供參考完整性，並可雙向走訪整條追溯鏈。
-- **限制：** 部分業務狀態以純 `String` 欄位儲存而非資料庫 enum，因此一部分狀態規則是由應用程式碼而非結構
-  強制。
+- 供應商帳號會綁定到特定 `supplier_id`
+- 供應商登入只能看到自己的供應商資料與批號
+- 跨供應商存取會被拒絕，回應 `403 Forbidden`
+- 首次登入必須先完成密碼變更，才能存取受保護 API
 
-### 供應商 Excel 匯入
+這些邊界由後端權限檢查與前端路由保護共同實作，核心位置在 [frontend/src/App.tsx](frontend/src/App.tsx)。
 
-- **背景：** 以試算表進行供應商建檔是常見的人工步驟，容易產生不一致的資料。
-- **決策：** 三步驟流程——下載範本 → `preview`（解析 + 驗證）→ `confirm`（寫入）。
-- **解決的問題：** 驗證錯誤會在**寫入任何資料之前**，以列號與欄位名稱回報；重複資料（供應商代碼、`tax_id`、
-  登入帳號）於驗證階段即被偵測；未提供密碼的帳號會回傳一次性產生的密碼。
-- **可靠性：** 寫入路徑（`execute_supplier_import`）以單一資料庫交易執行——供應商不會在缺少登入帳號的情況下
-  被建立，失敗時整批回滾。檔案限制會被強制（僅 `.xlsx`、≤ 5 MB、≤ 1000 筆資料列）。
+### 尚未完成的功能與交付邊界
 
-### `AUTO_INCREMENT`
+以下功能明確不被宣稱為已交付：
 
-- **背景：** 先前的 Migration（`20261019_add_mysql_comments_first_schema`）以 `MODIFY COLUMN` 重新宣告主鍵，
-  導致十三張表的主鍵 `AUTO_INCREMENT` 屬性被無聲移除。
-- **決策：** `20261019_autoincrement_pks` 還原所有主鍵的 `AUTO_INCREMENT`（過程中先卸除、再重建受影響的外鍵）。
-- **解決的問題：** 從結構面移除主鍵撞號的根因；此 Migration 具回溯相容性，因為 MySQL 在 `AUTO_INCREMENT`
-  欄位上仍接受明確指定的 `id`。
-- **限制（技術債）：** 應用程式碼在供應商、物料、品保與匯入等寫入路徑中，仍以 `_next_id()` 預先計算
-  `MAX(id) + 1`。結構面的修正已就位，但這些呼叫點**尚未**切換，因此結構層級的競態已修復，應用層級的模式仍
-  存在。參見 [§11](#11-已知限制) 與 [§12](#12-後續規劃)。
+- 附件目前僅接受 PDF、PNG、JPEG，預設 10 MiB；尚無病毒掃描、內容解碼驗證或外部物件儲存
+- 追溯 CSV 只匯出目前分頁，不提供跨頁／完整查詢結果背景匯出
+- 正式生產環境部署與長時間負載測試
 
-### FastAPI + React
-
-- **背景：** 後端是驗證與授權的唯一真實來源；前端是輕量的操作介面。
-- **決策：** 採用 FastAPI（Pydantic 驗證 + 自動產生 OpenAPI）與 React + TypeScript SPA。
-- **解決的問題：** 共用請求／回應契約、`/docs` 的互動式 API 文件，以及清楚的分離：後端負責強制規則，前端
-  僅呈現結果。
+這點很重要：系統已經具備可在本機執行的追溯流程，但不被定位為已完成的正式生產平台。
 
 ---
 
-## 8. 安全性與可靠性
+## 5. 技術架構
 
-| 能力                             | 狀態           | 佐證                                                      |
-| -------------------------------- | -------------- | --------------------------------------------------------- |
-| 密碼雜湊（bcrypt）               | 已實作         | `app/core/security.py`                                    |
-| JWT 身分驗證                     | 已實作並已測試 | `tests/test_jwt_rbac.py`                                  |
-| 以權限代碼進行的 RBAC            | 已實作並已測試 | `require_permission()` + `test_jwt_rbac.py`               |
-| 供應商資料隔離                   | 已實作並已測試 | `ensure_supplier_access()` + `test_supplier_isolation.py` |
-| Redis Token 撤銷（含失效即拒絕） | 已實作         | Redis 無法連線時 `get_current_token_claims()` 回傳 `503`  |
-| 首次登入強制改密                 | 已實作並已測試 | `security.py` 的閘道；由隔離測試涵蓋                      |
-| 資料庫 Migration（Alembic）      | 已實作         | `backend/alembic/versions/`                               |
-| 健康／就緒檢查                   | 已實作         | `app/api/routes/health.py`                                |
-| 交易處理（拆分、匯入）           | 已實作並已測試 | 拆分僅提交一次；匯入回滾由 `test_supplier_import.py` 涵蓋 |
+```mermaid
+flowchart LR
+    Browser[Browser] --> Nginx[nginx :8087]
+    Nginx --> Frontend[frontend :5173]
+    Nginx --> Backend[backend :8000]
+    Backend --> MySQL[(MySQL external)]
+    Backend --> Redis[(Redis)]
+```
 
-上表描述的是「有程式碼或測試佐證」的特性。這**不代表**已具備完整的企業級安全、完整稽核日誌或災難復原能力
-——詳見 [§11](#11-已知限制)。
+### 架構說明
+
+- 前端是基於 Vite 的 React 應用，並在前端層保護路由權限。
+- 後端是 FastAPI 應用，啟動方式透過 Uvicorn，入口配置在 [backend/app/main.py](backend/app/main.py)。
+- 資料存取直接透過 SQLAlchemy ORM 與 session 管理，而不是過度抽象化的 repository 層。
+- Redis 用於 JWT 撤銷及其他短期認證狀態。
+- MySQL 是外部服務，不由 Docker Compose 建立資料庫容器。
+- Docker Compose 會啟動 Redis、backend、frontend、nginx，但不建立資料庫本身。
+- 附件實際檔案放在 `DOCUMENT_STORAGE_DIR`；Compose 將 `./backend/var/documents` 掛載到 backend 的 `/app/var/documents`，以便容器重啟後保留。此目錄已列入 `.gitignore`，不應提交上傳檔案。
+
+### 真實工程決策
+
+- JWT 驗證在後端強制執行，前端也會檢查使用者 profile 再顯示受保護頁面。
+- 供應商資料隔離不是只靠前端篩選，而是由後端供應商範圍檢查實作。
+- 收料數量驗證防止超出供應商批號宣告量。
+- 內部拆批驗證避免超出收料剩餘可拆量。
+- IQC 狀態流轉受固定規則控制，避免任意改成不合理狀態。
+- 品保核准／退回需通過後端 RBAC；決策人由登入身分取得，退回理由必填，且每次決策都新增不可被後續決策覆寫的歷程紀錄。
+- 文件下載走受保護的 API，不暴露靜態檔案路徑；伺服器只用 metadata 的隨機 storage key 尋找檔案，並限制檔案大小與已支援格式。
+- 全鏈路追溯先分頁選取收料主鍵，再以 select-in 載入供應商、物料、批號、IQC 與審核歷程，避免將一對多分支攤平後重複計算數量。
+
+這些邏輯不是只存在文件中，而是落在品質流程路由與資料模組中。
 
 ---
 
-## 9. 已實作功能
+## 6. 驗收與測試
 
-- **身分驗證與授權** — 登入、登出（Redis 撤銷）、目前使用者資料、以權限保護的路由。
-- **供應商與物料管理** — 列表／明細／建立／更新、關鍵字搜尋、伺服器端分頁。
-- **供應商–物料供貨關聯** — 新增／移除，並確保每項物料僅有一位偏好供應商。
-- **供應商批號、收料與廠內批次** — 收料登錄並追蹤剩餘數量、將收料拆分為廠內批次、批次列表。
-- **IQC 紀錄** — 建立／更新檢驗，且強制執行結果／放行配對，連動廠內批次狀態。
-- **供應商帳號與資料隔離** — 以 `supplier_id` 限縮的入口網站帳號，並強制首次改密。
-- **Excel 供應商匯入** — 範本下載、預覽驗證、交易式確認寫入。
-- **開發種子資料與測試帳號** — 冪等、非破壞性的 Seeder，以及範例匯入活頁簿。
-- **部署與可觀測性** — Docker Compose（backend、frontend、Redis、Nginx）、健康／就緒端點、`/docs` 的
-  OpenAPI 文件。
+### 已驗證的實際行為
 
----
+以下檢查都基於這個工作區中已執行過的實際命令與資料。
 
-## 10. 驗證
+#### 後端測試證據
 
-以下結果為**本次文件改版期間（2026-10-19）**重新執行所得（Windows、PowerShell，專案根目錄
-`C:\laragon\www\smtms`）：
+執行命令：
 
-| 檢查項目            | 指令                                                     | 結果                                                 |
-| ------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
-| 後端測試            | `cd backend && uv run pytest -q`                         | **45 passed**                                        |
-| 前端測試            | `cd frontend && npm test`                                | **7 passed**（2 個檔案）                             |
-| 前端建置 + 型別檢查 | `cd frontend && npm run build`（`tsc -b && vite build`） | 通過                                                 |
-| Ruff Lint           | `cd backend && uv run ruff check .`                      | **未通過——309 項**（300 `E501`、7 `I001`、2 `F401`） |
-
-**範圍與誠實說明**
-
-- 後端測試以**記憶體內 SQLite** 搭配 fake Redis 客戶端執行（見 `tests/test_supplier_isolation.py`、
-  `test_catalog_api.py`、`test_quality_workflow_api.py`、`test_supplier_import.py`、`test_jwt_rbac.py` 中的
-  fixtures）。它們屬於 API／單元層級測試，**並非** MySQL 整合測試。
-- 實際 MySQL + Redis 的驗收（執行 Alembic、執行 `seed_dev.py`，並以真實資料庫走過供應商入口網站、強制改密、
-  跨供應商拒絕，以及 `receipt → internal lot → IQC` 追溯鏈）是在先前的開發工作階段完成，**並未**於本次文件
-  改版中重新執行。此部分應視為「先前已回報」，並於資料庫目標變更時重新確認。
-- Ruff 之所以列入，是因為 `uv run ruff check .` 是文件化工作流程的一部分；它目前會回報問題，故列為已知事項，
-  而非通過的檢查。
-
----
-
-## 11. 已知限制
-
-經複查，以下問題在目前程式碼中仍然成立：
-
-- **應用程式碼仍存在 `MAX(id) + 1`** — 即使 `AUTO_INCREMENT` Migration 已套用，`suppliers.py`、
-  `materials.py`、`quality.py` 與 `supplier_import.py` 仍使用 `_next_id()` 模式。
-- **`supplier_qualification_documents` 沒有建立 API** — 文件僅能列表（`GET /suppliers/{id}/documents`），並由
-  Seeder 填入。
-- **供應商批號沒有建立 API** — 僅有 `GET /supplier-lots`；收料必須引用已存在的批號。
-- **沒有統一的追溯查詢** — 沒有單一端點可回傳完整的
-  供應商 → 批號 → 收料 → 廠內批次 → IQC 追溯鏈。
-- **結構中沒有專屬的業務狀態約束** — 數個狀態欄位為自由文字 `String`，其允許值存在於應用程式碼中。
-- **沒有異動稽核軌跡**，也沒有不合格品／矯正措施／CAPA 流程，且沒有備份自動化。
-- **併發、負載與故障情境尚未驗證** — 尤其是仍走 `MAX(id) + 1` 路徑的並行新增。
-- **`users:manage` 權限已定義但未使用** — Seeder 會建立它，但沒有任何路由強制檢查。
-
----
-
-## 12. 後續規劃
-
-依優先順序排列的未來工作。以下項目**目前尚未實作**。
-
-1. 移除剩餘的 `MAX(id) + 1` 呼叫點，改依資料庫指派的 `AUTO_INCREMENT` 主鍵。
-2. 強化資料一致性與併發保證，並補上跨關聯的驗證測試。
-3. 新增品質異常處理、矯正措施與稽核軌跡。
-4. 擴充整合測試（真實 MySQL + Redis），以及備份／還原與部署驗證。
-5. 依需求擴充供應商文件管理與報表。
-
----
-
-## 13. 本地開發
-
-於 Windows + PowerShell 環境開發。請勿提交 `.env` 檔案或任何真實機密。
-
-### 先決條件
-
-- Python `>=3.12,<3.14` 與 [uv](https://docs.astral.sh/uv/)
-- Node.js `^20.19.0`、`^22.12.0` 或 `>=24.0.0`，以及 npm
-- 可連線的 MySQL 實例（外部），以及 Redis（使用 Docker 時由 Compose 提供）
-
-### 後端設定
-
-```powershell
-cd backend
-uv sync --group dev
-copy .env.example .env
+```bash
+cd c:\laragon\www\smtms\backend
+uv run pytest -q
 ```
 
-後端實際讀取的環境變數（來自 `backend/.env`）：
+結果：
 
-| 變數                          | 用途                                                                 |
-| ----------------------------- | -------------------------------------------------------------------- |
-| `APP_ENV`                     | 環境名稱（`development` / `test` / …）                               |
-| `APP_NAME`                    | 應用程式名稱                                                         |
-| `APP_DEBUG`                   | 除錯旗標                                                             |
-| `API_V1_STR`                  | API 前綴（預設 `/api/v1`）                                           |
-| `SECRET_KEY`                  | JWT 簽章金鑰——至少 32 字元，切勿提交真實值                           |
-| `ALGORITHM`                   | JWT 演算法（預設 `HS256`）                                           |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效分鐘數                                                     |
-| `DATABASE_URL`                | MySQL DSN，例如 `mysql+pymysql://<user>:<password>@<host>:3306/<db>` |
-| `REDIS_URL`                   | Redis DSN                                                            |
-| `CORS_ORIGINS`                | 允許的前端來源（JSON 陣列或逗號分隔）                                |
+- 完整測試套件實際通過：61 passed、1 skipped。
+- 涵蓋文件 CRUD／附件上傳下載與失敗清理、批號規則、追溯分支與供應商隔離、Seeder 冪等性，以及既有功能回歸。
 
-### 資料庫 Migration（Alembic）
+#### 前端測試證據
 
-Migration 鏈（head 以**粗體**標示）：
-
-```
-20261019_create_user_auth_tables
-  → 20261019_comments_first_schema
-  → 20261019_supplier_user_link
-  → **20261019_autoincrement_pks**
-```
-
-```powershell
-cd backend
-uv run python -m alembic -c alembic.ini upgrade head   # 套用所有 migration
-uv run python -m alembic -c alembic.ini current        # 顯示目前 revision
-uv run python check_mysql_comments.py                  # MySQL 結構驗證輔助腳本
-```
-
-### 開發種子資料
-
-`backend/scripts/seed_dev.py` 具冪等性且非破壞性：以穩定的 `SEED-*` 前綴為鍵進行 upsert、永不刪除資料，且若
-業務鍵與非 Seeder 資料衝突時會中止。除非 `APP_ENV` 為 `development`/`test`、目標為 `localhost:3306/smtms`，
-且結構位於預期 revision，否則它會拒絕執行。
-
-```powershell
-cd backend
-uv run python scripts/seed_dev.py
-```
-
-它會建立內部測試帳號 `seed_admin`、`seed_qa_1`、`seed_qa_2`、`seed_receiver_1`，以及供應商入口網站帳號
-`seed_supplier_001` … `seed_supplier_006`。這些帳號共用一組本地開發密碼，記錄於
-[backend/README.md](backend/README.md)——僅供本地使用。可於單次工作階段以下列方式覆寫：
-
-```powershell
-$env:SMTMS_SEED_PASSWORD = "your-local-seed-password"
-```
-
-若要產生獨立的 Excel 匯入範例（無須資料庫）：
-
-```powershell
-cd backend
-uv run python scripts/generate_import_samples.py
-```
-
-這會產生 `backend/samples/supplier_import_valid.xlsx`（可匯入的資料列）與
-`backend/samples/supplier_import_errors.xlsx`（刻意驗證失敗的資料列）。
-
-### 啟動後端
-
-```powershell
-cd backend
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-OpenAPI 文件：<http://localhost:8000/docs>
-
-### 啟動前端
+執行命令：
 
 ```powershell
 cd frontend
-npm install
-npm run dev
+npm test -- --run
 ```
 
-前端會呼叫 `VITE_API_BASE_URL`（預設 `http://localhost:8000`）。請只設定 API 的**來源（origin）**——客戶端會
-自行附加 `/api/v1/...`。Vite 服務於 <http://localhost:5173>。
+結果：3 個測試檔案、18 tests passed。
 
-### 測試與 Lint
+#### 前端建置證據
 
-```powershell
-cd backend
-uv run pytest -q
-uv run ruff check .
-uv lock --check
+執行命令：
 
-cd ../frontend
-npm test
-npm run lint
+```bash
+cd c:\laragon\www\smtms\frontend
 npm run build
 ```
 
-### Docker Compose 部署
+結果：
 
-Compose 會啟動 **backend**、**frontend**、**Redis** 與 **Nginx**。MySQL 為**外部**，不在此建立。
+- 前端構建在本次 session 中成功完成。
+- 代表 TypeScript + Vite 組合能正常編譯。
+
+#### Lint 與型別檢查
+
+執行命令：
+
+```bash
+cd c:\laragon\www\smtms\backend
+uv run ruff check .
+```
+
+結果：
+
+- 修改檔案的 Ruff 完整檢查尚未通過：目前有 164 項 E501 長行問題；修改檔案的 Ruff import 排序檢查通過。
+- `uv run mypy app/services/document_storage.py app/schemas/catalog.py` 通過。
+- `npm run lint` 完成但有 3 個 React `set-state-in-effect` warnings，位於 workflow/document UI effect。
+
+#### Migration／資料庫驗證
+
+- 已對設定中的本機開發 MySQL `smtms` 執行唯讀檢查；確認 migration 前 revision 為 `20261019_autoincrement_pks`，且 `iqc_records`、`material_receipts`、`supplier_qualification_documents` 已有資料。
+- 曾在 MySQL 既有 `alembic_version.version_num VARCHAR(32)` 限制下，發現 merge revision ID 過長；已縮短 revision ID 並恢復遷移流程。
+- 修正後已將完整 Alembic head 套用至此開發資料庫；目前 head 為 `20261019_doc_attachments`。Migration 僅新增審核／附件 schema 並合併歷史 heads，沒有清空業務資料。
+- `uv run alembic upgrade head --sql` 離線 SQL 渲染成功。
+
+### Live API 驗收紀錄
+
+專案中保留了實際的 local validation 資料：
+
+- [live_trace_acceptance_results.json](live_trace_acceptance_results.json)
+- [live_trace_acceptance_readback.json](live_trace_acceptance_readback.json)
+- [live_portal_isolation_results.json](live_portal_isolation_results.json)
+
+這些紀錄覆蓋的實際行為包括：
+
+- 端到端追溯鏈驗證
+- 收料數量限制驗證
+- 重複資料拒絕與去重保護
+- IQC 狀態轉換驗證
+- 供應商入口權限隔離
+- 內部拆批數量與邊界驗證
+
+### 尚未宣稱的內容
+
+- 不宣稱正式生產環境已就緒
+- 不宣稱已完成長時間負載測試
+- 不宣稱完成 ISO / 合規認證
+- 不宣稱 lint 或全部前端測試已通過，除非有新鮮執行證據
+
+---
+
+## 7. 本機啟動方式
+
+### 必要條件
+
+- Python 3.12+
+- uv
+- Node.js 22 或相容版本
+- 後端所需的 MySQL 實例
+- Redis（可透過 Docker Compose 啟動）
+
+### 環境變數
+
+後端設定讀取於 [backend/app/core/config.py](backend/app/core/config.py)。目前預期使用的變數包含：
+
+- `APP_ENV`
+- `APP_NAME`
+- `APP_DEBUG`
+- `API_V1_STR`
+- `SECRET_KEY`
+- `ALGORITHM`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `DATABASE_URL`
+- `REDIS_URL`
+- `CORS_ORIGINS`
+
+複製 [backend/.env.example](backend/.env.example) 作為本機設定起點，並替換資料庫連線與至少 32 字元的 `SECRET_KEY`。不要將真實機密提交到 Git。
+
+- `DOCUMENT_STORAGE_DIR`：附件儲存根目錄，預設 `var/documents`
+- `DOCUMENT_MAX_FILE_BYTES`：單一附件上限，預設 `10485760` bytes（10 MiB）
+
+範例（僅示意）：
+
+```powershell
+$env:APP_ENV = "development"
+$env:SECRET_KEY = "replace-with-at-least-32-char-random-key"
+$env:DATABASE_URL = "mysql+pymysql://user:password@127.0.0.1:3306/smtms"
+$env:REDIS_URL = "redis://127.0.0.1:6379/0"
+```
+
+### 以 Docker Compose 啟動
+
+從專案根目錄執行：
 
 ```powershell
 cd C:\laragon\www\smtms
 docker compose up --build
 ```
 
-| 服務     | 容器             | 對外埠        | 備註                                                           |
-| -------- | ---------------- | ------------- | -------------------------------------------------------------- |
-| Nginx    | `smtms-nginx`    | `8087` → `80` | 進入點；`/api/*` → backend，`/` → frontend                     |
-| Backend  | `smtms-backend`  | `8000`        | 讀取 `backend/.env`；`REDIS_URL` 覆寫為 `redis://redis:6379/0` |
-| Frontend | `smtms-frontend` | `5173`        | Vite dev server                                                |
-| Redis    | `smtms-redis`    | 內部 `6379`   | 未發佈對外埠                                                   |
+本機入口：
 
-請透過 Nginx 存取應用程式：<http://localhost:8087>。
+- 應用程式：http://127.0.0.1:8087/
+- Swagger / OpenAPI：http://127.0.0.1:8087/docs
+- 前端開發伺服器：http://127.0.0.1:5173/
+- 後端直接 API：http://127.0.0.1:8000/docs
 
-若要讓後端容器連線至 Windows 主機上的 MySQL：容器的 `localhost` 是容器本身，因此需使用
-`host.docker.internal`。後端進入點（`backend/docker-entrypoint.py`）會自動將本地的 `localhost`/`127.0.0.1`
-MySQL 主機改寫為 `host.docker.internal`，而 `docker-compose.yml` 亦宣告了對應的 `extra_hosts` 設定。
+目前 Compose 會啟動：
+
+- Redis
+- backend
+- frontend
+- nginx
+
+### 直接啟動後端
 
 ```powershell
-docker compose ps
-docker compose logs backend
-docker compose down
+cd backend
+uv sync --group dev
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Migration、Seeder 與測試
+
+在已確認指向預期開發／測試資料庫的 backend 環境執行：
+
+```powershell
+cd backend
+uv run alembic current
+uv run alembic upgrade head
+uv run python scripts/seed_dev.py
+uv run pytest -q
+```
+
+Seeder 僅允許 development/test 的 localhost MySQL `smtms` 資料庫，並要求 schema 位於目前 revision；Seeder 可重複執行且不刪除非 Seeder 業務資料。執行 migration 前請核對 `DATABASE_URL`、資料庫名稱及 `alembic current`，不要在未確認環境時對其他資料庫升級。
+
+---
+
+## 8. 專案結構
+
+```text
+.
+├── backend/
+│   ├── app/
+│   ├── alembic/
+│   ├── scripts/
+│   ├── tests/
+│   └── pyproject.toml
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   └── package.json
+├── docker/
+│   └── nginx/
+├── docker-compose.yml
+├── README.md
+├── spec.md
+├── live_trace_acceptance_results.json
+├── live_trace_acceptance_readback.json
+├── live_portal_isolation_results.json
+└── backups/
 ```
 
 ---
 
-## 14. 專案結構
+## 9. 限制與後續規劃
 
-```text
-SMTMS/
-├── README.md                  # 本文件
-├── spec.md                    # 規格的唯一真實來源
-├── docker-compose.yml
-├── docker/nginx/default.conf
-├── backend/
-│   ├── app/{api,core,db,models,schemas,services}/
-│   ├── alembic/versions/
-│   ├── scripts/{seed_dev.py,generate_import_samples.py}
-│   ├── samples/
-│   ├── tests/
-│   ├── Dockerfile
-│   ├── docker-entrypoint.py
-│   └── pyproject.toml
-└── frontend/
-    ├── src/{api,components,lib,pages}/
-    ├── Dockerfile
-    └── package.json
-```
+### 目前已知的限制
 
-若某項功能未反映在路由、schema、前端、migration 或測試中，就不應被描述為已實作。「已完成」、「已實作但尚未
-完整驗證」與「尚未實作」三種狀態的定義，維護於 [spec.md](spec.md)。
+- 附件只允許 PDF、PNG、JPEG，預設上限 10 MiB；尚無病毒掃描、解碼驗證或外部物件儲存
+- CSV 僅匯出追溯查詢的目前分頁，沒有背景完整資料集匯出
+- 正式部署與長時間負載測試仍是未來工作
+
+### 建議優先順序
+
+1. 擴大平行拆批、文件附件和供應商隔離的驗證矩陣。
+2. 評估附件病毒掃描與外部物件儲存需求。
+3. 在超出本機開發環境前，補上正式生產準備清單。
+
+---
+
+## 10. 結語
+
+SMTMS 是一個以真實製造流程為核心的追溯管理專案，不是單純的官網式 Demo。它目前已經具備從供應商宣告、收料、內部分批到 IQC 判定的連貫流程，同時保留真實工程邊界：未完成功能、保留的驗證範圍，以及尚未完成的正式環境認證。
+
+如果這個專案被拿來作為工程作品集評估，最有價值的地方在於：
+
+- 後端把實際業務約束寫進程式邏輯
+- 供應商與內部使用者有明確權限隔離
+- 多張資料表之間存在清楚的追溯鏈
+- 驗證是基於本機執行結果與實際資料，而非空泛宣稱
+
+這個 repository 適合做技術審查，但不被呈現成已完成的正式企業級生產系統。
+

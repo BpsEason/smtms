@@ -12,10 +12,13 @@ class Settings(BaseSettings):
     app_debug: bool = Field(default=True)
     api_v1_str: str = Field(default="/api/v1")
     secret_key: str = Field(min_length=32)
+    smtms_seed_password: str | None = Field(default=None)
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=60)
     database_url: str = Field(default="mysql+pymysql://root:root@localhost:3306/smtms")
     redis_url: str = Field(default="redis://localhost:6379/0")
+    document_storage_dir: str = Field(default="var/documents")
+    document_max_file_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     @field_validator("database_url", mode="before")

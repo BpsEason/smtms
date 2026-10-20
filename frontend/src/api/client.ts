@@ -10,18 +10,24 @@ import type {
   MaterialUpdatePayload,
   PaginatedResponse,
   PermissionItem,
+  QualityReview,
+  QualityReviewDecisionPayload,
   Receipt,
   ReceiptCreatePayload,
   ReceiptTrace,
   Role,
   Supplier,
   SupplierCreatePayload,
+  SupplierDocument,
+  SupplierDocumentAttachment,
+  SupplierDocumentPayload,
   SupplierLotCreatePayload,
   SupplierMaterialCreatePayload,
   SupplierUpdatePayload,
   SupplierImportPreview,
   SupplierImportResult,
   SupplierLot,
+  TraceabilityReceipt,
   UserProfile,
 } from "../types";
 
@@ -158,6 +164,51 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  listSupplierDocuments: async (supplierId: number) =>
+    request<SupplierDocument[]>(`/api/v1/suppliers/${supplierId}/documents`),
+
+  getSupplierDocument: async (supplierId: number, documentId: number) =>
+    request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`),
+
+  createSupplierDocument: async (supplierId: number, payload: SupplierDocumentPayload) =>
+    request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateSupplierDocument: async (supplierId: number, documentId: number, payload: Partial<SupplierDocumentPayload>) =>
+    request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSupplierDocument: async (supplierId: number, documentId: number) =>
+    request<void>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`, { method: "DELETE" }),
+
+  listSupplierDocumentAttachments: async (supplierId: number, documentId: number) =>
+    request<SupplierDocumentAttachment[]>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`),
+
+  uploadSupplierDocumentAttachment: async (supplierId: number, documentId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<SupplierDocumentAttachment>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  deleteSupplierDocumentAttachment: async (supplierId: number, documentId: number, attachmentId: number) =>
+    request<void>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}`, { method: "DELETE" }),
+
+  downloadSupplierDocumentAttachment: async (supplierId: number, documentId: number, attachmentId: number) => {
+    const token = readToken();
+    const response = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new ApiError(response.status, "無法下載附件，請確認權限或稍後重試。");
+    return response.blob();
+  },
+
   listMaterials: async (
     params?: Record<string, string | number | undefined | null>,
   ) =>
@@ -195,6 +246,9 @@ export const api = {
 
   getReceiptTrace: async (receiptId: number) =>
     request<ReceiptTrace>(`/api/v1/receipts/${receiptId}/trace`),
+
+  searchTraceability: async (params: Record<string, string | number | undefined | null>) =>
+    request<PaginatedResponse<TraceabilityReceipt>>(`/api/v1/traceability${buildQueryString(params)}`),
 
   createSupplierMaterial: async (
     supplierId: number,
@@ -250,6 +304,32 @@ export const api = {
   updateIQC: async (iqcId: number, payload: Record<string, unknown>) =>
     request<IQCRecord>(`/api/v1/iqc/${iqcId}`, {
       method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  listQualityReviews: async (
+    iqcId: number,
+    params?: Record<string, string | number | undefined | null>,
+  ) =>
+    request<PaginatedResponse<QualityReview>>(
+      `/api/v1/iqc/${iqcId}/reviews${buildQueryString(params ?? {})}`,
+    ),
+
+  approveQualityReview: async (
+    iqcId: number,
+    payload: QualityReviewDecisionPayload,
+  ) =>
+    request<QualityReview>(`/api/v1/iqc/${iqcId}/reviews/approve`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  returnQualityReview: async (
+    iqcId: number,
+    payload: QualityReviewDecisionPayload,
+  ) =>
+    request<QualityReview>(`/api/v1/iqc/${iqcId}/reviews/return`, {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
 

@@ -1,20 +1,24 @@
-import { Activity, Boxes, ClipboardCheck, Factory, LayoutDashboard, LogOut, PackageCheck, ShieldCheck, Truck } from 'lucide-react'
+import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import type { UserProfile } from '../types'
 import { buttonClass } from './ui'
 
-const navigation = [
+type NavItem = { group: string; label: string; to: string; icon: typeof Activity; permission: string | null; permissions?: string[]; anyPermissions?: string[] }
+
+const navigation: NavItem[] = [
   { group: '工作總覽', label: '儀表板', to: '/', icon: LayoutDashboard, permission: null },
   { group: '主檔資料', label: '供應商', to: '/suppliers', icon: Truck, permission: 'suppliers:read' },
   { group: '主檔資料', label: '物料', to: '/materials', icon: Boxes, permission: 'materials:read' },
   { group: '進料與追溯', label: '收料紀錄', to: '/receipts', icon: PackageCheck, permission: 'receipts:read' },
   { group: '進料與追溯', label: '內部批號', to: '/internal-lots', icon: Factory, permission: 'materials:read' },
   { group: '進料與追溯', label: '進料檢驗（IQC）', to: '/iqc', icon: ClipboardCheck, permission: 'iqc:read' },
+  { group: '進料與追溯', label: '品保簽核', to: '/signoff', icon: ClipboardSignature, permission: null, anyPermissions: ['quality:review', 'quality:approve', 'quality:return'] },
+  { group: '進料與追溯', label: '全鏈路追溯', to: '/traceability', icon: SearchCheck, permission: null, permissions: ['receipts:read', 'materials:read', 'iqc:read'] },
   { group: '系統設定', label: '角色與權限', to: '/admin/roles', icon: ShieldCheck, permission: 'users:manage' },
 ]
 
 export function AppLayout({ profile, onLogout }: { profile: UserProfile; onLogout: () => void }) {
-  const links = navigation.filter((item) => item.permission === null || profile.permissions.includes(item.permission))
+  const links = navigation.filter((item) => item.anyPermissions ? item.anyPermissions.some((permission) => profile.permissions.includes(permission)) : item.permissions ? item.permissions.every((permission) => profile.permissions.includes(permission)) : item.permission === null || profile.permissions.includes(item.permission))
   return <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
     <aside className="flex w-full flex-col border-b border-slate-800 bg-slate-950 text-slate-200 lg:fixed lg:inset-y-0 lg:w-[252px] lg:border-b-0 lg:border-r lg:border-slate-800">
       <div className="flex items-center gap-3 px-5 py-5"><div className="grid h-9 w-9 place-items-center rounded-md bg-sky-700 text-white"><Activity className="h-5 w-5" /></div><div><p className="text-sm font-semibold tracking-wide text-white">SMTMS</p><p className="text-xs text-slate-400">供應商與物料追溯管理系統</p></div></div>

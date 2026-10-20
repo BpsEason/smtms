@@ -21,6 +21,8 @@ services:
       REDIS_URL: redis://redis:6379/0
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/var/documents:/app/var/documents
     ports:
       - "8000:8000"
     depends_on:

@@ -2,12 +2,6 @@ from collections.abc import Generator
 from io import BytesIO
 
 import pytest
-from fastapi.testclient import TestClient
-from openpyxl import Workbook
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.core import redis_client as redis_module
 from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
@@ -25,6 +19,11 @@ from app.models.quality import (
 )
 from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRoleORM
 from app.services import supplier_import
+from fastapi.testclient import TestClient
+from openpyxl import Workbook
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 PASSWORD = "Supplier-Isolation-2026!"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -79,6 +78,7 @@ def isolation_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmak
             PermissionORM(code="receipts:write", name="Create receipts"),
             PermissionORM(code="iqc:read", name="Read IQC"),
             PermissionORM(code="iqc:write", name="Manage IQC"),
+            PermissionORM(code="supplier-lots:write", name="Create supplier lots"),
         ]
         admin_role = RoleORM(name="isolation-admin")
         portal_role = RoleORM(name="isolation-portal")
@@ -184,6 +184,102 @@ def test_supplier_cannot_read_other_supplier_records(isolation_environment) -> N
     assert client.get("/api/v1/suppliers/2", headers=headers).status_code == 403
     assert client.get("/api/v1/suppliers/1/documents", headers=headers).status_code == 200
     assert client.get("/api/v1/suppliers/2/documents", headers=headers).status_code == 403
+    assert client.get("/api/v1/suppliers/2/documents/1", headers=headers).status_code == 403
+    assert (
+        client.get(
+            "/api/v1/suppliers/2/documents/1/attachments",
+            headers=headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/api/v1/suppliers/2/documents/1/attachments/1/download",
+            headers=headers,
+        ).status_code
+        == 403
+    )
+    assert client.post(
+        "/api/v1/suppliers/1/documents",
+        json={"doc_type": "ISO", "doc_name": "Portal should not create"},
+        headers=headers,
+    ).status_code == 403
+
+
+def test_supplier_lot_writer_is_still_limited_to_own_supplier(isolation_environment) -> None:
+    client, TestSession = isolation_environment
+    with TestSession.begin() as session:
+        portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
+        lot_write = session.scalar(
+            select(PermissionORM).where(PermissionORM.code == "supplier-lots:write")
+        )
+        session.add(RolePermissionORM(role_id=portal_role.id, permission_id=lot_write.id))
+        session.add(SupplierMaterialORM(supplier_id=1, material_id=1))
+
+    headers = _headers(client, "portal-a")
+    own_lot = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_no": "PORTAL-OWN-LOT",
+            "qty_received": "1.0000",
+        },
+        headers=headers,
+    )
+    assert own_lot.status_code == 201, own_lot.text
+    cross_supplier_lot = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": 2,
+            "material_id": 1,
+            "supplier_lot_no": "PORTAL-CROSS-LOT",
+            "qty_received": "1.0000",
+        },
+        headers=headers,
+    )
+    assert cross_supplier_lot.status_code == 403
+    assert client.post(
+        "/api/v1/supplier-lots",
+        json={"supplier_id": 1, "material_id": 1, "supplier_lot_no": "PORTAL-NO-LOT", "qty_received": "1"},
+        headers=headers,
+    ).status_code == 403
+
+
+def test_supplier_document_and_traceability_operations_remain_scoped(isolation_environment) -> None:
+    client, TestSession = isolation_environment
+    with TestSession.begin() as session:
+        portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
+        permissions = {item.code: item for item in session.scalars(select(PermissionORM)).all()}
+        for code in ("materials:read", "receipts:read", "iqc:read"):
+            session.add(RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id))
+        session.add_all(
+            [
+                MaterialReceiptORM(
+                    supplier_id=1,
+                    material_id=1,
+                    supplier_lot_id=1,
+                    receipt_no="TRACE-SCOPE-A",
+                    received_at=__import__("datetime").datetime(2026, 10, 1, 9, 0),
+                    qty_received=5,
+                    qty_remaining=5,
+                ),
+                MaterialReceiptORM(
+                    supplier_id=2,
+                    material_id=1,
+                    supplier_lot_id=2,
+                    receipt_no="TRACE-SCOPE-B",
+                    received_at=__import__("datetime").datetime(2026, 10, 1, 9, 0),
+                    qty_received=5,
+                    qty_remaining=5,
+                ),
+            ]
+        )
+
+    headers = _headers(client, "portal-a")
+    assert client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-A", headers=headers).status_code == 200
+    assert client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-B", headers=headers).status_code == 404
+    assert client.get("/api/v1/traceability?material_code=MAT-1", headers=headers).json()["total"] == 1
 
 
 def test_supplier_lots_are_scoped_to_own_supplier(isolation_environment) -> None:

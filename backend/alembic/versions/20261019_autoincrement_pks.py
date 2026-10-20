@@ -25,7 +25,8 @@ afterwards, mirroring the pattern used by the comments migration.
 
 from __future__ import annotations
 
-from alembic import op
+import sqlalchemy as sa
+from alembic import context, op
 
 # revision identifiers, used by Alembic.
 revision = "20261019_autoincrement_pks"
@@ -96,13 +97,41 @@ FOREIGN_KEYS = (
     ("iqc_records", "receipt_id", "material_receipts", "id", "iqc_records_ibfk_1"),
     ("iqc_records", "internal_lot_id", "internal_material_lots", "id", "iqc_records_ibfk_2"),
     ("iqc_records", "inspector_user_id", "users", "id", "iqc_records_ibfk_3"),
+    ("iqc_records", "reviewed_by_user_id", "users", "id", "iqc_records_ibfk_4"),
     ("users", "supplier_id", "suppliers", "id", "fk_users_supplier_id"),
 )
 
 
 def _drop_foreign_keys() -> None:
-    for table, _columns, _ref_table, _ref_columns, constraint in FOREIGN_KEYS:
-        op.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{constraint}`")
+    if context.is_offline_mode():
+        for table, _columns, _ref_table, _ref_columns, constraint in FOREIGN_KEYS:
+            op.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{constraint}`")
+        # Full-head offline rendering follows the review migration before this
+        # branch, so the table and these named constraints are present.
+        op.execute("ALTER TABLE `quality_reviews` DROP FOREIGN KEY `quality_reviews_ibfk_1`")
+        op.execute("ALTER TABLE `quality_reviews` DROP FOREIGN KEY `quality_reviews_ibfk_2`")
+    else:
+        inspector = sa.inspect(op.get_bind())
+        # Constraint names are not stable across MySQL/MariaDB installations.
+        # Some existing databases also have already-lost constraints from the
+        # earlier comment migration, so drop only constraints that are present.
+        for table, columns, ref_table, _ref_columns, _constraint in FOREIGN_KEYS:
+            if not inspector.has_table(table):
+                continue
+            for foreign_key in inspector.get_foreign_keys(table):
+                name = foreign_key.get("name")
+                if (
+                    name
+                    and foreign_key.get("constrained_columns") == [columns]
+                    and foreign_key.get("referred_table") == ref_table
+                ):
+                    op.drop_constraint(name, table, type_="foreignkey")
+
+        if inspector.has_table("quality_reviews"):
+            for foreign_key in inspector.get_foreign_keys("quality_reviews"):
+                name = foreign_key.get("name")
+                if name and foreign_key.get("referred_table") in {"iqc_records", "users"}:
+                    op.drop_constraint(name, "quality_reviews", type_="foreignkey")
 
 
 def _add_foreign_keys() -> None:
@@ -110,6 +139,39 @@ def _add_foreign_keys() -> None:
         op.execute(
             f"ALTER TABLE `{table}` ADD CONSTRAINT `{constraint}` "
             f"FOREIGN KEY ({columns}) REFERENCES `{ref_table}` ({ref_columns})"
+        )
+    if context.is_offline_mode():
+        op.create_foreign_key(
+            "quality_reviews_ibfk_1",
+            "quality_reviews",
+            "iqc_records",
+            ["iqc_record_id"],
+            ["id"],
+        )
+        op.create_foreign_key(
+            "quality_reviews_ibfk_2",
+            "quality_reviews",
+            "users",
+            ["reviewed_by_user_id"],
+            ["id"],
+        )
+    else:
+        inspector = sa.inspect(op.get_bind())
+        if not inspector.has_table("quality_reviews"):
+            return
+        op.create_foreign_key(
+            "quality_reviews_ibfk_1",
+            "quality_reviews",
+            "iqc_records",
+            ["iqc_record_id"],
+            ["id"],
+        )
+        op.create_foreign_key(
+            "quality_reviews_ibfk_2",
+            "quality_reviews",
+            "users",
+            ["reviewed_by_user_id"],
+            ["id"],
         )
 
 

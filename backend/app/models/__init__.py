@@ -3,6 +3,8 @@ from app.models.quality import (
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    QualityReviewORM,
+    SupplierDocumentAttachmentORM,
     SupplierLotORM,
     SupplierMaterialORM,
     SupplierORM,
@@ -25,4 +27,6 @@ __all__ = [
     "MaterialReceiptORM",
     "InternalMaterialLotORM",
     "IQCRecordORM",
+    "QualityReviewORM",
+    "SupplierDocumentAttachmentORM",
 ]

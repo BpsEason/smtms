@@ -78,6 +78,62 @@ class SupplierDocumentResponse(ORMResponse):
     created_at: datetime
 
 
+class SupplierDocumentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_type: str = Field(min_length=1, max_length=50)
+    doc_code: str | None = Field(default=None, max_length=80)
+    doc_name: str = Field(min_length=1, max_length=200)
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    status: str = Field(default="active", min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_document(self):
+        self.doc_type = self.doc_type.strip()
+        self.doc_name = self.doc_name.strip()
+        if not self.doc_type or not self.doc_name:
+            raise ValueError("Document type and name must not be blank")
+        if self.doc_code is not None:
+            self.doc_code = self.doc_code.strip() or None
+        if self.expires_at and self.issued_at and self.expires_at < self.issued_at:
+            raise ValueError("Document expiry date cannot precede issue date")
+        return self
+
+
+class SupplierDocumentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_type: str | None = Field(default=None, min_length=1, max_length=50)
+    doc_code: str | None = Field(default=None, max_length=80)
+    doc_name: str | None = Field(default=None, min_length=1, max_length=200)
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_document(self):
+        for name in ("doc_type", "doc_name", "status"):
+            if name in self.model_fields_set:
+                value = getattr(self, name)
+                if value is None or not value.strip():
+                    raise ValueError(f"{name} must not be blank")
+                setattr(self, name, value.strip())
+        if "doc_code" in self.model_fields_set and self.doc_code is not None:
+            self.doc_code = self.doc_code.strip() or None
+        return self
+
+
+class SupplierDocumentAttachmentResponse(ORMResponse):
+    id: int
+    document_id: int
+    original_filename: str
+    media_type: str
+    size_bytes: int
+    sha256: str
+    created_at: datetime
+
+
 class SupplierImportRowError(BaseModel):
     sheet: str
     row: int
@@ -210,8 +266,11 @@ class SupplierLotCreate(BaseModel):
             and self.expiry_date < self.manufacturing_date
         ):
             raise ValueError("Expiry date cannot be earlier than manufacturing date")
+        if self.qty_received >= Decimal("100000000000000"):
+            raise ValueError("qty_received exceeds the supported precision")
+        if self.qty_received != self.qty_received.quantize(Decimal("0.0001")):
+            raise ValueError("qty_received supports at most 4 decimal places")
         return self
-
 
 class ReceiptCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -335,12 +394,37 @@ class IQCRecordResponse(ORMResponse):
     id: int
     receipt_id: int | None
     internal_lot_id: int | None
+    internal_lot_no: str | None = None
     inspector_user_id: int | None
     sample_qty: Decimal
     inspection_result: str
     inspection_date: datetime | None
     release_status: str
     remarks: str | None
+    review_status: str
+    reviewed_by_user_id: int | None
+    reviewed_at: datetime | None
+    review_decision_note: str | None
+    created_at: datetime
+
+
+class QualityReviewDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_note: str | None = Field(default=None, max_length=500)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class QualityReviewResponse(ORMResponse):
+    id: int
+    iqc_record_id: int
+    review_status: str
+    decision: str
+    reviewed_by_user_id: int | None
+    reviewed_by_username: str | None = None
+    decision_note: str | None
+    reason: str | None
+    reviewed_at: datetime | None
     created_at: datetime
 
 
@@ -356,6 +440,25 @@ class ReceiptTraceResponse(BaseModel):
     supplier_lot: SupplierLotResponse
     receipt_iqc_records: list[IQCRecordResponse]
     internal_lots: list[ReceiptTraceLot]
+
+
+class TraceabilityIQCResponse(BaseModel):
+    iqc_record: IQCRecordResponse
+    review_history: list[QualityReviewResponse]
+
+
+class TraceabilityLotResponse(BaseModel):
+    internal_lot: InternalLotResponse
+    iqc_records: list[TraceabilityIQCResponse]
+
+
+class TraceabilityReceiptResponse(BaseModel):
+    receipt: ReceiptResponse
+    supplier: SupplierResponse
+    material: MaterialResponse
+    supplier_lot: SupplierLotResponse
+    receipt_iqc_records: list[TraceabilityIQCResponse]
+    internal_lots: list[TraceabilityLotResponse]
 
 
 T = TypeVar("T")

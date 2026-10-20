@@ -61,6 +61,39 @@ export type Supplier = {
   updated_at: string;
 };
 
+export type SupplierDocument = {
+  id: number;
+  supplier_id: number;
+  doc_type: string;
+  doc_code: string | null;
+  doc_name: string;
+  file_path: string | null;
+  issued_at: string | null;
+  expires_at: string | null;
+  approved_by_user_id: number | null;
+  status: string;
+  created_at: string;
+};
+
+export type SupplierDocumentAttachment = {
+  id: number;
+  document_id: number;
+  original_filename: string;
+  media_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+};
+
+export type SupplierDocumentPayload = {
+  doc_type: string;
+  doc_code?: string;
+  doc_name: string;
+  issued_at?: string;
+  expires_at?: string;
+  status: string;
+};
+
 export type Material = {
   id: number;
   material_code: string;
@@ -109,6 +142,25 @@ export type ReceiptTrace = {
   internal_lots: ReceiptTraceLot[];
 };
 
+export type TraceabilityIQC = {
+  iqc_record: IQCRecord;
+  review_history: QualityReview[];
+};
+
+export type TraceabilityLot = {
+  internal_lot: InternalLot;
+  iqc_records: TraceabilityIQC[];
+};
+
+export type TraceabilityReceipt = {
+  receipt: Receipt;
+  supplier: Supplier;
+  material: Material;
+  supplier_lot: SupplierLot;
+  receipt_iqc_records: TraceabilityIQC[];
+  internal_lots: TraceabilityLot[];
+};
+
 export type SupplierMaterialCreatePayload = {
   material_id: number;
   supplier_material_code?: string;
@@ -148,12 +200,30 @@ export type IQCRecord = {
   id: number;
   receipt_id: number | null;
   internal_lot_id: number | null;
+  internal_lot_no?: string | null;
   inspector_user_id: number | null;
   sample_qty: string;
   inspection_result: string;
   inspection_date: string | null;
   release_status: string;
   remarks: string | null;
+  review_status: string;
+  reviewed_by_user_id: number | null;
+  reviewed_at: string | null;
+  review_decision_note: string | null;
+  created_at: string;
+};
+
+export type QualityReview = {
+  id: number;
+  iqc_record_id: number;
+  review_status: string;
+  decision: string;
+  reviewed_by_user_id: number | null;
+  reviewed_by_username: string | null;
+  decision_note: string | null;
+  reason: string | null;
+  reviewed_at: string | null;
   created_at: string;
 };
 
@@ -200,6 +270,11 @@ export type IQCCreatePayload = {
   inspection_date?: string;
   release_status: "hold" | "released" | "rejected";
   remarks?: string;
+};
+
+export type QualityReviewDecisionPayload = {
+  decision_note?: string;
+  reason?: string;
 };
 
 export type SupplierImportRowError = {

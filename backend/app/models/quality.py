@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, DECIMAL, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    DECIMAL,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -71,6 +80,40 @@ class SupplierQualificationDocumentORM(Base):
     )
 
     supplier: Mapped[SupplierORM] = relationship(back_populates="qualification_documents")
+    attachments: Mapped[list["SupplierDocumentAttachmentORM"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class SupplierDocumentAttachmentORM(Base):
+    __tablename__ = "supplier_document_attachments"
+    __table_args__ = (
+        UniqueConstraint("storage_key", name="uq_supplier_document_attachments_storage_key"),
+        {"comment": "供應商資格文件附件 metadata"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="附件主鍵")
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("supplier_qualification_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="資格文件主鍵",
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False, comment="原始檔名")
+    storage_key: Mapped[str] = mapped_column(String(80), nullable=False, comment="安全相對儲存鍵")
+    media_type: Mapped[str] = mapped_column(String(100), nullable=False, comment="驗證後 MIME 類型")
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, comment="檔案大小（bytes）")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, comment="檔案 SHA-256")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="建立時間",
+    )
+
+    document: Mapped[SupplierQualificationDocumentORM] = relationship(back_populates="attachments")
 
 
 class MaterialORM(Base):
@@ -231,6 +274,29 @@ class IQCRecordORM(Base):
     inspection_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, comment="檢驗日期")
     release_status: Mapped[str] = mapped_column(String(20), nullable=False, default="hold", index=True, comment="放行狀態")
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="檢驗備註")
+    review_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+        comment="品保審核狀態",
+    )
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+        comment="最後審核人員主鍵",
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="最後審核時間",
+    )
+    review_decision_note: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="審核結論備註",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -240,3 +306,54 @@ class IQCRecordORM(Base):
 
     receipt: Mapped[MaterialReceiptORM | None] = relationship(back_populates="iqc_records")
     internal_lot: Mapped[InternalMaterialLotORM | None] = relationship(back_populates="iqc_records")
+    quality_reviews: Mapped[list["QualityReviewORM"]] = relationship(
+        back_populates="iqc_record",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def internal_lot_no(self) -> str | None:
+        return self.internal_lot.internal_lot_no if self.internal_lot is not None else None
+
+
+class QualityReviewORM(Base):
+    __tablename__ = "quality_reviews"
+    __table_args__ = {"comment": "品保審核歷程"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="審核紀錄主鍵")
+    iqc_record_id: Mapped[int] = mapped_column(
+        ForeignKey("iqc_records.id"),
+        nullable=False,
+        index=True,
+        comment="關聯檢驗紀錄主鍵",
+    )
+    review_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+        comment="審核狀態：pending/approved/returned",
+    )
+    decision: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="approved", index=True, comment="審核決策"
+    )
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True, comment="審核人員主鍵"
+    )
+    decision_note: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="審核意見"
+    )
+    reason: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="退回原因或補件說明"
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="審核時間"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="建立時間",
+    )
+
+    iqc_record: Mapped[IQCRecordORM] = relationship(back_populates="quality_reviews")

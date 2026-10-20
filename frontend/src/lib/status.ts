@@ -4,6 +4,7 @@ const statusLabels: Record<string, string> = {
   passed: '合格',
   released: '已放行',
   approved: '已核准',
+  returned: '已退回',
   complete: '已完成',
   completed: '已完成',
   pending: '待檢',

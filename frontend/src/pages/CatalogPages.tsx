@@ -5,11 +5,12 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { Download, Plus, Search, Upload } from "lucide-react";
+import { Download, FileText, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { allMaterials } from "../lib/data";
 import {
   buttonClass,
+  ConfirmDialog,
   DataTable,
   EmptyState,
   ErrorState,
@@ -34,6 +35,8 @@ import type {
   Supplier,
   SupplierImportPreview,
   SupplierImportResult,
+  SupplierDocument,
+  SupplierDocumentAttachment,
   UserProfile,
 } from "../types";
 
@@ -64,6 +67,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
   const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [linkingSupplier, setLinkingSupplier] = useState<Supplier | null>(null);
+  const [documentSupplier, setDocumentSupplier] = useState<Supplier | null>(null);
   const [materialOptions, setMaterialOptions] = useState<Material[]>([]);
   const [linkBusy, setLinkBusy] = useState(false);
   const canWrite = Boolean(profile?.permissions.includes("suppliers:write"));
@@ -288,7 +292,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                 <Th>聯絡資訊</Th>
                 <Th>國家／地區</Th>
                 <Th>狀態</Th>
-                {canWrite && <Th>操作</Th>}
+                <Th>文件／操作</Th>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -303,7 +307,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <StatusBadge value={supplier.status} />
                   </Td>
-                  {canWrite && <Td><div className="flex gap-2"><button className={secondaryButtonClass} onClick={() => { setLinkingSupplier(supplier); setShowForm(false); setShowImport(false); setError("") }}>連結物料</button><button className={secondaryButtonClass} onClick={() => { setEditingSupplier(supplier); setShowForm(true); setShowImport(false); setLinkingSupplier(null); setError("") }}>編輯資料</button></div></Td>}
+                  <Td><div className="flex flex-wrap gap-2"><button className={secondaryButtonClass} onClick={() => setDocumentSupplier(supplier)}><FileText className="h-4 w-4" />資格文件</button>{canWrite && <><button className={secondaryButtonClass} onClick={() => { setLinkingSupplier(supplier); setShowForm(false); setShowImport(false); setError("") }}>連結物料</button><button className={secondaryButtonClass} onClick={() => { setEditingSupplier(supplier); setShowForm(true); setShowImport(false); setLinkingSupplier(null); setError("") }}>編輯資料</button></>}</div></Td>
                 </TableRow>
               ))}
             </TableBody>
@@ -323,8 +327,107 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
           onChange={setPage}
         />
       </Panel>
+      {documentSupplier && <SupplierDocumentsPanel supplier={documentSupplier} canWrite={canWrite} onClose={() => setDocumentSupplier(null)} />}
     </section>
   );
+}
+
+function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Supplier; canWrite: boolean; onClose: () => void }) {
+  const [documents, setDocuments] = useState<SupplierDocument[]>([]);
+  const [selected, setSelected] = useState<SupplierDocument | null>(null);
+  const [attachments, setAttachments] = useState<SupplierDocumentAttachment[]>([]);
+  const [editing, setEditing] = useState<SupplierDocument | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const refresh = useCallback(async () => {
+    try {
+      const rows = await api.listSupplierDocuments(supplier.id);
+      setDocuments(rows);
+      setSelected((current) => current ? rows.find((item) => item.id === current.id) ?? null : null);
+      setError("");
+    }
+    catch (err) { setError(message(err)); }
+    finally { setLoading(false); }
+  }, [supplier.id]);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const rows = await api.listSupplierDocuments(supplier.id);
+        if (!active) return;
+        setDocuments(rows);
+        setSelected((current) => current ? rows.find((item) => item.id === current.id) ?? null : null);
+        setError("");
+      } catch (err) {
+        if (active) setError(message(err));
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [supplier.id]);
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+    api.listSupplierDocumentAttachments(supplier.id, selected.id).then((rows) => { if (active) setAttachments(rows); }).catch((err: unknown) => { if (active) setError(message(err)); });
+    return () => { active = false; };
+  }, [selected, supplier.id]);
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setError(""); setSuccess(""); setBusy(true);
+    const values = new FormData(event.currentTarget);
+    const dateValue = (name: string) => { const value = String(values.get(name) ?? ""); return value ? new Date(`${value}T00:00:00`).toISOString() : undefined; };
+    const payload = { doc_type: String(values.get("doc_type")).trim(), doc_code: optional(values.get("doc_code")), doc_name: String(values.get("doc_name")).trim(), issued_at: dateValue("issued_at"), expires_at: dateValue("expires_at"), status: String(values.get("status")) };
+    try {
+      if (editing) await api.updateSupplierDocument(supplier.id, editing.id, payload);
+      else await api.createSupplierDocument(supplier.id, payload);
+      setEditing(null); setSuccess(editing ? "資格文件已更新。" : "資格文件已建立。"); await refresh();
+    } catch (err) { setError(message(err)); }
+    finally { setBusy(false); }
+  };
+  const upload = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!selected) return;
+    const input = event.currentTarget.elements.namedItem("attachment") as HTMLInputElement;
+    const file = input.files?.[0]; if (!file) return;
+    setBusy(true); setError(""); setSuccess("");
+    try { await api.uploadSupplierDocumentAttachment(supplier.id, selected.id, file); setSuccess("附件已上傳並安全保存。"); input.value = ""; setAttachments(await api.listSupplierDocumentAttachments(supplier.id, selected.id)); }
+    catch (err) { setError(message(err)); }
+    finally { setBusy(false); }
+  };
+  const download = async (attachment: SupplierDocumentAttachment) => {
+    if (!selected) return;
+    setError("");
+    try { const blob = await api.downloadSupplierDocumentAttachment(supplier.id, selected.id, attachment.id); const url = URL.createObjectURL(blob); const anchor = window.document.createElement("a"); anchor.href = url; anchor.download = attachment.original_filename; anchor.click(); URL.revokeObjectURL(url); }
+    catch (err) { setError(message(err)); }
+  };
+  const removeAttachment = async (attachment: SupplierDocumentAttachment) => {
+    if (!selected) return;
+    await api.deleteSupplierDocumentAttachment(supplier.id, selected.id, attachment.id);
+    setAttachments((items) => items.filter((item) => item.id !== attachment.id));
+    setSuccess("附件已刪除。");
+  };
+  const removeDocument = async (document: SupplierDocument) => {
+    await api.deleteSupplierDocument(supplier.id, document.id);
+    setDocuments((items) => items.filter((item) => item.id !== document.id));
+    if (selected?.id === document.id) setSelected(null);
+    setSuccess("資格文件及其附件已刪除。");
+  };
+  return <Panel title={`資格文件：${supplier.supplier_name}`} description="文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。" className="mt-5" action={<button className={secondaryButtonClass} onClick={onClose}>關閉</button>}>
+    {error && <div className="mb-3"><ErrorState message={error} onRetry={() => void refresh()} /></div>}{success && <div className="mb-3"><SuccessMessage>{success}</SuccessMessage></div>}
+    {canWrite && <form key={editing?.id ?? `new-${supplier.id}`} onSubmit={save} className="mb-5 grid gap-3 rounded-md bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <FormField label="文件類型"><input className={inputClass} name="doc_type" required maxLength={50} defaultValue={editing?.doc_type ?? ""} /></FormField>
+      <FormField label="文件名稱"><input className={inputClass} name="doc_name" required maxLength={200} defaultValue={editing?.doc_name ?? ""} /></FormField>
+      <FormField label="文件編號"><input className={inputClass} name="doc_code" maxLength={80} defaultValue={editing?.doc_code ?? ""} /></FormField>
+      <FormField label="狀態"><select className={inputClass} name="status" defaultValue={editing?.status ?? "active"}><option value="active">有效</option><option value="expired">已到期</option><option value="inactive">停用</option></select></FormField>
+      <FormField label="發證日"><input className={inputClass} name="issued_at" type="date" defaultValue={editing?.issued_at?.slice(0, 10) ?? ""} /></FormField>
+      <FormField label="到期日"><input className={inputClass} name="expires_at" type="date" defaultValue={editing?.expires_at?.slice(0, 10) ?? ""} /></FormField>
+      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2"><button className={buttonClass} disabled={busy}>{busy ? "儲存中…" : editing ? "儲存變更" : "新增文件"}</button>{editing && <button type="button" className={secondaryButtonClass} onClick={() => setEditing(null)}>取消編輯</button>}</div>
+    </form>}
+    {loading ? <LoadingState label="正在載入資格文件…" /> : documents.length ? <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]"><DataTable><TableHead><TableRow><Th>文件</Th><Th>類型／編號</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead><TableBody>{documents.map((document) => <TableRow key={document.id}><Td><button className="font-medium text-sky-800 hover:underline" onClick={() => setSelected(document)}>{document.doc_name}</button></Td><Td>{document.doc_type}<span className="block text-xs text-slate-500">{document.doc_code || "—"}</span></Td><Td><StatusBadge value={document.status} /></Td><Td><div className="flex gap-2">{canWrite && <><button className={secondaryButtonClass} onClick={() => { setEditing(document); setSelected(document); }}>編輯</button><ConfirmDialog trigger={<button className={secondaryButtonClass}><Trash2 className="h-4 w-4" />刪除</button>} title="刪除資格文件？" description="文件及其附件 metadata 將一併刪除，實際附件檔案也會在資料庫交易成功後移除。" confirmLabel="刪除文件" destructive onConfirm={() => removeDocument(document)} /></>}</div></Td></TableRow>)}</TableBody></DataTable>
+      <div className="rounded-md border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{selected ? selected.doc_name : "選取文件以管理附件"}</h3>{selected && <><p className="mt-1 text-xs text-slate-500">發證：{selected.issued_at ? new Date(selected.issued_at).toLocaleDateString("zh-TW") : "—"} · 到期：{selected.expires_at ? new Date(selected.expires_at).toLocaleDateString("zh-TW") : "—"}</p>{canWrite && <form onSubmit={upload} className="mt-4 flex flex-wrap items-end gap-2"><FormField label="新增附件"><input className={inputClass} type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required /></FormField><button className={buttonClass} disabled={busy}><Upload className="h-4 w-4" />{busy ? "上傳中…" : "上傳附件"}</button></form>}<div className="mt-4 space-y-2">{attachments.length ? attachments.map((attachment) => <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate text-sm">{attachment.original_filename}</span><span className="text-xs text-slate-500">{Math.ceil(attachment.size_bytes / 1024)} KB · {attachment.media_type}</span></span><div className="flex gap-2"><button className={secondaryButtonClass} onClick={() => void download(attachment)}><Download className="h-4 w-4" />下載</button>{canWrite && <ConfirmDialog trigger={<button className={secondaryButtonClass} aria-label={`刪除 ${attachment.original_filename}`}><Trash2 className="h-4 w-4" /></button>} title="刪除附件？" description="此操作只會刪除目前文件所屬的附件。" confirmLabel="刪除附件" destructive onConfirm={() => removeAttachment(attachment)} />}</div></div>) : <EmptyState title="尚無附件" description="可上傳 PDF、PNG 或 JPEG，單檔大小上限依後端設定。" />}</div></>}</div></div> : <EmptyState title="尚無資格文件" description="具備供應商管理權限的使用者可新增文件。" />}
+  </Panel>;
 }
 
 function SupplierImportPanel({ onImported }: { onImported: () => void }) {

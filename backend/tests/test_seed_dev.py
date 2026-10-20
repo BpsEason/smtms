@@ -10,10 +10,11 @@ from app.models.quality import (
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    QualityReviewORM,
     SupplierLotORM,
     SupplierORM,
 )
-from app.models.user import PermissionORM, RoleORM, UserORM, UserRoleORM
+from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRoleORM
 from app.services import supplier_import
 from scripts import seed_dev
 from sqlalchemy import create_engine, func, select
@@ -99,6 +100,130 @@ def test_seed_is_repeatable_without_duplicates(seed_session: Session) -> None:
         )
         == 1
     )
+
+
+def test_seed_provides_actionable_signoff_examples_with_valid_history(seed_session: Session) -> None:
+    counts = _run_seed(seed_session)
+    assert counts["pending_iqc_signoffs"] >= 3
+    assert counts["approved_iqc_signoffs"] >= 1
+    assert counts["returned_iqc_signoffs"] >= 1
+    assert counts["seed_signoff_history"] == 2
+
+    iqcs = seed_session.scalars(
+        select(IQCRecordORM).where(
+            IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%")
+        )
+    ).all()
+    approved = next(record for record in iqcs if record.review_status == "approved")
+    returned = next(record for record in iqcs if record.review_status == "returned")
+    assert (approved.inspection_result, approved.release_status) == ("passed", "released")
+    assert (returned.inspection_result, returned.release_status) == ("pending", "hold")
+
+    approved_history = seed_session.scalar(
+        select(QualityReviewORM).where(QualityReviewORM.iqc_record_id == approved.id)
+    )
+    returned_history = seed_session.scalar(
+        select(QualityReviewORM).where(QualityReviewORM.iqc_record_id == returned.id)
+    )
+    assert approved_history is not None
+    assert approved_history.review_status == "approved"
+    assert approved_history.reviewed_by_user_id == approved.reviewed_by_user_id
+    assert approved_history.reviewed_at == approved.reviewed_at
+    assert returned_history is not None
+    assert returned_history.review_status == "returned"
+    assert returned_history.reason
+    assert returned_history.reviewed_by_user_id == returned.reviewed_by_user_id
+    assert returned_history.reviewed_at == returned.reviewed_at
+
+    qa_user_ids = set(
+        seed_session.scalars(
+            select(UserORM.id)
+            .join(UserRoleORM, UserRoleORM.user_id == UserORM.id)
+            .join(RoleORM, RoleORM.id == UserRoleORM.role_id)
+            .where(RoleORM.name == seed_dev.SEED_ROLE_NAMES[1])
+        )
+    )
+    assert approved_history.reviewed_by_user_id in qa_user_ids
+    assert returned_history.reviewed_by_user_id in qa_user_ids
+
+    _run_seed(seed_session)
+    assert (
+        seed_session.scalar(
+            select(func.count())
+            .select_from(QualityReviewORM)
+            .where(QualityReviewORM.decision_note.like(f"{seed_dev.SEED_REVIEW_NOTE_PREFIX}%"))
+        )
+        == 2
+    )
+
+
+def test_seed_never_resets_an_operator_signoff(seed_session: Session) -> None:
+    _run_seed(seed_session)
+    record = seed_session.scalar(
+        select(IQCRecordORM).where(
+            IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%"),
+            IQCRecordORM.review_status == "pending",
+        )
+    )
+    reviewer = seed_session.scalar(select(UserORM).where(UserORM.username == "seed_qa_1"))
+    assert record is not None and reviewer is not None
+    reviewed_at = datetime(2026, 10, 20, 9, 30)
+    record.review_status = "approved"
+    record.reviewed_by_user_id = reviewer.id
+    record.reviewed_at = reviewed_at
+    record.review_decision_note = "Operator signoff to preserve"
+    seed_session.add(
+        QualityReviewORM(
+            iqc_record_id=record.id,
+            review_status="approved",
+            decision="approved",
+            reviewed_by_user_id=reviewer.id,
+            decision_note="Operator signoff to preserve",
+            reviewed_at=reviewed_at,
+        )
+    )
+    seed_session.flush()
+
+    _run_seed(seed_session)
+    seed_session.refresh(record)
+    assert record.review_status == "approved"
+    assert record.review_decision_note == "Operator signoff to preserve"
+    assert record.reviewed_at == reviewed_at
+    assert (
+        seed_session.scalar(
+            select(func.count())
+            .select_from(QualityReviewORM)
+            .where(QualityReviewORM.iqc_record_id == record.id)
+        )
+        == 1
+    )
+
+
+def test_supplier_lot_permission_is_limited_to_receivers_and_admins(seed_session: Session) -> None:
+    _run_seed(seed_session)
+    permission = seed_session.scalar(
+        select(PermissionORM).where(PermissionORM.code == "seed:supplier-lots:write")
+    )
+    assert permission is not None
+
+    role_grants = {
+        role.name: set(
+            seed_session.scalars(
+                select(PermissionORM.code)
+                .join(RolePermissionORM, RolePermissionORM.permission_id == PermissionORM.id)
+                .where(RolePermissionORM.role_id == role.id)
+            )
+        )
+        for role in seed_session.scalars(
+            select(RoleORM).where(
+                RoleORM.name.in_((*seed_dev.SEED_ROLE_NAMES, supplier_import.SUPPLIER_ROLE_NAME))
+            )
+        )
+    }
+    assert "seed:supplier-lots:write" in role_grants["SMTMS Seed Administrator"]
+    assert "seed:supplier-lots:write" in role_grants["SMTMS Seed Receiver"]
+    assert "seed:supplier-lots:write" not in role_grants["SMTMS Seed QA"]
+    assert "seed:supplier-lots:write" not in role_grants[supplier_import.SUPPLIER_ROLE_NAME]
     assert (
         seed_session.scalar(
             select(func.count())

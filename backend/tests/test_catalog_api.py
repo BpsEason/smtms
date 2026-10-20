@@ -177,7 +177,7 @@ def catalog_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
 
 
 def test_catalog_routes_require_auth_and_permissions(catalog_environment) -> None:
-    client, _ = catalog_environment
+    client, TestSession = catalog_environment
     assert client.get("/api/v1/suppliers").status_code == 401
     assert client.get("/api/v1/materials").status_code == 401
     read_headers = _headers(client, "catalog-reader", "Catalog-Test-Password-2026!")
@@ -247,6 +247,129 @@ def test_supplier_crud_search_pagination_documents_and_unique_code(catalog_envir
     assert documents.json()[0]["doc_code"] == "CERT-001"
     assert client.get("/api/v1/suppliers/99999", headers=headers).status_code == 404
     assert client.get("/api/v1/suppliers/99999/documents", headers=headers).status_code == 404
+
+
+def test_supplier_document_crud_and_authenticated_attachment_storage(
+    catalog_environment,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from app.services import document_storage
+
+    monkeypatch.setattr(document_storage, "storage_root", lambda: tmp_path.resolve())
+    monkeypatch.setattr(
+        document_storage,
+        "get_settings",
+        lambda: type("Settings", (), {"document_max_file_bytes": 64})(),
+    )
+    client, TestSession = catalog_environment
+    headers = _headers(client, "catalog-admin", "Catalog-Test-Password-2026!")
+
+    created = client.post(
+        "/api/v1/suppliers/1/documents",
+        json={
+            "doc_type": "ISO 9001",
+            "doc_code": "CERT-NEW",
+            "doc_name": "Updated Quality Certificate",
+            "issued_at": "2026-01-01T00:00:00Z",
+            "expires_at": "2027-01-01T00:00:00Z",
+            "status": "active",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    document_id = created.json()["id"]
+    document_url = f"/api/v1/suppliers/1/documents/{document_id}"
+    assert client.get(document_url, headers=headers).status_code == 200
+    reader_headers = _headers(client, "catalog-reader", "Catalog-Test-Password-2026!")
+    assert client.get(document_url, headers=reader_headers).status_code == 200
+    assert client.patch(
+        f"/api/v1/suppliers/1/documents/{document_id}",
+        json={"doc_name": "Certificate v2"},
+        headers=headers,
+    ).json()["doc_name"] == "Certificate v2"
+    assert client.post(
+        "/api/v1/suppliers/1/documents",
+        json={"doc_type": "ISO", "doc_name": "Unauthorized"},
+        headers=reader_headers,
+    ).status_code == 403
+    assert client.patch(
+        f"/api/v1/suppliers/1/documents/{document_id}",
+        json={"doc_name": "Unauthorized update"},
+        headers=reader_headers,
+    ).status_code == 403
+    assert (
+        client.delete(document_url, headers=reader_headers).status_code == 403
+    )
+    assert client.post(
+        "/api/v1/suppliers/1/documents",
+        json={"doc_type": " ", "doc_name": "Invalid"},
+        headers=headers,
+    ).status_code == 422
+
+    uploaded = client.post(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments",
+        files={"file": ("../../certificate.pdf", b"%PDF-1.7\ncontent", "application/pdf")},
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    attachment = uploaded.json()
+    assert attachment["original_filename"] == "certificate.pdf"
+    assert attachment["size_bytes"] > 0
+    assert len(list(tmp_path.iterdir())) == 1
+
+    downloaded = client.get(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}/download",
+        headers=headers,
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"%PDF-1.7\ncontent"
+    assert client.get(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}/download",
+        headers=reader_headers,
+    ).status_code == 200
+
+    rejected_type = client.post(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments",
+        files={"file": ("spoof.pdf", b"not really a PDF", "application/pdf")},
+        headers=headers,
+    )
+    assert rejected_type.status_code == 415
+    too_large = client.post(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments",
+        files={"file": ("large.pdf", b"%PDF-" + b"x" * 80, "application/pdf")},
+        headers=headers,
+    )
+    assert too_large.status_code == 413
+
+    engine = TestSession.kw["bind"]
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TRIGGER fail_attachment_insert BEFORE INSERT ON supplier_document_attachments "
+            "BEGIN SELECT RAISE(ABORT, 'simulated metadata failure'); END"
+        )
+    failed_persist = client.post(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments",
+        files={"file": ("failed.pdf", b"%PDF-1.7\nfailed", "application/pdf")},
+        headers=headers,
+    )
+    assert failed_persist.status_code == 409
+    assert len(list(tmp_path.iterdir())) == 1
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TRIGGER fail_attachment_insert")
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as traversal:
+        document_storage.resolve_storage_key("../outside.pdf")
+    assert traversal.value.status_code == 404
+
+    assert client.delete(
+        f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}",
+        headers=headers,
+    ).status_code == 204
+    assert list(tmp_path.iterdir()) == []
+    assert client.delete(document_url, headers=headers).status_code == 204
 
 
 def test_material_crud_search_pagination_and_unique_code(catalog_environment) -> None:

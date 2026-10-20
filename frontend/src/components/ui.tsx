@@ -22,16 +22,16 @@ export function TableRow({ children, ...props }: { children: ReactNode; classNam
 export function Th({ children, className = '' }: { children: ReactNode; className?: string }) { return <th className={`whitespace-nowrap px-4 py-3 ${className}`}>{children}</th> }
 export function Td({ children, className = '' }: { children: ReactNode; className?: string }) { return <td className={`px-4 py-3 align-middle ${className}`}>{children}</td> }
 
-export function StatusBadge({ value }: { value: string }) {
+export function StatusBadge({ value, label }: { value: string; label?: string }) {
   const normalized = value.toLowerCase()
   const tone = ['active', 'available', 'passed', 'released', 'approved', 'complete', 'completed'].includes(normalized)
     ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/15'
     : ['pending', 'hold', 'quarantine', 'received', 'in_progress'].includes(normalized)
       ? 'bg-amber-50 text-amber-800 ring-amber-600/20'
-      : ['failed', 'rejected', 'inactive', 'blocked'].includes(normalized)
+      : ['failed', 'rejected', 'inactive', 'blocked', 'returned'].includes(normalized)
         ? 'bg-rose-50 text-rose-700 ring-rose-600/15'
         : 'bg-slate-100 text-slate-700 ring-slate-600/10'
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${tone}`}>{statusLabel(value)}</span>
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${tone}`}>{label ?? statusLabel(value)}</span>
 }
 
 export function FormField({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {

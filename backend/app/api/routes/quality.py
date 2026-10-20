@@ -9,30 +9,44 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.security import AuthenticatedUser, ensure_supplier_access, require_permission
+from app.core.security import (
+    AuthenticatedUser,
+    ensure_supplier_access,
+    require_any_permission,
+    require_permission,
+)
 from app.db.session import get_db
 from app.models.quality import (
     InternalMaterialLotORM,
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    QualityReviewORM,
     SupplierLotORM,
     SupplierMaterialORM,
     SupplierORM,
 )
+from app.models.user import UserORM
 from app.schemas.catalog import (
+    InternalLotCreate,
+    InternalLotResponse,
     IQCCreate,
     IQCRecordResponse,
     IQCUpdate,
-    InternalLotCreate,
-    InternalLotResponse,
+    MaterialResponse,
     PaginatedResponse,
+    QualityReviewDecision,
+    QualityReviewResponse,
     ReceiptCreate,
     ReceiptResponse,
     ReceiptTraceLot,
     ReceiptTraceResponse,
     SupplierLotCreate,
     SupplierLotResponse,
+    SupplierResponse,
+    TraceabilityIQCResponse,
+    TraceabilityLotResponse,
+    TraceabilityReceiptResponse,
 )
 
 router = APIRouter(tags=["quality"])
@@ -78,6 +92,55 @@ def _get_iqc_record(db: Session, iqc_id: int) -> IQCRecordORM:
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IQC record not found")
     return record
+
+
+def _ensure_iqc_review_access(
+    db: Session,
+    current_user: AuthenticatedUser,
+    record: IQCRecordORM,
+) -> None:
+    # Supplier portal users may inspect their own IQC records, but sign-off is
+    # an internal QA action even if a supplier role is accidentally misconfigured.
+    if current_user.supplier_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Internal QA users only")
+
+
+def _record_review_decision(
+    db: Session,
+    record: IQCRecordORM,
+    *,
+    current_user: AuthenticatedUser,
+    decision: str,
+    decision_note: str | None,
+    reason: str | None,
+) -> QualityReviewORM:
+    normalized = decision.lower()
+    if normalized not in {"approved", "returned", "rejected"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported review decision",
+        )
+    if normalized in {"returned", "rejected"} and not (reason and reason.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Return and reject decisions require a reason",
+        )
+
+    review = QualityReviewORM(
+        iqc_record_id=record.id,
+        review_status=normalized,
+        decision=normalized,
+        reviewed_by_user_id=current_user.id,
+        decision_note=decision_note.strip() if decision_note else None,
+        reason=reason.strip() if reason else None,
+        reviewed_at=datetime.utcnow(),
+    )
+    record.review_status = normalized
+    record.reviewed_by_user_id = current_user.id
+    record.reviewed_at = review.reviewed_at
+    record.review_decision_note = review.decision_note
+    db.add(review)
+    return review
 
 
 def _ensure_internal_lot_supplier_access(
@@ -135,6 +198,60 @@ def _relationship_status_for_iqc(inspection_result: str, release_status: str) ->
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Unsupported inspection_result value",
     )
+
+
+REVIEWABLE_STATUSES = {"pending", "returned"}
+
+
+def _lock_iqc_record_for_review(db: Session, iqc_id: int) -> IQCRecordORM:
+    """Lock the IQC row and reject decisions that are no longer allowed.
+
+    The locking read (SELECT ... FOR UPDATE) makes concurrent sign-offs of the
+    same record serialise: the losing transaction re-reads the committed
+    review_status and is rejected with 409 instead of appending a second
+    decision for an already-finalised record.
+    """
+    record = db.execute(
+        select(IQCRecordORM).where(IQCRecordORM.id == iqc_id).with_for_update()
+    ).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IQC record not found")
+    if record.review_status not in REVIEWABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "IQC record is not awaiting sign-off: "
+                f"current review status is '{record.review_status}'"
+            ),
+        )
+    return record
+
+
+def _review_responses(
+    db: Session,
+    reviews: list[QualityReviewORM],
+    *,
+    fallback_username: str | None = None,
+) -> list[QualityReviewResponse]:
+    """Serialise review history rows and resolve the signing operator name."""
+    reviewer_ids = {
+        review.reviewed_by_user_id
+        for review in reviews
+        if review.reviewed_by_user_id is not None
+    }
+    usernames: dict[int, str] = {}
+    if reviewer_ids:
+        usernames = dict(
+            db.execute(
+                select(UserORM.id, UserORM.username).where(UserORM.id.in_(reviewer_ids))
+            ).all()
+        )
+    payloads: list[QualityReviewResponse] = []
+    for review in reviews:
+        payload = QualityReviewResponse.model_validate(review)
+        payload.reviewed_by_username = usernames.get(review.reviewed_by_user_id or -1) or fallback_username
+        payloads.append(payload)
+    return payloads
 
 
 def _apply_iqc_to_lot(lot: InternalMaterialLotORM | None, inspection_result: str | None, release_status: str | None) -> None:
@@ -332,6 +449,137 @@ def get_receipt_trace(
     )
 
 
+@router.get("/traceability", response_model=PaginatedResponse[TraceabilityReceiptResponse])
+def search_traceability(
+    supplier_lot_no: str | None = Query(default=None, min_length=1, max_length=120),
+    receipt_no: str | None = Query(default=None, min_length=1, max_length=80),
+    internal_lot_no: str | None = Query(default=None, min_length=1, max_length=120),
+    iqc_id: int | None = Query(default=None, gt=0),
+    material_code: str | None = Query(default=None, min_length=1, max_length=80),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(
+        require_permission("receipts:read", "materials:read", "iqc:read")
+    ),
+) -> PaginatedResponse[TraceabilityReceiptResponse]:
+    identifiers = [supplier_lot_no, receipt_no, internal_lot_no, iqc_id, material_code]
+    if sum(value is not None and value != "" for value in identifiers) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide exactly one traceability identifier",
+        )
+
+    receipt_ids = select(MaterialReceiptORM.id)
+    if supplier_lot_no is not None:
+        lot_ids = select(SupplierLotORM.id).where(
+            SupplierLotORM.supplier_lot_no == supplier_lot_no.strip()
+        )
+        receipt_ids = receipt_ids.where(MaterialReceiptORM.supplier_lot_id.in_(lot_ids))
+    elif receipt_no is not None:
+        receipt_ids = receipt_ids.where(MaterialReceiptORM.receipt_no == receipt_no.strip())
+    elif internal_lot_no is not None:
+        internal_receipt_ids = select(InternalMaterialLotORM.receipt_id).where(
+            InternalMaterialLotORM.internal_lot_no == internal_lot_no.strip(),
+            InternalMaterialLotORM.receipt_id.is_not(None),
+        )
+        receipt_ids = receipt_ids.where(MaterialReceiptORM.id.in_(internal_receipt_ids))
+    elif iqc_id is not None:
+        iqc = db.get(IQCRecordORM, iqc_id)
+        if iqc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Traceability record not found",
+            )
+        source_receipt_id = iqc.receipt_id
+        if source_receipt_id is None and iqc.internal_lot_id is not None:
+            source_receipt_id = db.scalar(
+                select(InternalMaterialLotORM.receipt_id).where(
+                    InternalMaterialLotORM.id == iqc.internal_lot_id
+                )
+            )
+        if source_receipt_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Traceability chain not found",
+            )
+        receipt_ids = receipt_ids.where(MaterialReceiptORM.id == source_receipt_id)
+    elif material_code is not None:
+        receipt_ids = (
+            receipt_ids.join(MaterialORM, MaterialORM.id == MaterialReceiptORM.material_id)
+            .where(MaterialORM.material_code == material_code.strip())
+        )
+
+    if current_user.supplier_id is not None:
+        receipt_ids = receipt_ids.where(MaterialReceiptORM.supplier_id == current_user.supplier_id)
+
+    matching_ids = receipt_ids.distinct().subquery()
+    total = db.scalar(select(func.count()).select_from(matching_ids)) or 0
+    if total == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Traceability record not found",
+        )
+
+    ids = db.scalars(
+        select(matching_ids.c.id)
+        .order_by(matching_ids.c.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    receipts = db.scalars(
+        select(MaterialReceiptORM)
+        .options(
+            selectinload(MaterialReceiptORM.supplier),
+            selectinload(MaterialReceiptORM.material),
+            selectinload(MaterialReceiptORM.supplier_lot),
+            selectinload(MaterialReceiptORM.iqc_records).selectinload(IQCRecordORM.quality_reviews),
+            selectinload(MaterialReceiptORM.internal_material_lots)
+            .selectinload(InternalMaterialLotORM.iqc_records)
+            .selectinload(IQCRecordORM.quality_reviews),
+        )
+        .where(MaterialReceiptORM.id.in_(ids))
+        .order_by(MaterialReceiptORM.id)
+    ).all()
+
+    def trace_iqc(record: IQCRecordORM) -> TraceabilityIQCResponse:
+        reviews = sorted(record.quality_reviews, key=lambda item: item.id)
+        return TraceabilityIQCResponse(
+            iqc_record=IQCRecordResponse.model_validate(record),
+            review_history=_review_responses(db, reviews),
+        )
+
+    items = [
+        TraceabilityReceiptResponse(
+            receipt=ReceiptResponse.model_validate(receipt),
+            supplier=SupplierResponse.model_validate(receipt.supplier),
+            material=MaterialResponse.model_validate(receipt.material),
+            supplier_lot=SupplierLotResponse.model_validate(receipt.supplier_lot),
+            receipt_iqc_records=[
+                trace_iqc(record)
+                for record in sorted(receipt.iqc_records, key=lambda item: item.id)
+            ],
+            internal_lots=[
+                TraceabilityLotResponse(
+                    internal_lot=InternalLotResponse.model_validate(lot),
+                    iqc_records=[
+                        trace_iqc(record)
+                        for record in sorted(lot.iqc_records, key=lambda item: item.id)
+                    ],
+                )
+                for lot in sorted(receipt.internal_material_lots, key=lambda item: item.id)
+            ],
+        )
+        for receipt in receipts
+    ]
+    return PaginatedResponse[TraceabilityReceiptResponse](
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.post(
     "/supplier-lots",
     response_model=SupplierLotResponse,
@@ -340,7 +588,9 @@ def get_receipt_trace(
 def create_supplier_lot(
     payload: SupplierLotCreate,
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("suppliers:write", "supplier-lots:write")
+    ),
 ) -> SupplierLotORM:
     ensure_supplier_access(current_user, payload.supplier_id)
     _get_supplier(db, payload.supplier_id)
@@ -559,13 +809,20 @@ def get_internal_lot(
 def list_iqc_records(
     keyword: str | None = Query(default=None, max_length=200),
     result: str | None = Query(default=None, alias="result", max_length=20),
+    review_status: str | None = Query(default=None, max_length=20),
     date_from: datetime | None = Query(default=None, alias="date_from"),
     date_to: datetime | None = Query(default=None, alias="date_to"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(require_permission("iqc:read")),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("iqc:read", "quality:review", "quality:approve", "quality:return")
+    ),
 ):
+    # Preserve supplier portal read access, but never grant it the internal
+    # quality-only listing path just because a role was misconfigured.
+    if current_user.supplier_id is not None and "iqc:read" not in current_user.permissions:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     statement = select(IQCRecordORM)
     count_statement = select(func.count()).select_from(IQCRecordORM)
     if current_user.supplier_id is not None:
@@ -595,6 +852,9 @@ def list_iqc_records(
     if result:
         statement = statement.where(IQCRecordORM.inspection_result == result)
         count_statement = count_statement.where(IQCRecordORM.inspection_result == result)
+    if review_status:
+        statement = statement.where(IQCRecordORM.review_status == review_status)
+        count_statement = count_statement.where(IQCRecordORM.review_status == review_status)
     if date_from:
         statement = statement.where(IQCRecordORM.inspection_date >= date_from)
         count_statement = count_statement.where(IQCRecordORM.inspection_date >= date_from)
@@ -673,6 +933,11 @@ def update_iqc_record(
     current_user: AuthenticatedUser = Depends(require_permission("iqc:write")),
 ):
     record = _get_iqc_record(db, iqc_id)
+    if record.review_status == "approved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Approved IQC records cannot be modified",
+        )
     if current_user.supplier_id is not None:
         if record.receipt_id is not None:
             receipt = db.get(MaterialReceiptORM, record.receipt_id)
@@ -761,3 +1026,129 @@ def get_iqc_record(
         if record.receipt_id is None and record.internal_lot_id is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return record
+
+
+@router.get("/iqc/{iqc_id}/reviews", response_model=PaginatedResponse[QualityReviewResponse])
+def list_iqc_reviews(
+    iqc_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None, max_length=20),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("quality:review", "quality:approve", "quality:return")
+    ),
+):
+    record = _get_iqc_record(db, iqc_id)
+    _ensure_iqc_review_access(db, current_user, record)
+    statement = select(QualityReviewORM).where(QualityReviewORM.iqc_record_id == iqc_id)
+    count_statement = (
+        select(func.count())
+        .select_from(QualityReviewORM)
+        .where(QualityReviewORM.iqc_record_id == iqc_id)
+    )
+    if status:
+        statement = statement.where(QualityReviewORM.review_status == status)
+        count_statement = count_statement.where(QualityReviewORM.review_status == status)
+
+    total = db.scalar(count_statement) or 0
+    rows = db.scalars(
+        statement.order_by(QualityReviewORM.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return PaginatedResponse[QualityReviewResponse](
+        items=_review_responses(db, list(rows)),
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/iqc/{iqc_id}/reviews/approve", response_model=QualityReviewResponse)
+def approve_iqc_review(
+    iqc_id: int,
+    payload: QualityReviewDecision,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("quality:review", "quality:approve")
+    ),
+):
+    record = _get_iqc_record(db, iqc_id)
+    _ensure_iqc_review_access(db, current_user, record)
+    record = _lock_iqc_record_for_review(db, iqc_id)
+    review = _record_review_decision(
+        db,
+        record,
+        current_user=current_user,
+        decision="approved",
+        decision_note=payload.decision_note,
+        reason=payload.reason,
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Review conflict") from exc
+    db.refresh(review)
+    return _review_responses(db, [review], fallback_username=current_user.username)[0]
+
+
+@router.post("/iqc/{iqc_id}/reviews/return", response_model=QualityReviewResponse)
+def return_iqc_review(
+    iqc_id: int,
+    payload: QualityReviewDecision,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("quality:review", "quality:return")
+    ),
+):
+    record = _get_iqc_record(db, iqc_id)
+    _ensure_iqc_review_access(db, current_user, record)
+    record = _lock_iqc_record_for_review(db, iqc_id)
+    review = _record_review_decision(
+        db,
+        record,
+        current_user=current_user,
+        decision="returned",
+        decision_note=payload.decision_note,
+        reason=payload.reason,
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Review conflict") from exc
+    db.refresh(review)
+    return _review_responses(db, [review], fallback_username=current_user.username)[0]
+
+
+@router.get("/quality-reviews", response_model=PaginatedResponse[QualityReviewResponse])
+def list_quality_reviews(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None, max_length=20),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(
+        require_any_permission("quality:review", "quality:approve", "quality:return")
+    ),
+):
+    if current_user.supplier_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Internal QA users only")
+    statement = select(QualityReviewORM)
+    count_statement = select(func.count()).select_from(QualityReviewORM)
+    if status:
+        statement = statement.where(QualityReviewORM.review_status == status)
+        count_statement = count_statement.where(QualityReviewORM.review_status == status)
+    total = db.scalar(count_statement) or 0
+    rows = db.scalars(
+        statement.order_by(QualityReviewORM.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return PaginatedResponse[QualityReviewResponse](
+        items=_review_responses(db, list(rows)),
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
