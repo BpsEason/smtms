@@ -73,6 +73,7 @@ const supplierLot = {
 beforeEach(() => {
   fetchMock.mockReset();
   window.localStorage.clear();
+  window.history.replaceState({}, "", "/");
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -290,14 +291,12 @@ describe("SMTMS application", () => {
 
   it("hides nonconformance navigation and denies direct route access without read permission", async () => {
     installApiMock();
+    window.localStorage.setItem("smtms_token", "demo-token");
+    window.history.replaceState({}, "", "/nonconformances");
     render(<App />);
-    await signIn();
-    expect(screen.queryByRole("link", { name: "品質異常" })).not.toBeInTheDocument();
-
-    window.history.pushState({}, "", "/nonconformances");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-
+    expect(await screen.findByRole("heading", { name: "需要存取權限" })).toBeInTheDocument();
     expect(await screen.findByText(/所需權限：nonconformance:read/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "品質異常" })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/nonconformances"),
       expect.anything(),
