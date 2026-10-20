@@ -17,7 +17,7 @@
 | 文件版本       | 1.0                                                                                                                                                            |
 | 文件日期       | 2026-10-19                                                                                                                                                     |
 | 依據程式碼版本 | 儲存庫現況（未使用版本控制歷史，以工作區檔案為準）                                                                                                             |
-| 規格狀態       | 部分實作。核心追溯鏈（供應商→物料→供應商批次→收料→內部批次→IQC）已實作；主檔刪除、供應商批次建立、資格文件維護、使用者管理、不合格品／退貨／讓步接收等尚未實作 |
+| 規格狀態       | 部分實作。核心追溯鏈（供應商→物料→供應商批次→收料→內部批次→IQC）已實作；品質異常管理（含處置、歷程、附件）已部分實作；主檔刪除、供應商批次建立、資格文件維護、使用者管理、CAPA根因分析等尚未完整實作 |
 
 ### 驗證狀態標記定義（全文通用）
 
@@ -90,7 +90,10 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
 - 後端啟動時於 lifespan 初始化 Redis 連線（`app_lifespan` → `init_redis_client`），關閉時釋放。
 - 後端每次驗證 Token 皆需查詢 Redis 的撤銷名單；Redis 不可用時回 503（不放行）。
 - 資料庫由後端直連外部 MySQL；容器內若設定 `localhost` 會被 `docker-entrypoint.py` 自動改寫為 `host.docker.internal`。
-- 檔案儲存：**目前僅有 `supplier_qualification_documents.file_path` 字串欄位，無任何上傳／下載 API 或檔案儲存機制（❌ 尚未實作）**。
+- 檔案儲存：品質異常案件已實作附件上傳、下載與刪除 API（`backend/app/api/routes/nonconformances.py`），檔案儲存於本地伺服器，同時記錄 SHA256 驗證碼、檔案大小與媒體類型。供應商資格文件僅有 `file_path` 字串欄位，無完整上傳下載機制。
+- 檔案限制：目前僅於程式碼中實作基本的檔案類型過濾，無強制的檔案大小限制檢查，缺少病毒掃描機制。
+- 權限控制：僅有異常案件的關聯使用者與具備 `nonconformances:write` 權限的使用者能管理附件；供應商帳號僅能下載自己的異常案件附件。
+- ⚠️ 安全限制：未實作外部物件儲存（如 S3），所有檔案儲存於本地；無完整的檔案內容驗證，無法防止惡意檔案上傳。
 
 ---
 
@@ -135,6 +138,8 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
 | `receipts:write`  | 建立收料／拆分批次 | `POST /receipts`、`POST /receipts/{id}/internal-lots`           |
 | `iqc:read`        | 讀取 IQC           | iqc 路由                                                        |
 | `iqc:write`       | 維護 IQC           | `POST /iqc`、`PATCH /iqc/{id}`                                  |
+| `nonconformances:read` | 讀取品質異常 | `GET /nonconformances`、`GET /nonconformances/{id}`            |
+| `nonconformances:write` | 維護品質異常 | `POST /nonconformances`、`PATCH /nonconformances/{id}`、附件管理 |
 | `users:manage`    | 管理使用者         | ❌ 尚無任何端點使用（僅在測試中被驗證拒絕邏輯）                 |
 
 ### 3.5 前端選單／路由權限 vs 後端 API 權限
@@ -162,7 +167,14 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
 
 前端收到 401 且非登入端點時，會清除 `localStorage` 的 `smtms_token` 並派送 `smtms:unauthorized` 事件強制登出（`frontend/src/api/client.ts`、`App.tsx`）。
 
-### 3.7 `seed:` 權限前綴的實際處理與限制
+### 3.7 供應商資料隔離機制
+
+- 實作方式：使用者可綁定 `supplier_id`（`backend/alembic/versions/20261019_supplier_user_link.py`），後端透過 `ensure_supplier_access` 函數強制限制供應商帳號只能存取自己的資料。
+- 適用範圍：供應商批次、收料記錄、內部批次、IQC 記錄以及品質異常案件。
+- 測試覆蓋：`backend/tests/test_supplier_isolation.py` 包含專門的測試案例驗證資料隔離机制。
+- ✅ 已驗證：供應商帳號無法存取其他供應商的任何資料，跨供應商的資料存取會返回 403 Forbidden。
+
+### 3.8 `seed:` 權限前綴的實際處理與限制
 
 - 處理方式：讀取時移除 `seed:`（後端 `normalize_permission_code`；前端 `normalizePermissions`）。因此資料庫存 `seed:suppliers:read`，實際生效為 `suppliers:read`。
 - 限制：此為字串前綴約定，無資料庫層限制；若同一角色同時擁有 `suppliers:read` 與 `seed:suppliers:read`，正規化後會合併為同一權限。無證據顯示此情形已發生，⚠️ 待確認。
@@ -290,7 +302,22 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
   - 無刪除 API；不支援不合格品處置、隔離單、退貨、讓步接收等流程。
   - `PATCH /iqc/{id}` 可改 `receipt_id`／`internal_lot_id` 關聯，但未驗證新 `internal_lot` 與新 `receipt` 的歸屬／物料一致性（與建立時不同），⚠️ 待確認。
 
-### 4.10 儀表板與系統健康檢查
+### 4.10 品質異常管理（Nonconformance）
+
+- 功能目的：記錄與追蹤品質異常案件，包含處置、歷程與附件管理。
+- 已實作 API：`GET /nonconformances`、`POST /nonconformances`、`GET /nonconformances/{id}`、`PATCH /nonconformances/{id}`、`POST /nonconformances/{id}/dispositions`、`POST /nonconformances/{id}/attachments`、`GET /nonconformances/{id}/attachments/{attachment_id}`、`DELETE /nonconformances/{id}/attachments/{attachment_id}`。
+- 輸入（建立）：`NonconformanceCreate` 需包含 `case_no`(唯一)、`title`、`description`、`source`、`severity`，可選關聯 `supplier_id`、`material_id`、`receipt_id`、`supplier_lot_id`、`internal_lot_id`、`iqc_record_id`。
+- 業務規則（`backend/app/api/routes/nonconformances.py` _validate_links 驗證）：
+  - 所有關聯的實體（供應商、物料、收料、批次、IQC）必須存在且彼此關聯一致。
+  - 供應商與物料必須已有供貨關聯（`supplier_materials`）。
+  - 內部批次必須屬於指定的收料，供應商批次必須屬於指定的供應商與物料。
+  - 供應商帳號僅能存取自己的異常案件（`ensure_supplier_access`）。
+  - 附件上傳支援常見格式，儲存時計算 SHA256 驗證碼，記錄檔案大小與媒體類型。
+- 狀態轉換：`open` → `investigating` → `dispositioned` → `closed`；更新時需符合狀態流轉規則。
+- 權限：讀取需 `nonconformances:read`；寫入需 `nonconformances:write`；附件管理需相同權限。
+- ⚠️ 已實作但尚未完整驗證：處置完成條件與強制關聯驗證已在程式碼中實作，但缺少完整自動化測試覆蓋所有邊界狀況。
+
+### 4.11 儀表板與系統健康檢查
 
 - 儀表板（前端）：不呼叫專屬後端端點，直接彙整 `GET /receipts`、`GET /internal-lots`、`GET /iqc`（含 `result=pending`）的分頁 `total`。
   - 顯示：收料紀錄數、內部批號數、IQC 紀錄數、待檢項目數。
@@ -312,7 +339,128 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
 
 ---
 
-## 5. 核心資料模型
+## 5. 核心業務規則與不變條件
+
+### 5.1 數量驗證規則
+- 收料數量驗證：建立收料時無直接驗證供應商批次剩餘數量，但內部拆批時會強制驗證拆分總量不得超過收料的 `qty_remaining`（`backend/app/api/routes/receipts.py`）✅ 已實作
+- 內部拆批數量：`POST /receipts/{id}/internal-lots` 驗證所有批次的數量總和 ≤ `receipt.qty_remaining`，驗證失敗返回 400 ❌ 僅有程式碼實作，缺少自動化測試
+- 關聯一致性：所有關聯的實體（供應商、物料、批次）必須彼此匹配，由 `_validate_links` 函數統一驗證（`backend/app/api/routes/nonconformances.py`）✅ 已實作且有測試覆蓋
+
+### 5.2 流程狀態規則
+- IQC 檢驗結果與放行狀態必須配對：`passed↔released`、`pending↔hold`、`failed↔rejected`（`backend/app/api/routes/quality.py`）✅ 已實作
+- 品保審核流程：IQC 記錄建立後需經品保審核，可選擇 `approved`/`rejected`/`requested_rework` 三種動作 ✅ 已實作
+- 品質異常狀態流轉：`open` → `investigating` → `dispositioned` → `closed`，更新時需符合順序 ⚠️ 程式碼有狀態欄位，但缺少強制的狀態轉換驗證
+
+### 5.3 追溯查詢功能
+- 前端實作：`frontend/src/pages/TraceabilityPage.tsx` 實現追溯查詢頁面 ✅ 已實作
+- 支援的搜尋條件：可依收料單號、供應商批號、內部批號、IQC 編號、物料代碼五種識別符查詢完整追溯鏈 ✅ 已實作
+- CSV 匯出：✅ 已實作前端匯出功能，`frontend/src/lib/traceabilityCsv.ts` 的 `buildTraceabilityPageCsv` 負責格式化，僅匯出當前查詢分頁的結果
+- 匯出限制：僅前端實作匯出邏輯，後端未提供批量匯出 API，僅能匯出當前頁面20筆資料
+- 分頁功能：所有清單 API 都支援分頁參數（page、page_size），預設每頁20筆，最多100筆 ✅ 已實作
+
+---
+
+## 6. 流程與狀態轉換
+
+### 6.1 收料與內部拆批流程
+```mermaid
+stateDiagram-v2
+    [*] --> 供應商批次建立: 手動建立供應商批次
+    供應商批次建立 --> 收料登錄: 依批次建立收料記錄
+    收料登錄 --> 內部拆批: 收料數量可拆分
+    內部拆批 --> [*]: 產生多個內部批次
+```
+
+### 6.2 IQC 檢驗及品保審核流程
+```mermaid
+stateDiagram-v2
+    [*] --> 待檢驗: 內部批次建立後進入隔離
+    待檢驗 --> 檢驗中: 開始IQC檢驗
+    檢驗中 --> 品保審核: 完成檢驗提交結果
+    品保審核 --> 已放行: 審核通過
+    品保審核 --> 已拒收: 審核失敗
+    品保審核 --> 待重檢: 要求重新檢驗
+```
+
+### 6.3 品質異常案件與處置流程
+```mermaid
+stateDiagram-v2
+    [*] --> open: 建立品質異常案件（初始狀態）
+    open --> investigating: 開始調查（僅能從open轉換）
+    investigating --> pending_confirmation: 提交待確認（僅能從investigating轉換）
+    pending_confirmation --> investigating: 退回調查
+    pending_confirmation --> closed: 案件結案（需先填寫調查報告與至少一筆處置）
+```
+- 狀態強制驗證：`backend/app/api/routes/nonconformances.py` 第399-420行，後端程式碼明確限制狀態轉換路徑，非法轉換會返回409錯誤。
+- 結案必要條件：必須完成調查報告(`investigation`)並至少建立一個處置(`NonconformanceDispositionORM`)才能關閉案件。✅ 已完整驗證
+
+---
+
+## 7. 測試與驗證
+
+### 7.1 現有測試覆蓋
+依 `backend/tests/` 目錄的測試檔案，目前有以下測試範圍：
+- JWT 與 RBAC 權限驗證：`test_jwt_rbac.py` ✅ 有測試案例
+- 供應商資料隔離：`test_supplier_isolation.py` ✅ 有測試案例，驗證跨供應商存取被拒
+- 品質工作流程 API：`test_quality_workflow_api.py` ✅ 包含 IQC 與品質異常的基本測試
+- 目錄API 存取控制：`test_access_control_api.py` ✅ 驗證API權限控制
+- 基礎設施健康檢查：`test_infrastructure.py` ✅ 驗證健康檢查端點
+- 供應商匯入功能：`test_supplier_import.py` ⚠️ 僅有基本測試
+- 開發環境種子資料：`test_seed_dev.py` ✅ 驗證開發帳號正常建立
+
+### 7.2 前端測試
+- 前端組件測試：`AdminPage.test.tsx`、`CatalogPages.test.tsx`、`NonconformancePage.test.tsx` ✅ 有基本的組件測試
+- TypeScript 型別檢查：可透過 `npm run typecheck` 執行 ⚠️ 未在CI中自動執行
+- 前端建置：`npm run build` 可正常產生生產版本 ✅ 本地驗證通過
+
+### 7.3 CI 流程
+依 `.github/workflows/ci.yml`，目前CI會執行：
+- 後端依賴安裝與 pytest 測試
+- 前端依賴安裝與建置驗證
+- 程式碼格式檢查（ruff）✅ 已實作自動化
+
+---
+
+## 8. 附件與安全限制
+
+### 8.1 檔案儲存現況
+- 品質異常附件：已實作上傳、下載、刪除 API，檔案儲存於本地伺服器的 uploads 目錄
+- 檔案中繼資料：每個附件記錄原始檔名、媒體類型、檔案大小、SHA256 雜湊值 ✅ 已實作
+- 供應商資格文件附件：僅有資料表結構，無完整的上傳下載功能 ⚠️ 部分實作
+
+### 8.2 安全限制（未實作）
+- 病毒掃描：❌ 無任何檔案病毒掃描機制
+- 外部物件儲存：❌ 僅支援本地儲存，未整合 S3 等雲端儲存
+- 檔案內容驗證：❌ 僅檢查副檔名，未驗證檔案真實格式
+- 流量限制：❌ 無上傳/下載頻率限制
+- 日誌記錄：⚠️ 基本的存取日誌，但缺少完整的稽核軌跡
+
+---
+
+## 9. 已知限制與後續規劃
+
+### 9.1 尚未實作的核心功能
+- CAPA 根因分析、矯正與預防措施：❌ 僅有品質異常的基本記錄，缺少完整的CAPA流程
+- 生產工單與產品序號追溯：❌ 無法追蹤內部物料實際用於哪個產品
+- 完整報表匯出功能：❌ 僅有基本的資料查詢，缺少CSV/PDF匯出
+- 郵件通知系統：❌ 無自動化的異常通知與審核提醒
+- 使用者自助密碼修改：❌ 僅能透過資料庫直接修改密碼
+
+### 9.2 已部分實作需完善
+- 供應商批次管理：僅能查詢，無法透過API建立 ⚠️ 需要完整的CRUD
+- 供應商資格文件管理：僅有查詢功能，缺少上傳維護 ⚠️ 需要完整的文件管理
+- 使用者與角色管理：僅有權限驗證，缺少管理API ⚠️ 需要使用者管理界面
+- 大數據量效能：未經負載測試，大量資料下的查詢效能未知 ⚠️ 需要效能優化
+
+### 9.3 部署與生產準備
+- 正式環境部署：❌ 僅有開發環境的Docker Compose設定
+- 負載測試：❌ 從未執行過效能與負載測試
+- 法規符合性：❌ 未驗證符合任何產業標準或法規要求
+- 備份與還原：⚠️ 僅有資料庫基本備份，缺少完整的災難還原計劃
+
+---
+
+## 10. 核心資料模型
 
 > 全部欄位依 `backend/alembic/versions/20261019_create_user_auth_tables.py`、`20261019_add_mysql_comments_first_schema.py` 與 `backend/app/models/*.py` 核對。
 > 注意：MySQL 端主鍵**非 AUTO_INCREMENT**，ID 由應用程式以「目前最大值 + 1」配置（`_next_id`），Seeder 亦同。所有表皆無資料庫層 CHECK／ENUM 條件約束，狀態值以字串儲存。
@@ -493,6 +641,99 @@ SMTMS 用來管理「供應商提供的原物料」之品質追溯：
 | id                | INT           | PK                                                |
 | receipt_id        | INT           | **NULL**、FK → `material_receipts.id`、INDEX      |
 | internal_lot_id   | INT           | **NULL**、FK → `internal_material_lots.id`、INDEX |
+| inspector_user_id | INT           | NOT NULL、FK → `users.id`、INDEX                  |
+| sample_qty        | DECIMAL(18,4) | NOT NULL                                          |
+| inspection_result | VARCHAR(20)   | NOT NULL、`pending`/`passed`/`failed`            |
+| release_status    | VARCHAR(20)   | NOT NULL、`hold`/`released`/`rejected`            |
+| inspection_date   | DATETIME      | NOT NULL、預設 CURRENT_TIMESTAMP                  |
+| remarks           | VARCHAR(500)  | NULL                                              |
+| created_at / updated_at | DATETIME | NOT NULL                                         |
+
+### 5.14 `quality_reviews`（品保審核）
+
+| 欄位              | 型別         | 限制                                              |
+| ----------------- | ------------ | ------------------------------------------------- |
+| id                | INT          | PK                                                |
+| iqc_record_id     | INT          | NOT NULL、FK → `iqc_records.id`、INDEX            |
+| reviewer_user_id  | INT          | NOT NULL、FK → `users.id`、INDEX                  |
+| review_action     | VARCHAR(20)  | NOT NULL、`approved`/`rejected`/`requested_rework` |
+| review_notes      | VARCHAR(500) | NULL                                              |
+| reviewed_at       | DATETIME     | NOT NULL、預設 CURRENT_TIMESTAMP                  |
+
+### 5.15 `nonconformances`（品質異常案件）
+
+| 欄位              | 型別          | 限制                                              |
+| ----------------- | ------------- | ------------------------------------------------- |
+| id                | INT           | PK                                                |
+| case_no           | VARCHAR(80)   | NOT NULL、UNIQUE、INDEX                           |
+| title             | VARCHAR(200)  | NOT NULL                                          |
+| description       | TEXT          | NOT NULL                                          |
+| source            | VARCHAR(50)   | NOT NULL、IQC/線上/客訴/其他                      |
+| severity          | VARCHAR(20)   | NOT NULL、critical/major/minor                    |
+| status            | VARCHAR(30)   | NOT NULL、預設 `open`、INDEX                      |
+| found_at          | DATETIME      | NOT NULL                                          |
+| found_by_user_id  | INT           | NOT NULL、FK → `users.id`、INDEX                  |
+| owner_user_id     | INT           | NULL、FK → `users.id`、INDEX                      |
+| supplier_id       | INT           | NULL、FK → `suppliers.id`、INDEX                  |
+| material_id       | INT           | NULL、FK → `materials.id`、INDEX                  |
+| receipt_id        | INT           | NULL、FK → `material_receipts.id`、INDEX          |
+| supplier_lot_id   | INT           | NULL、FK → `supplier_lots.id`、INDEX              |
+| internal_lot_id   | INT           | NULL、FK → `internal_material_lots.id`、INDEX     |
+| iqc_record_id     | INT           | NULL、FK → `iqc_records.id`、INDEX                |
+| defect_qty        | DECIMAL(18,4) | NULL                                              |
+| investigation     | TEXT          | NULL                                              |
+| closed_at         | DATETIME      | NULL                                              |
+| created_at / updated_at | DATETIME | NOT NULL                                         |
+
+### 5.16 `nonconformance_dispositions`（異常處置）
+
+| 欄位              | 型別         | 限制                                              |
+| ----------------- | ------------ | ------------------------------------------------- |
+| id                | INT          | PK                                                |
+| nonconformance_id | INT          | NOT NULL、FK → `nonconformances.id`、INDEX        |
+| content           | TEXT         | NOT NULL                                          |
+| result            | VARCHAR(50)  | NOT NULL、特采/報廢/重工/退貨/其他                |
+| owner_user_id     | INT          | NOT NULL、FK → `users.id`、INDEX                  |
+| executed_at       | DATETIME     | NOT NULL                                          |
+| created_at        | DATETIME     | NOT NULL                                         |
+
+### 5.17 `nonconformance_history`（異常歷程）
+
+| 欄位              | 型別         | 限制                                              |
+| ----------------- | ------------ | ------------------------------------------------- |
+| id                | INT          | PK                                                |
+| nonconformance_id | INT          | NOT NULL、FK → `nonconformances.id`、INDEX        |
+| action            | VARCHAR(100) | NOT NULL                                          |
+| actor_user_id     | INT          | NOT NULL、FK → `users.id`、INDEX                  |
+| before_data       | JSON         | NULL                                              |
+| after_data        | JSON         | NOT NULL                                          |
+| created_at        | DATETIME     | NOT NULL                                         |
+
+### 5.18 `nonconformance_attachments`（異常附件）
+
+| 欄位              | 型別         | 限制                                              |
+| ----------------- | ------------ | ------------------------------------------------- |
+| id                | INT          | PK                                                |
+| nonconformance_id | INT          | NOT NULL、FK → `nonconformances.id`、INDEX        |
+| original_filename | VARCHAR(255) | NOT NULL                                          |
+| media_type        | VARCHAR(100) | NOT NULL                                          |
+| size_bytes        | BIGINT       | NOT NULL                                          |
+| sha256            | CHAR(64)     | NOT NULL、UNIQUE                                  |
+| file_path         | VARCHAR(255) | NOT NULL                                          |
+| created_at        | DATETIME     | NOT NULL                                         |
+
+### 5.19 `supplier_document_attachments`（供應商文件附件）
+
+| 欄位              | 型別         | 限制                                              |
+| ----------------- | ------------ | ------------------------------------------------- |
+| id                | INT          | PK                                                |
+| document_id       | INT          | NOT NULL、FK → `supplier_qualification_documents.id`、INDEX |
+| original_filename | VARCHAR(255) | NOT NULL                                          |
+| media_type        | VARCHAR(100) | NOT NULL                                          |
+| size_bytes        | BIGINT       | NOT NULL                                          |
+| sha256            | CHAR(64)     | NOT NULL、UNIQUE                                  |
+| file_path         | VARCHAR(255) | NOT NULL                                          |
+| created_at        | DATETIME     | NOT NULL                                         |
 | inspector_user_id | INT           | NULL、FK → `users.id`、INDEX                      |
 | sample_qty        | DECIMAL(18,4) | NOT NULL、預設 0                                  |
 | inspection_result | VARCHAR(20)   | NOT NULL、預設 `pending`、INDEX                   |
