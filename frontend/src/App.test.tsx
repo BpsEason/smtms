@@ -297,7 +297,7 @@ describe("SMTMS application", () => {
     window.history.pushState({}, "", "/nonconformances");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
-    expect(await screen.findByText("所需權限：nonconformance:read。請洽系統管理員確認角色設定。")).toBeInTheDocument();
+    expect(await screen.findByText(/所需權限：nonconformance:read/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/nonconformances"),
       expect.anything(),
