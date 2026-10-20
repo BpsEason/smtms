@@ -1,5 +1,7 @@
 import json
+from collections.abc import Callable
 from functools import lru_cache
+from typing import cast
 from urllib.parse import quote, urlparse, urlunparse
 
 from pydantic import Field, field_validator
@@ -70,11 +72,12 @@ def get_settings() -> Settings:
     app_env = os.getenv("APP_ENV", "development")
     env_file = ".env.test" if app_env == "test" else ".env"
     
-    # 動態更新 model_config 的 env_file，並在最後恢復原值，避免跨環境污染
-    original_env_file = Settings.model_config.get("env_file")
-    try:
-        Settings.model_config["env_file"] = env_file
-        return Settings()
-    finally:
-        if original_env_file is not None:
-            Settings.model_config["env_file"] = original_env_file
+    settings_factory = cast(
+        Callable[[], Settings],
+        type(
+            "EnvironmentSettings",
+            (Settings,),
+            {"model_config": {**Settings.model_config, "env_file": env_file}},
+        ),
+    )
+    return settings_factory()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -457,15 +457,21 @@ def get_receipt_trace(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
     ensure_supplier_access(current_user, receipt.supplier_id)
     return ReceiptTraceResponse(
-        receipt=receipt,
-        supplier=receipt.supplier,
-        material=receipt.material,
-        supplier_lot=receipt.supplier_lot,
-        receipt_iqc_records=sorted(receipt.iqc_records, key=lambda record: record.id),
+        receipt=ReceiptResponse.model_validate(receipt),
+        supplier=SupplierResponse.model_validate(receipt.supplier),
+        material=MaterialResponse.model_validate(receipt.material),
+        supplier_lot=SupplierLotResponse.model_validate(receipt.supplier_lot),
+        receipt_iqc_records=[
+            IQCRecordResponse.model_validate(record)
+            for record in sorted(receipt.iqc_records, key=lambda record: record.id)
+        ],
         internal_lots=[
             ReceiptTraceLot(
-                internal_lot=lot,
-                iqc_records=sorted(lot.iqc_records, key=lambda record: record.id),
+                internal_lot=InternalLotResponse.model_validate(lot),
+                iqc_records=[
+                    IQCRecordResponse.model_validate(record)
+                    for record in sorted(lot.iqc_records, key=lambda record: record.id)
+                ],
             )
             for lot in sorted(receipt.internal_material_lots, key=lambda item: item.id)
         ],
@@ -543,12 +549,15 @@ def search_traceability(
             detail="Traceability record not found",
         )
 
-    ids: list[int] = db.scalars(
-        select(matching_ids.c.id)
-        .order_by(matching_ids.c.id)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    ).all()
+    ids = cast(
+        list[int],
+        db.scalars(
+            select(matching_ids.c.id)
+            .order_by(matching_ids.c.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all(),
+    )
     receipts = db.scalars(
         select(MaterialReceiptORM)
         .options(

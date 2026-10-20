@@ -14,8 +14,9 @@ each drop a different manager and leave the system without any administrator.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select, text
@@ -128,7 +129,7 @@ def _management_grants_statement():
 
 def _management_grants(db: Session) -> set[int]:
     """Ids of active internal users that currently hold ``users:manage``."""
-    rows = db.execute(_management_grants_statement()).all()
+    rows = cast(Sequence[tuple[int, str]], db.execute(_management_grants_statement()).all())
     return {
         user_id
         for user_id, code in rows
