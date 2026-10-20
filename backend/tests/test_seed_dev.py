@@ -74,9 +74,7 @@ def test_seed_builds_full_traceability_graph(seed_session: Session) -> None:
         .outerjoin(MaterialORM, MaterialReceiptORM.material_id == MaterialORM.id)
         .outerjoin(SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id)
         .where(
-            (SupplierORM.id.is_(None))
-            | (MaterialORM.id.is_(None))
-            | (SupplierLotORM.id.is_(None))
+            (SupplierORM.id.is_(None)) | (MaterialORM.id.is_(None)) | (SupplierLotORM.id.is_(None))
         )
     )
     assert orphan_receipts == 0
@@ -102,7 +100,9 @@ def test_seed_is_repeatable_without_duplicates(seed_session: Session) -> None:
     )
 
 
-def test_seed_provides_actionable_signoff_examples_with_valid_history(seed_session: Session) -> None:
+def test_seed_provides_actionable_signoff_examples_with_valid_history(
+    seed_session: Session,
+) -> None:
     counts = _run_seed(seed_session)
     assert counts["pending_iqc_signoffs"] >= 3
     assert counts["approved_iqc_signoffs"] >= 1
@@ -110,9 +110,7 @@ def test_seed_provides_actionable_signoff_examples_with_valid_history(seed_sessi
     assert counts["seed_signoff_history"] == 2
 
     iqcs = seed_session.scalars(
-        select(IQCRecordORM).where(
-            IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%")
-        )
+        select(IQCRecordORM).where(IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%"))
     ).all()
     approved = next(record for record in iqcs if record.review_status == "approved")
     returned = next(record for record in iqcs if record.review_status == "returned")
@@ -249,9 +247,7 @@ def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Sessi
     assert len(set(tax_ids)) == len(tax_ids)
 
     accounts = seed_session.scalars(
-        select(UserORM).where(
-            UserORM.username.like(f"{seed_dev.SEED_SUPPLIER_USER_PREFIX}%")
-        )
+        select(UserORM).where(UserORM.username.like(f"{seed_dev.SEED_SUPPLIER_USER_PREFIX}%"))
     ).all()
     assert len(accounts) == len(suppliers)
     assert {account.supplier_id for account in accounts} == {supplier.id for supplier in suppliers}
@@ -270,9 +266,7 @@ def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Sessi
         assert roles == {supplier_import.SUPPLIER_ROLE_NAME}
 
     internal_roles = set(
-        seed_session.scalars(
-            select(RoleORM.name).where(RoleORM.name.in_(seed_dev.SEED_ROLE_NAMES))
-        )
+        seed_session.scalars(select(RoleORM.name).where(RoleORM.name.in_(seed_dev.SEED_ROLE_NAMES)))
     )
     assert internal_roles.isdisjoint(
         {

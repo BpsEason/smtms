@@ -272,6 +272,7 @@ class SupplierLotCreate(BaseModel):
             raise ValueError("qty_received supports at most 4 decimal places")
         return self
 
+
 class ReceiptCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -365,9 +366,17 @@ class IQCUpdate(BaseModel):
         for field_name in ("inspection_result", "release_status"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
-        if "inspection_result" in self.model_fields_set and self.inspection_result not in {"pending", "passed", "failed"}:
+        if "inspection_result" in self.model_fields_set and self.inspection_result not in {
+            "pending",
+            "passed",
+            "failed",
+        }:
             raise ValueError("inspection_result must be pending, passed, or failed")
-        if "release_status" in self.model_fields_set and self.release_status not in {"hold", "released", "rejected"}:
+        if "release_status" in self.model_fields_set and self.release_status not in {
+            "hold",
+            "released",
+            "rejected",
+        }:
             raise ValueError("release_status must be hold, released, or rejected")
         if (
             self.inspection_result == "passed"

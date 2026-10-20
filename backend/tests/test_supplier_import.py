@@ -161,7 +161,9 @@ def test_preview_and_confirm_create_suppliers_and_login_accounts(import_environm
     assert preview.json()["error_rows"] == 0
     assert len(preview.json()["rows"]) == 2
 
-    confirm = client.post("/api/v1/suppliers/import/confirm", files=_files(content), headers=headers)
+    confirm = client.post(
+        "/api/v1/suppliers/import/confirm", files=_files(content), headers=headers
+    )
     assert confirm.status_code == 200, confirm.text
     body = confirm.json()
     assert body["status"] == "completed"
@@ -180,7 +182,9 @@ def test_preview_and_confirm_create_suppliers_and_login_accounts(import_environm
         assert account.must_change_password is True
         assert account.password_hash != IMPORT_PASSWORD
         assert verify_password(body["accounts"][0]["initial_password"], account.password_hash)
-        role = session.scalar(select(RoleORM).where(RoleORM.name == supplier_import.SUPPLIER_ROLE_NAME))
+        role = session.scalar(
+            select(RoleORM).where(RoleORM.name == supplier_import.SUPPLIER_ROLE_NAME)
+        )
         assert role is not None
 
 
@@ -189,8 +193,13 @@ def test_import_rejects_empty_malformed_and_incomplete_files(import_environment)
     headers = _headers(client, "import-admin")
 
     assert client.post(FILE_URL, files=_files(b""), headers=headers).status_code == 422
-    assert client.post(FILE_URL, files=_files(b"not-an-excel-file"), headers=headers).status_code == 422
-    incomplete = workbook_bytes([{"supplier_code": "SUP-200"}], headers=("supplier_code", "supplier_name"))
+    assert (
+        client.post(FILE_URL, files=_files(b"not-an-excel-file"), headers=headers).status_code
+        == 422
+    )
+    incomplete = workbook_bytes(
+        [{"supplier_code": "SUP-200"}], headers=("supplier_code", "supplier_name")
+    )
     assert client.post(FILE_URL, files=_files(incomplete), headers=headers).status_code == 422
     empty_rows = workbook_bytes([])
     assert client.post(FILE_URL, files=_files(empty_rows), headers=headers).status_code == 422
@@ -242,7 +251,9 @@ def test_import_reports_duplicates_and_existing_conflicts(import_environment) ->
     assert {"supplier_code", "tax_id", "login_username"} <= fields
     assert all(error["row"] >= 2 for error in body["errors"])
 
-    confirm = client.post("/api/v1/suppliers/import/confirm", files=_files(content), headers=headers)
+    confirm = client.post(
+        "/api/v1/suppliers/import/confirm", files=_files(content), headers=headers
+    )
     assert confirm.status_code == 200
     result = confirm.json()
     assert result["status"] == "rejected"
@@ -315,7 +326,9 @@ def test_import_rolls_back_when_account_creation_fails(import_environment, monke
         raise IntegrityError("insert", {}, Exception("simulated failure"))
 
     monkeypatch.setattr(supplier_import, "get_password_hash", boom)
-    confirm = client.post("/api/v1/suppliers/import/confirm", files=_files(content), headers=headers)
+    confirm = client.post(
+        "/api/v1/suppliers/import/confirm", files=_files(content), headers=headers
+    )
     assert confirm.status_code == 200
     result = confirm.json()
     assert result["status"] == "rejected"
@@ -341,7 +354,9 @@ def test_password_is_hashed_and_never_leaked(import_environment) -> None:
             }
         ]
     )
-    confirm = client.post("/api/v1/suppliers/import/confirm", files=_files(content), headers=headers)
+    confirm = client.post(
+        "/api/v1/suppliers/import/confirm", files=_files(content), headers=headers
+    )
     assert confirm.status_code == 200
     raw = confirm.text
     assert "password_hash" not in raw
@@ -388,9 +403,9 @@ def test_first_login_password_change_flow(import_environment) -> None:
         ]
     )
     assert (
-        client.post("/api/v1/suppliers/import/confirm", files=_files(content), headers=headers).json()[
-            "created"
-        ]
+        client.post(
+            "/api/v1/suppliers/import/confirm", files=_files(content), headers=headers
+        ).json()["created"]
         == 1
     )
 
@@ -425,7 +440,8 @@ def test_first_login_password_change_flow(import_environment) -> None:
     assert client.get("/api/v1/auth/me", headers=portal).json()["must_change_password"] is False
     assert (
         client.post(
-            "/api/v1/auth/login", json={"username": "portal-user", "password": "Another-Password-2026!"}
+            "/api/v1/auth/login",
+            json={"username": "portal-user", "password": "Another-Password-2026!"},
         ).status_code
         == 200
     )

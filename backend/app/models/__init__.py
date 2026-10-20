@@ -10,7 +10,14 @@ from app.models.quality import (
     SupplierORM,
     SupplierQualificationDocumentORM,
 )
-from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRole, UserRoleORM
+from app.models.user import (
+    PermissionORM,
+    RoleORM,
+    RolePermissionORM,
+    UserORM,
+    UserRole,
+    UserRoleORM,
+)
 
 __all__ = [
     "UserRole",

@@ -138,10 +138,13 @@ def test_disabled_account_cannot_login(auth_environment) -> None:
 def test_me_requires_valid_token(auth_environment) -> None:
     client, _, _ = auth_environment
     assert client.get("/api/v1/auth/me").status_code == 401
-    assert client.get(
-        "/api/v1/auth/me",
-        headers={"Authorization": "Bearer not-a-valid-token"},
-    ).status_code == 401
+    assert (
+        client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": "Bearer not-a-valid-token"},
+        ).status_code
+        == 401
+    )
 
 
 def test_logout_revokes_token(auth_environment) -> None:
@@ -203,7 +206,9 @@ def test_permission_and_role_dependencies_use_resolved_database_grants(auth_envi
     assert protected_client.get("/qa", headers=headers).status_code == 200
 
 
-def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(auth_environment) -> None:
+def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(
+    auth_environment,
+) -> None:
     client, session_factory, _ = auth_environment
     with session_factory() as session:
         seed_user = UserORM(
@@ -216,10 +221,12 @@ def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(auth
         seed_permission = PermissionORM(code="seed:suppliers:read", name="Read suppliers")
         session.add_all([seed_user, seed_role, seed_permission])
         session.flush()
-        session.add_all([
-            UserRoleORM(user_id=seed_user.id, role_id=seed_role.id),
-            RolePermissionORM(role_id=seed_role.id, permission_id=seed_permission.id),
-        ])
+        session.add_all(
+            [
+                UserRoleORM(user_id=seed_user.id, role_id=seed_role.id),
+                RolePermissionORM(role_id=seed_role.id, permission_id=seed_permission.id),
+            ]
+        )
         session.commit()
 
     response = client.post(
@@ -243,4 +250,7 @@ def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(auth
         return {"username": user.username}
 
     protected_client = TestClient(protected_app)
-    assert protected_client.get("/suppliers", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert (
+        protected_client.get("/suppliers", headers={"Authorization": f"Bearer {token}"}).status_code
+        == 200
+    )

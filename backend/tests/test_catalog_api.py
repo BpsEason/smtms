@@ -35,7 +35,6 @@ def _headers(client: TestClient, username: str, password: str) -> dict[str, str]
 
 
 @pytest.fixture
-
 def catalog_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     test_engine = create_engine(
         "sqlite://",
@@ -181,11 +180,14 @@ def test_catalog_routes_require_auth_and_permissions(catalog_environment) -> Non
     assert client.get("/api/v1/suppliers").status_code == 401
     assert client.get("/api/v1/materials").status_code == 401
     read_headers = _headers(client, "catalog-reader", "Catalog-Test-Password-2026!")
-    assert client.post(
-        "/api/v1/suppliers",
-        json={"supplier_code": "SUP-003", "supplier_name": "No Write Permission"},
-        headers=read_headers,
-    ).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/suppliers",
+            json={"supplier_code": "SUP-003", "supplier_name": "No Write Permission"},
+            headers=read_headers,
+        ).status_code
+        == 403
+    )
 
     seeded_headers = _headers(
         client,
@@ -211,16 +213,22 @@ def test_supplier_crud_search_pagination_documents_and_unique_code(catalog_envir
     )
     assert created.status_code == 201, created.text
     supplier_id = created.json()["id"]
-    assert client.post(
-        "/api/v1/suppliers",
-        json={"supplier_code": "SUP-003", "supplier_name": "Duplicate"},
-        headers=headers,
-    ).status_code == 409
-    assert client.patch(
-        f"/api/v1/suppliers/{supplier_id}",
-        json={"id": 999, "supplier_name": "Illegal PK Change"},
-        headers=headers,
-    ).status_code == 422
+    assert (
+        client.post(
+            "/api/v1/suppliers",
+            json={"supplier_code": "SUP-003", "supplier_name": "Duplicate"},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/v1/suppliers/{supplier_id}",
+            json={"id": 999, "supplier_name": "Illegal PK Change"},
+            headers=headers,
+        ).status_code
+        == 422
+    )
 
     updated = client.patch(
         f"/api/v1/suppliers/{supplier_id}",
@@ -283,29 +291,39 @@ def test_supplier_document_crud_and_authenticated_attachment_storage(
     assert client.get(document_url, headers=headers).status_code == 200
     reader_headers = _headers(client, "catalog-reader", "Catalog-Test-Password-2026!")
     assert client.get(document_url, headers=reader_headers).status_code == 200
-    assert client.patch(
-        f"/api/v1/suppliers/1/documents/{document_id}",
-        json={"doc_name": "Certificate v2"},
-        headers=headers,
-    ).json()["doc_name"] == "Certificate v2"
-    assert client.post(
-        "/api/v1/suppliers/1/documents",
-        json={"doc_type": "ISO", "doc_name": "Unauthorized"},
-        headers=reader_headers,
-    ).status_code == 403
-    assert client.patch(
-        f"/api/v1/suppliers/1/documents/{document_id}",
-        json={"doc_name": "Unauthorized update"},
-        headers=reader_headers,
-    ).status_code == 403
     assert (
-        client.delete(document_url, headers=reader_headers).status_code == 403
+        client.patch(
+            f"/api/v1/suppliers/1/documents/{document_id}",
+            json={"doc_name": "Certificate v2"},
+            headers=headers,
+        ).json()["doc_name"]
+        == "Certificate v2"
     )
-    assert client.post(
-        "/api/v1/suppliers/1/documents",
-        json={"doc_type": " ", "doc_name": "Invalid"},
-        headers=headers,
-    ).status_code == 422
+    assert (
+        client.post(
+            "/api/v1/suppliers/1/documents",
+            json={"doc_type": "ISO", "doc_name": "Unauthorized"},
+            headers=reader_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/suppliers/1/documents/{document_id}",
+            json={"doc_name": "Unauthorized update"},
+            headers=reader_headers,
+        ).status_code
+        == 403
+    )
+    assert client.delete(document_url, headers=reader_headers).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/suppliers/1/documents",
+            json={"doc_type": " ", "doc_name": "Invalid"},
+            headers=headers,
+        ).status_code
+        == 422
+    )
 
     uploaded = client.post(
         f"/api/v1/suppliers/1/documents/{document_id}/attachments",
@@ -324,10 +342,13 @@ def test_supplier_document_crud_and_authenticated_attachment_storage(
     )
     assert downloaded.status_code == 200
     assert downloaded.content == b"%PDF-1.7\ncontent"
-    assert client.get(
-        f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}/download",
-        headers=reader_headers,
-    ).status_code == 200
+    assert (
+        client.get(
+            f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}/download",
+            headers=reader_headers,
+        ).status_code
+        == 200
+    )
 
     rejected_type = client.post(
         f"/api/v1/suppliers/1/documents/{document_id}/attachments",
@@ -364,10 +385,13 @@ def test_supplier_document_crud_and_authenticated_attachment_storage(
         document_storage.resolve_storage_key("../outside.pdf")
     assert traversal.value.status_code == 404
 
-    assert client.delete(
-        f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}",
-        headers=headers,
-    ).status_code == 204
+    assert (
+        client.delete(
+            f"/api/v1/suppliers/1/documents/{document_id}/attachments/{attachment['id']}",
+            headers=headers,
+        ).status_code
+        == 204
+    )
     assert list(tmp_path.iterdir()) == []
     assert client.delete(document_url, headers=headers).status_code == 204
 
@@ -389,21 +413,27 @@ def test_material_crud_search_pagination_and_unique_code(catalog_environment) ->
     )
     assert created.status_code == 201, created.text
     material_id = created.json()["id"]
-    assert client.post(
-        "/api/v1/materials",
-        json={
-            "material_code": "MAT-002",
-            "material_name": "Duplicate",
-            "material_type": "polymer",
-            "uom": "pcs",
-        },
-        headers=headers,
-    ).status_code == 409
-    assert client.patch(
-        f"/api/v1/materials/{material_id}",
-        json={"id": 999},
-        headers=headers,
-    ).status_code == 422
+    assert (
+        client.post(
+            "/api/v1/materials",
+            json={
+                "material_code": "MAT-002",
+                "material_name": "Duplicate",
+                "material_type": "polymer",
+                "uom": "pcs",
+            },
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.patch(
+            f"/api/v1/materials/{material_id}",
+            json={"id": 999},
+            headers=headers,
+        ).status_code
+        == 422
+    )
 
     updated = client.patch(
         f"/api/v1/materials/{material_id}",
@@ -422,10 +452,13 @@ def test_material_crud_search_pagination_and_unique_code(catalog_environment) ->
     assert listing.status_code == 200
     assert listing.json()["total"] == 1
     assert listing.json()["items"][0]["material_code"] == "MAT-002"
-    assert client.get(
-        "/api/v1/materials?status=active",
-        headers=headers,
-    ).json()["total"] == 1
+    assert (
+        client.get(
+            "/api/v1/materials?status=active",
+            headers=headers,
+        ).json()["total"]
+        == 1
+    )
     assert client.get("/api/v1/materials/99999", headers=headers).status_code == 404
 
 
@@ -444,11 +477,14 @@ def test_supplier_material_relationship_and_preferred_supplier(catalog_environme
     )
     assert link.status_code == 201, link.text
     assert link.json()["is_preferred"] is True
-    assert client.post(
-        "/api/v1/suppliers/2/materials",
-        json={"material_id": 1},
-        headers=headers,
-    ).status_code == 409
+    assert (
+        client.post(
+            "/api/v1/suppliers/2/materials",
+            json={"material_id": 1},
+            headers=headers,
+        ).status_code
+        == 409
+    )
 
     suppliers = client.get("/api/v1/materials/1/suppliers", headers=headers)
     assert suppliers.status_code == 200
@@ -458,16 +494,22 @@ def test_supplier_material_relationship_and_preferred_supplier(catalog_environme
         assert sum(link.is_preferred for link in links) == 1
         assert next(link for link in links if link.supplier_id == 2).is_preferred
 
-    assert client.post(
-        "/api/v1/suppliers/99999/materials",
-        json={"material_id": 1},
-        headers=headers,
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/suppliers/1/materials",
-        json={"material_id": 99999},
-        headers=headers,
-    ).status_code == 404
+    assert (
+        client.post(
+            "/api/v1/suppliers/99999/materials",
+            json={"material_id": 1},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/suppliers/1/materials",
+            json={"material_id": 99999},
+            headers=headers,
+        ).status_code
+        == 404
+    )
     assert client.get("/api/v1/materials/99999/suppliers", headers=headers).status_code == 404
 
     assert client.delete("/api/v1/suppliers/2/materials/1", headers=headers).status_code == 204

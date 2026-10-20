@@ -85,12 +85,22 @@ def isolation_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmak
         session.add_all([*permissions, admin_role, portal_role])
         session.add_all(
             [
-                SupplierORM(id=1, supplier_code="SUP-A", supplier_name="Supplier A", status="active"),
-                SupplierORM(id=2, supplier_code="SUP-B", supplier_name="Supplier B", status="active"),
-                SupplierORM(id=3, supplier_code="SUP-C", supplier_name="Supplier C", status="active"),
+                SupplierORM(
+                    id=1, supplier_code="SUP-A", supplier_name="Supplier A", status="active"
+                ),
+                SupplierORM(
+                    id=2, supplier_code="SUP-B", supplier_name="Supplier B", status="active"
+                ),
+                SupplierORM(
+                    id=3, supplier_code="SUP-C", supplier_name="Supplier C", status="active"
+                ),
             ]
         )
-        session.add(MaterialORM(id=1, material_code="MAT-1", material_name="Resin", material_type="raw", uom="kg"))
+        session.add(
+            MaterialORM(
+                id=1, material_code="MAT-1", material_name="Resin", material_type="raw", uom="kg"
+            )
+        )
         session.flush()
 
         admin = UserORM(
@@ -143,9 +153,15 @@ def isolation_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmak
         )
         session.add_all(
             [
-                SupplierLotORM(id=1, supplier_id=1, material_id=1, supplier_lot_no="LOT-A", uom="kg"),
-                SupplierLotORM(id=2, supplier_id=2, material_id=1, supplier_lot_no="LOT-B", uom="kg"),
-                SupplierQualificationDocumentORM(supplier_id=2, doc_type="ISO", doc_name="B Certificate"),
+                SupplierLotORM(
+                    id=1, supplier_id=1, material_id=1, supplier_lot_no="LOT-A", uom="kg"
+                ),
+                SupplierLotORM(
+                    id=2, supplier_id=2, material_id=1, supplier_lot_no="LOT-B", uom="kg"
+                ),
+                SupplierQualificationDocumentORM(
+                    supplier_id=2, doc_type="ISO", doc_name="B Certificate"
+                ),
             ]
         )
 
@@ -199,11 +215,14 @@ def test_supplier_cannot_read_other_supplier_records(isolation_environment) -> N
         ).status_code
         == 403
     )
-    assert client.post(
-        "/api/v1/suppliers/1/documents",
-        json={"doc_type": "ISO", "doc_name": "Portal should not create"},
-        headers=headers,
-    ).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/suppliers/1/documents",
+            json={"doc_type": "ISO", "doc_name": "Portal should not create"},
+            headers=headers,
+        ).status_code
+        == 403
+    )
 
 
 def test_supplier_lot_writer_is_still_limited_to_own_supplier(isolation_environment) -> None:
@@ -246,7 +265,7 @@ def test_supplier_lot_writer_is_still_limited_to_own_supplier(isolation_environm
             "supplier_id": 1,
             "material_id": 1,
             "supplier_lot_no": "PORTAL-OWN-LOT",
-            "qty_received": "1.0000"
+            "qty_received": "1.0000",
         },
         headers=headers,
     )
@@ -259,7 +278,9 @@ def test_supplier_document_and_traceability_operations_remain_scoped(isolation_e
         portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
         permissions = {item.code: item for item in session.scalars(select(PermissionORM)).all()}
         for code in ("materials:read", "receipts:read", "iqc:read"):
-            session.add(RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id))
+            session.add(
+                RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id)
+            )
         session.add_all(
             [
                 MaterialReceiptORM(
@@ -284,9 +305,17 @@ def test_supplier_document_and_traceability_operations_remain_scoped(isolation_e
         )
 
     headers = _headers(client, "portal-a")
-    assert client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-A", headers=headers).status_code == 200
-    assert client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-B", headers=headers).status_code == 404
-    assert client.get("/api/v1/traceability?material_code=MAT-1", headers=headers).json()["total"] == 1
+    assert (
+        client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-A", headers=headers).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/v1/traceability?receipt_no=TRACE-SCOPE-B", headers=headers).status_code
+        == 404
+    )
+    assert (
+        client.get("/api/v1/traceability?material_code=MAT-1", headers=headers).json()["total"] == 1
+    )
 
 
 def test_supplier_lots_are_scoped_to_own_supplier(isolation_environment) -> None:
@@ -362,12 +391,18 @@ def test_change_password_only_affects_the_caller(isolation_environment) -> None:
     )
     assert changed.status_code == 200
     assert _headers(client, "portal-a", new_password)
-    assert client.post(
-        "/api/v1/auth/login", json={"username": "portal-a", "password": PASSWORD}
-    ).status_code == 401
-    assert client.post(
-        "/api/v1/auth/login", json={"username": "portal-b", "password": PASSWORD}
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"username": "portal-a", "password": PASSWORD}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"username": "portal-b", "password": PASSWORD}
+        ).status_code
+        == 200
+    )
 
 
 def test_supplier_portal_requires_supplier_scope_on_material_and_receipt_detail_ids(
@@ -424,7 +459,9 @@ def test_supplier_scoped_workflow_ids_and_iqc_lists(isolation_environment) -> No
         portal_role = session.scalar(select(RoleORM).where(RoleORM.name == "isolation-portal"))
         permissions = {item.code: item for item in session.scalars(select(PermissionORM)).all()}
         for code in ("materials:read", "receipts:read", "receipts:write", "iqc:read", "iqc:write"):
-            session.add(RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id))
+            session.add(
+                RolePermissionORM(role_id=portal_role.id, permission_id=permissions[code].id)
+            )
         session.add(SupplierMaterialORM(supplier_id=2, material_id=1))
         receipt_a = MaterialReceiptORM(
             supplier_id=1,
@@ -449,23 +486,50 @@ def test_supplier_scoped_workflow_ids_and_iqc_lists(isolation_environment) -> No
         session.add_all([receipt_a, receipt_b])
         session.flush()
         lot_a = InternalMaterialLotORM(
-            material_id=1, supplier_lot_id=1, receipt_id=receipt_a.id,
-            internal_lot_no="ILT-SCOPE-A", qty_on_hand=5, qty_reserved=0,
-            uom="kg", lot_status="quarantine",
+            material_id=1,
+            supplier_lot_id=1,
+            receipt_id=receipt_a.id,
+            internal_lot_no="ILT-SCOPE-A",
+            qty_on_hand=5,
+            qty_reserved=0,
+            uom="kg",
+            lot_status="quarantine",
         )
         lot_b = InternalMaterialLotORM(
-            material_id=1, supplier_lot_id=2, receipt_id=receipt_b.id,
-            internal_lot_no="ILT-SCOPE-B", qty_on_hand=5, qty_reserved=0,
-            uom="kg", lot_status="quarantine",
+            material_id=1,
+            supplier_lot_id=2,
+            receipt_id=receipt_b.id,
+            internal_lot_no="ILT-SCOPE-B",
+            qty_on_hand=5,
+            qty_reserved=0,
+            uom="kg",
+            lot_status="quarantine",
         )
         session.add_all([lot_a, lot_b])
         session.flush()
-        session.add_all([
-            IQCRecordORM(internal_lot_id=lot_a.id, sample_qty=1, inspection_result="pending", release_status="hold"),
-            IQCRecordORM(internal_lot_id=lot_b.id, sample_qty=1, inspection_result="pending", release_status="hold"),
-        ])
+        session.add_all(
+            [
+                IQCRecordORM(
+                    internal_lot_id=lot_a.id,
+                    sample_qty=1,
+                    inspection_result="pending",
+                    release_status="hold",
+                ),
+                IQCRecordORM(
+                    internal_lot_id=lot_b.id,
+                    sample_qty=1,
+                    inspection_result="pending",
+                    release_status="hold",
+                ),
+            ]
+        )
         session.flush()
-        ids = {"receipt_a": receipt_a.id, "receipt_b": receipt_b.id, "lot_a": lot_a.id, "lot_b": lot_b.id}
+        ids = {
+            "receipt_a": receipt_a.id,
+            "receipt_b": receipt_b.id,
+            "lot_a": lot_a.id,
+            "lot_b": lot_b.id,
+        }
         iqc_ids = session.scalars(select(IQCRecordORM.id).order_by(IQCRecordORM.id)).all()
         ids["iqc_a"], ids["iqc_b"] = iqc_ids[-2:]
 
@@ -473,37 +537,63 @@ def test_supplier_scoped_workflow_ids_and_iqc_lists(isolation_environment) -> No
     other_receipt = client.post(
         "/api/v1/receipts",
         json={
-            "supplier_id": 2, "material_id": 1, "supplier_lot_id": 2,
-            "receipt_no": "REC-CROSS-SUPPLIER", "qty_received": "1",
+            "supplier_id": 2,
+            "material_id": 1,
+            "supplier_lot_id": 2,
+            "receipt_no": "REC-CROSS-SUPPLIER",
+            "qty_received": "1",
             "received_at": "2026-10-19T09:00:00Z",
         },
         headers=portal_a,
     )
     assert other_receipt.status_code == 403
-    assert client.get(f"/api/v1/receipts/{ids['receipt_a']}/trace", headers=portal_a).status_code == 200
-    assert client.get(f"/api/v1/receipts/{ids['receipt_b']}/trace", headers=portal_a).status_code == 403
+    assert (
+        client.get(f"/api/v1/receipts/{ids['receipt_a']}/trace", headers=portal_a).status_code
+        == 200
+    )
+    assert (
+        client.get(f"/api/v1/receipts/{ids['receipt_b']}/trace", headers=portal_a).status_code
+        == 403
+    )
 
     iqc_list = client.get("/api/v1/iqc", headers=portal_a)
     assert iqc_list.status_code == 200
     assert [item["id"] for item in iqc_list.json()["items"]] == [ids["iqc_a"]]
     assert client.get(f"/api/v1/iqc/{ids['iqc_b']}", headers=portal_a).status_code == 403
-    assert client.post(
-        "/api/v1/iqc",
-        json={"internal_lot_id": ids["lot_b"], "sample_qty": "1", "inspection_result": "pending", "release_status": "hold"},
-        headers=portal_a,
-    ).status_code == 403
-    assert client.patch(
-        f"/api/v1/iqc/{ids['iqc_a']}",
-        json={"internal_lot_id": ids["lot_b"]},
-        headers=portal_a,
-    ).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/iqc",
+            json={
+                "internal_lot_id": ids["lot_b"],
+                "sample_qty": "1",
+                "inspection_result": "pending",
+                "release_status": "hold",
+            },
+            headers=portal_a,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/iqc/{ids['iqc_a']}",
+            json={"internal_lot_id": ids["lot_b"]},
+            headers=portal_a,
+        ).status_code
+        == 403
+    )
 
 
 def test_preview_does_not_write_to_database(isolation_environment) -> None:
     client, TestSession = isolation_environment
     headers = _headers(client, "isolation-admin")
     content = _workbook(
-        [{"supplier_code": "SUP-900", "supplier_name": "Preview Only", "login_username": "preview-user"}]
+        [
+            {
+                "supplier_code": "SUP-900",
+                "supplier_name": "Preview Only",
+                "login_username": "preview-user",
+            }
+        ]
     )
     preview = client.post(
         "/api/v1/suppliers/import/preview",

@@ -14,7 +14,10 @@ def use_host_gateway_for_local_mysql() -> None:
     except Exception:
         return
 
-    if parsed.get_backend_name() != "mysql" or (parsed.host or "").lower() not in {"localhost", "127.0.0.1"}:
+    if parsed.get_backend_name() != "mysql" or (parsed.host or "").lower() not in {
+        "localhost",
+        "127.0.0.1",
+    }:
         return
 
     resolved = parsed.set(host="host.docker.internal")

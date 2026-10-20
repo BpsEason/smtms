@@ -126,7 +126,10 @@ def quality_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
         receipt = MaterialReceiptORM(
             supplier_id=supplier.id,
             material_id=material.id,
-            supplier_lot_id=session.query(SupplierLotORM).filter_by(supplier_lot_no="LOT-100").one().id,
+            supplier_lot_id=session.query(SupplierLotORM)
+            .filter_by(supplier_lot_no="LOT-100")
+            .one()
+            .id,
             receipt_no="REC-100",
             received_at=datetime(2026, 10, 1, 9, 30),
             received_by_user_id=user.id,
@@ -172,7 +175,9 @@ def quality_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
             password_hash=get_password_hash("Quality-Test-Password-2026!"),
             is_active=True,
         )
-        session.add_all([limited_role, qa_role, supplier_role, limited_user, supplier_user, qa_user])
+        session.add_all(
+            [limited_role, qa_role, supplier_role, limited_user, supplier_user, qa_user]
+        )
         session.flush()
         permission_by_code = {permission.code: permission for permission in permissions}
         session.add_all(
@@ -266,7 +271,9 @@ def test_receipt_and_iqc_flow_quality_environment(quality_environment) -> None:
     assert patch.json()["release_status"] == "rejected"
 
 
-def test_supplier_lot_creation_validates_relationship_uniqueness_and_precision(quality_environment) -> None:
+def test_supplier_lot_creation_validates_relationship_uniqueness_and_precision(
+    quality_environment,
+) -> None:
     client, TestSession = quality_environment
     with TestSession.begin() as session:
         session.add(
@@ -287,21 +294,30 @@ def test_supplier_lot_creation_validates_relationship_uniqueness_and_precision(q
     assert created.status_code == 201, created.text
     assert created.json()["uom"] == "pcs"
     assert client.post("/api/v1/supplier-lots", json=payload, headers=headers).status_code == 409
-    assert client.post(
-        "/api/v1/supplier-lots",
-        json={**payload, "supplier_lot_no": "LOT-INVALID-MATERIAL", "material_id": 999},
-        headers=headers,
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/supplier-lots",
-        json={**payload, "supplier_id": 2, "supplier_lot_no": "LOT-INVALID-LINK"},
-        headers=headers,
-    ).status_code == 400
-    assert client.post(
-        "/api/v1/supplier-lots",
-        json={**payload, "supplier_lot_no": "LOT-OVERPRECISION", "qty_received": "1.00001"},
-        headers=headers,
-    ).status_code == 422
+    assert (
+        client.post(
+            "/api/v1/supplier-lots",
+            json={**payload, "supplier_lot_no": "LOT-INVALID-MATERIAL", "material_id": 999},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/supplier-lots",
+            json={**payload, "supplier_id": 2, "supplier_lot_no": "LOT-INVALID-LINK"},
+            headers=headers,
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/v1/supplier-lots",
+            json={**payload, "supplier_lot_no": "LOT-OVERPRECISION", "qty_received": "1.00001"},
+            headers=headers,
+        ).status_code
+        == 422
+    )
 
 
 def test_end_to_end_receipt_trace_with_multiple_internal_lots(quality_environment) -> None:
@@ -412,11 +428,18 @@ def test_end_to_end_receipt_trace_with_multiple_internal_lots(quality_environmen
     assert unified_item["supplier"]["supplier_code"] == "SUP-100"
     assert unified_item["material"]["material_code"] == "MAT-100"
     assert len(unified_item["internal_lots"]) == 2
-    assert {branch["internal_lot"]["internal_lot_no"] for branch in unified_item["internal_lots"]} == {
+    assert {
+        branch["internal_lot"]["internal_lot_no"] for branch in unified_item["internal_lots"]
+    } == {
         "ILT-TRACE-201-A",
         "ILT-TRACE-201-B",
     }
-    assert client.get("/api/v1/traceability?material_code=MAT-100&page_size=1", headers=headers).json()["total"] >= 1
+    assert (
+        client.get(
+            "/api/v1/traceability?material_code=MAT-100&page_size=1", headers=headers
+        ).json()["total"]
+        >= 1
+    )
     assert client.get("/api/v1/traceability?receipt_no=missing", headers=headers).status_code == 404
     assert client.get("/api/v1/traceability", headers=headers).status_code == 422
     assert client.get("/api/v1/receipts/999999/trace", headers=headers).status_code == 404
@@ -475,17 +498,18 @@ def test_iqc_review_approval_records_history_and_blocks_resign(quality_environme
     assert body["reviewed_at"] is not None
     with TestSession() as session:
         assert session.query(InternalMaterialLotORM).filter_by(id=1).one().lot_status == "reserved"
-    assert client.patch(
-        f"/api/v1/iqc/{iqc_id}",
-        json={"remarks": "editing after approval"},
-        headers=headers,
-    ).status_code == 409
+    assert (
+        client.patch(
+            f"/api/v1/iqc/{iqc_id}",
+            json={"remarks": "editing after approval"},
+            headers=headers,
+        ).status_code
+        == 409
+    )
 
     # A finalised record cannot be signed off twice (state-transition guard).
     assert (
-        client.post(
-            f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=headers
-        ).status_code
+        client.post(f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=headers).status_code
         == 409
     )
     assert (
@@ -527,9 +551,7 @@ def test_iqc_review_return_requires_reason_and_can_be_reapproved(quality_environ
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
     iqc_id = _create_iqc(client, headers)["id"]
 
-    missing_reason = client.post(
-        f"/api/v1/iqc/{iqc_id}/reviews/return", json={}, headers=headers
-    )
+    missing_reason = client.post(f"/api/v1/iqc/{iqc_id}/reviews/return", json={}, headers=headers)
     assert missing_reason.status_code == 400, missing_reason.text
     note_is_not_a_reason = client.post(
         f"/api/v1/iqc/{iqc_id}/reviews/return",
@@ -586,13 +608,14 @@ def test_iqc_review_requires_internal_quality_permission(quality_environment) ->
             ).status_code
             == 403
         ), username
-        assert (
-            client.get(f"/api/v1/iqc/{iqc_id}/reviews", headers=headers).status_code
-            == 403
-        ), username
+        assert client.get(f"/api/v1/iqc/{iqc_id}/reviews", headers=headers).status_code == 403, (
+            username
+        )
 
 
-def test_quality_only_user_can_open_and_process_signoff_without_iqc_or_material_read(quality_environment) -> None:
+def test_quality_only_user_can_open_and_process_signoff_without_iqc_or_material_read(
+    quality_environment,
+) -> None:
     client, _ = quality_environment
     admin_headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
     iqc_id = _create_iqc(client, admin_headers)["id"]
@@ -637,7 +660,9 @@ def test_approving_failed_iqc_does_not_release_rejected_lot(quality_environment)
         assert session.query(InternalMaterialLotORM).filter_by(id=1).one().lot_status == "rejected"
 
 
-def test_review_and_iqc_status_roll_back_together_when_commit_fails(quality_environment, monkeypatch) -> None:
+def test_review_and_iqc_status_roll_back_together_when_commit_fails(
+    quality_environment, monkeypatch
+) -> None:
     client, TestSession = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
     iqc_id = _create_iqc(client, headers)["id"]
@@ -650,25 +675,32 @@ def test_review_and_iqc_status_roll_back_together_when_commit_fails(quality_envi
 
     monkeypatch.setattr(Session, "commit", fail_review_commit)
     with pytest.raises(RuntimeError, match="simulated database failure"):
-        client.post(
-            f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=headers
-        )
+        client.post(f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=headers)
     with TestSession() as session:
         record = session.get(IQCRecordORM, iqc_id)
         assert record is not None and record.review_status == "pending"
         assert session.query(QualityReviewORM).filter_by(iqc_record_id=iqc_id).count() == 0
 
 
-def test_supplier_cannot_sign_even_if_quality_permission_is_misassigned(quality_environment) -> None:
+def test_supplier_cannot_sign_even_if_quality_permission_is_misassigned(
+    quality_environment,
+) -> None:
     client, TestSession = quality_environment
     admin_headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
     iqc_id = _create_iqc(client, admin_headers)["id"]
     with TestSession.begin() as session:
         approve_permission = session.query(PermissionORM).filter_by(code="quality:approve").one()
         supplier_role = session.query(RoleORM).filter_by(name="supplier-portal").one()
-        session.add(RolePermissionORM(role_id=supplier_role.id, permission_id=approve_permission.id))
+        session.add(
+            RolePermissionORM(role_id=supplier_role.id, permission_id=approve_permission.id)
+        )
     supplier_headers = _headers(client, "supplier-portal", "Quality-Test-Password-2026!")
-    assert client.get("/api/v1/iqc?review_status=pending", headers=supplier_headers).status_code == 403
-    assert client.post(
-        f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=supplier_headers
-    ).status_code == 403
+    assert (
+        client.get("/api/v1/iqc?review_status=pending", headers=supplier_headers).status_code == 403
+    )
+    assert (
+        client.post(
+            f"/api/v1/iqc/{iqc_id}/reviews/approve", json={}, headers=supplier_headers
+        ).status_code
+        == 403
+    )

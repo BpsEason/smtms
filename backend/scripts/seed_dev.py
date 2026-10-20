@@ -70,28 +70,58 @@ SEED_REVIEW_NOTE_PREFIX = "SEED-SIGNOFF:"
 
 SUPPLIER_DATA = (
     (
-        "Harbor Industrial Supply", "林怡君", "02-2550-1001", "harbor@example.test",
-        "Taiwan", "91000001", "active",
+        "Harbor Industrial Supply",
+        "林怡君",
+        "02-2550-1001",
+        "harbor@example.test",
+        "Taiwan",
+        "91000001",
+        "active",
     ),
     (
-        "Evergreen Polymer Co.", "陳冠宇", "04-2300-2002", "evergreen@example.test",
-        "Taiwan", "91000002", "active",
+        "Evergreen Polymer Co.",
+        "陳冠宇",
+        "04-2300-2002",
+        "evergreen@example.test",
+        "Taiwan",
+        "91000002",
+        "active",
     ),
     (
-        "Northstar Components", "王雅婷", "03-5500-3003", "northstar@example.test",
-        "Taiwan", "91000003", "active",
+        "Northstar Components",
+        "王雅婷",
+        "03-5500-3003",
+        "northstar@example.test",
+        "Taiwan",
+        "91000003",
+        "active",
     ),
     (
-        "Pacific Precision Materials", "李承翰", "07-3300-4004", "pacific@example.test",
-        "Taiwan", "91000004", "active",
+        "Pacific Precision Materials",
+        "李承翰",
+        "07-3300-4004",
+        "pacific@example.test",
+        "Taiwan",
+        "91000004",
+        "active",
     ),
     (
-        "Summit Chemical Works", "張家豪", "06-2200-5005", "summit@example.test",
-        "Taiwan", "91000005", "inactive",
+        "Summit Chemical Works",
+        "張家豪",
+        "06-2200-5005",
+        "summit@example.test",
+        "Taiwan",
+        "91000005",
+        "inactive",
     ),
     (
-        "Cedar Packaging Group", "黃詩涵", "02-2600-6006", "cedar@example.test",
-        "Taiwan", "91000006", "active",
+        "Cedar Packaging Group",
+        "黃詩涵",
+        "02-2600-6006",
+        "cedar@example.test",
+        "Taiwan",
+        "91000006",
+        "active",
     ),
 )
 
@@ -220,9 +250,7 @@ def _require_safe_environment() -> str:
         raise RuntimeError("SMTMS_SEED_PASSWORD must be at most 72 UTF-8 bytes for bcrypt.")
 
     with engine.connect() as connection:
-        actual_database, actual_port = connection.execute(
-            text("SELECT DATABASE(), @@port")
-        ).one()
+        actual_database, actual_port = connection.execute(text("SELECT DATABASE(), @@port")).one()
         if actual_database != "smtms" or actual_port != 3306:
             raise RuntimeError(
                 "Refusing unexpected live database target: "
@@ -566,9 +594,7 @@ def _sync_seed(session: Session, password: str) -> None:
                 {"internal_lot_id": internal_lot.id},
                 {
                     "receipt_id": receipt.id,
-                    "inspector_user_id": users[
-                        "seed_qa_1" if index % 2 == 0 else "seed_qa_2"
-                    ].id,
+                    "inspector_user_id": users["seed_qa_1" if index % 2 == 0 else "seed_qa_2"].id,
                     "sample_qty": Decimal("0.2500"),
                     "inspection_result": outcome,
                     "inspection_date": (
@@ -660,9 +686,7 @@ def _add_seed_review(
 ) -> None:
     # Recheck the record before writing in case it already has non-seed history.
     existing_review = session.scalar(
-        select(QualityReviewORM.id)
-        .where(QualityReviewORM.iqc_record_id == record.id)
-        .limit(1)
+        select(QualityReviewORM.id).where(QualityReviewORM.iqc_record_id == record.id).limit(1)
     )
     if existing_review is not None or record.review_status != "pending":
         return
@@ -689,31 +713,23 @@ def _add_seed_review(
 def _validate_seed(session: Session) -> dict[str, int]:
     seed_supplier_ids = list(
         session.scalars(
-            select(SupplierORM.id).where(
-                SupplierORM.supplier_code.like(f"{SEED_SUPPLIER_PREFIX}%")
-            )
+            select(SupplierORM.id).where(SupplierORM.supplier_code.like(f"{SEED_SUPPLIER_PREFIX}%"))
         )
     )
     seed_material_ids = list(
         session.scalars(
-            select(MaterialORM.id).where(
-                MaterialORM.material_code.like(f"{SEED_MATERIAL_PREFIX}%")
-            )
+            select(MaterialORM.id).where(MaterialORM.material_code.like(f"{SEED_MATERIAL_PREFIX}%"))
         )
     )
     seed_user_ids = list(
-        session.scalars(
-            select(UserORM.id).where(UserORM.username.like(f"{SEED_USER_PREFIX}%"))
-        )
+        session.scalars(select(UserORM.id).where(UserORM.username.like(f"{SEED_USER_PREFIX}%")))
     )
     seed_role_ids = list(
         session.scalars(select(RoleORM.id).where(RoleORM.name.in_(SEED_ROLE_NAMES)))
     )
     seed_permission_ids = list(
         session.scalars(
-            select(PermissionORM.id).where(
-                PermissionORM.code.like(f"{SEED_PERMISSION_PREFIX}%")
-            )
+            select(PermissionORM.id).where(PermissionORM.code.like(f"{SEED_PERMISSION_PREFIX}%"))
         )
     )
     seed_internal_lot_ids = list(
@@ -794,9 +810,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
         "qualification_documents": count(
             select(func.count())
             .select_from(SupplierQualificationDocumentORM)
-            .where(
-                SupplierQualificationDocumentORM.doc_code.like(f"{SEED_DOCUMENT_PREFIX}%")
-            )
+            .where(SupplierQualificationDocumentORM.doc_code.like(f"{SEED_DOCUMENT_PREFIX}%"))
         ),
         "roles": len(seed_role_ids),
         "permissions": len(seed_permission_ids),
@@ -808,9 +822,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
         "internal_users": count(
             select(func.count())
             .select_from(UserORM)
-            .where(
-                UserORM.username.in_([username for username, _ in INTERNAL_USERS])
-            )
+            .where(UserORM.username.in_([username for username, _ in INTERNAL_USERS]))
         ),
         "user_roles": count(
             select(func.count())
@@ -831,88 +843,96 @@ def _validate_seed(session: Session) -> dict[str, int]:
             )
 
     broken_relationships = {
-        "receipt_supplier": select(func.count()).select_from(MaterialReceiptORM).outerjoin(
-            SupplierORM, MaterialReceiptORM.supplier_id == SupplierORM.id
-        ).where(
+        "receipt_supplier": select(func.count())
+        .select_from(MaterialReceiptORM)
+        .outerjoin(SupplierORM, MaterialReceiptORM.supplier_id == SupplierORM.id)
+        .where(
             MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"),
             SupplierORM.id.is_(None),
         ),
-        "receipt_supplier_lot": select(func.count()).select_from(MaterialReceiptORM).outerjoin(
-            SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id
-        ).where(
+        "receipt_supplier_lot": select(func.count())
+        .select_from(MaterialReceiptORM)
+        .outerjoin(SupplierLotORM, MaterialReceiptORM.supplier_lot_id == SupplierLotORM.id)
+        .where(
             MaterialReceiptORM.receipt_no.like(f"{SEED_RECEIPT_PREFIX}%"),
             SupplierLotORM.id.is_(None),
         ),
-        "internal_lot_material": select(func.count()).select_from(InternalMaterialLotORM).outerjoin(
-            MaterialORM, InternalMaterialLotORM.material_id == MaterialORM.id
-        ).where(
+        "internal_lot_material": select(func.count())
+        .select_from(InternalMaterialLotORM)
+        .outerjoin(MaterialORM, InternalMaterialLotORM.material_id == MaterialORM.id)
+        .where(
             InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"),
             MaterialORM.id.is_(None),
         ),
-        "iqc_internal_lot": select(func.count()).select_from(IQCRecordORM).outerjoin(
+        "iqc_internal_lot": select(func.count())
+        .select_from(IQCRecordORM)
+        .outerjoin(
             InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id
-        ).where(
+        )
+        .where(
             IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
             InternalMaterialLotORM.id.is_(None),
         )
         if seed_internal_lot_ids
-        else select(func.count()).select_from(IQCRecordORM).where(
-            IQCRecordORM.internal_lot_id.in_([])
-        ),
+        else select(func.count())
+        .select_from(IQCRecordORM)
+        .where(IQCRecordORM.internal_lot_id.in_([])),
     }
     broken_counts = {name: count(statement) for name, statement in broken_relationships.items()}
     if any(broken_counts.values()):
-        raise RuntimeError(
-            f"Validation failed: broken foreign-key relationships: {broken_counts}."
-        )
+        raise RuntimeError(f"Validation failed: broken foreign-key relationships: {broken_counts}.")
 
-    inconsistent = session.scalar(
-        select(func.count())
-        .select_from(IQCRecordORM)
-        .join(InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id)
-        .where(
-            IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
-            or_(
-                and_(
-                    IQCRecordORM.inspection_result == "passed",
-                    or_(
-                        IQCRecordORM.release_status != "released",
-                        InternalMaterialLotORM.lot_status != "available",
+    inconsistent = (
+        session.scalar(
+            select(func.count())
+            .select_from(IQCRecordORM)
+            .join(InternalMaterialLotORM, IQCRecordORM.internal_lot_id == InternalMaterialLotORM.id)
+            .where(
+                IQCRecordORM.internal_lot_id.in_(seed_internal_lot_ids),
+                or_(
+                    and_(
+                        IQCRecordORM.inspection_result == "passed",
+                        or_(
+                            IQCRecordORM.release_status != "released",
+                            InternalMaterialLotORM.lot_status != "available",
+                        ),
+                    ),
+                    and_(
+                        IQCRecordORM.inspection_result == "pending",
+                        or_(
+                            IQCRecordORM.release_status != "hold",
+                            InternalMaterialLotORM.lot_status != "quarantine",
+                        ),
+                    ),
+                    and_(
+                        IQCRecordORM.inspection_result == "failed",
+                        or_(
+                            IQCRecordORM.release_status != "rejected",
+                            InternalMaterialLotORM.lot_status != "rejected",
+                        ),
                     ),
                 ),
-                and_(
-                    IQCRecordORM.inspection_result == "pending",
-                    or_(
-                        IQCRecordORM.release_status != "hold",
-                        InternalMaterialLotORM.lot_status != "quarantine",
-                    ),
-                ),
-                and_(
-                    IQCRecordORM.inspection_result == "failed",
-                    or_(
-                        IQCRecordORM.release_status != "rejected",
-                        InternalMaterialLotORM.lot_status != "rejected",
-                    ),
-                ),
-            ),
+            )
         )
-    ) or 0
+        or 0
+    )
     if inconsistent:
         raise RuntimeError(
-            "Validation failed: "
-            f"{inconsistent} IQC/internal-lot states are inconsistent."
+            f"Validation failed: {inconsistent} IQC/internal-lot states are inconsistent."
         )
 
-    split_supplier_lots = session.scalar(
-        select(func.count())
-        .select_from(
-            select(InternalMaterialLotORM.supplier_lot_id)
-            .where(InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"))
-            .group_by(InternalMaterialLotORM.supplier_lot_id)
-            .having(func.count(InternalMaterialLotORM.id) > 1)
-            .subquery()
+    split_supplier_lots = (
+        session.scalar(
+            select(func.count()).select_from(
+                select(InternalMaterialLotORM.supplier_lot_id)
+                .where(InternalMaterialLotORM.internal_lot_no.like(f"{SEED_INTERNAL_LOT_PREFIX}%"))
+                .group_by(InternalMaterialLotORM.supplier_lot_id)
+                .having(func.count(InternalMaterialLotORM.id) > 1)
+                .subquery()
+            )
         )
-    ) or 0
+        or 0
+    )
     if split_supplier_lots < 5:
         raise RuntimeError(
             f"Validation failed: expected split supplier lots, found {split_supplier_lots}."
@@ -943,8 +963,7 @@ def _validate_seed(session: Session) -> dict[str, int]:
     )
     if non_portal_accounts:
         raise RuntimeError(
-            "Validation failed: "
-            f"{non_portal_accounts} supplier accounts hold a non-portal role."
+            f"Validation failed: {non_portal_accounts} supplier accounts hold a non-portal role."
         )
 
     skipped_password_change = count(
@@ -980,7 +999,10 @@ def main() -> int:
         "Quality scenarios: available/released, pending/quarantine, failed/rejected, "
         "split lots, and varied supplier certificate expiry."
     )
-    print("IQC sign-off examples: pending records plus any untouched approved/returned sample histories.")
+    print(
+        "IQC sign-off examples: pending records plus any untouched approved/returned sample "
+        "histories."
+    )
     print(
         "Supplier portal accounts: seed_supplier_001..006 (role Supplier Portal User, "
         "forced password change on first login)."

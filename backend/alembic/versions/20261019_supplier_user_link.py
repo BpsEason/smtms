@@ -20,7 +20,12 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "users",
-        sa.Column("supplier_id", sa.Integer(), nullable=True, comment="對應供應商主鍵（供應商登入帳號專用）"),
+        sa.Column(
+            "supplier_id",
+            sa.Integer(),
+            nullable=True,
+            comment="對應供應商主鍵（供應商登入帳號專用）",
+        ),
     )
     op.add_column(
         "users",

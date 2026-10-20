@@ -26,7 +26,13 @@ def upgrade() -> None:
         sa.Column("media_type", sa.String(length=100), nullable=False, comment="驗證後 MIME 類型"),
         sa.Column("size_bytes", sa.Integer(), nullable=False, comment="檔案大小（bytes）"),
         sa.Column("sha256", sa.String(length=64), nullable=False, comment="檔案 SHA-256"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False, comment="建立時間"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+            comment="建立時間",
+        ),
         sa.ForeignKeyConstraint(
             ["document_id"],
             ["supplier_qualification_documents.id"],
@@ -37,11 +43,26 @@ def upgrade() -> None:
         sa.UniqueConstraint("storage_key", name="uq_supplier_document_attachments_storage_key"),
         comment="供應商資格文件附件 metadata",
     )
-    op.create_index(op.f("ix_supplier_document_attachments_id"), "supplier_document_attachments", ["id"], unique=False)
-    op.create_index(op.f("ix_supplier_document_attachments_document_id"), "supplier_document_attachments", ["document_id"], unique=False)
+    op.create_index(
+        op.f("ix_supplier_document_attachments_id"),
+        "supplier_document_attachments",
+        ["id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_supplier_document_attachments_document_id"),
+        "supplier_document_attachments",
+        ["document_id"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_supplier_document_attachments_document_id"), table_name="supplier_document_attachments")
-    op.drop_index(op.f("ix_supplier_document_attachments_id"), table_name="supplier_document_attachments")
+    op.drop_index(
+        op.f("ix_supplier_document_attachments_document_id"),
+        table_name="supplier_document_attachments",
+    )
+    op.drop_index(
+        op.f("ix_supplier_document_attachments_id"), table_name="supplier_document_attachments"
+    )
     op.drop_table("supplier_document_attachments")

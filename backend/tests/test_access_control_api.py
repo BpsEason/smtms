@@ -150,16 +150,22 @@ def test_access_endpoints_require_auth_and_manage_permission(access_environment)
     staff_headers = _headers(client, "staff")
     for path in ("/api/v1/roles", "/api/v1/permissions", "/api/v1/users"):
         assert client.get(path, headers=staff_headers).status_code == 403, path
-        assert client.post(
-            "/api/v1/roles",
-            json={"name": "Unauthorized Role"},
-            headers=staff_headers,
-        ).status_code == 403
-        assert client.post(
-            "/api/v1/users",
-            json={"username": "unauthorized-user", "password": PASSWORD},
-            headers=staff_headers,
-        ).status_code == 403
+        assert (
+            client.post(
+                "/api/v1/roles",
+                json={"name": "Unauthorized Role"},
+                headers=staff_headers,
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                "/api/v1/users",
+                json={"username": "unauthorized-user", "password": PASSWORD},
+                headers=staff_headers,
+            ).status_code
+            == 403
+        )
 
 
 def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_environment) -> None:
@@ -201,16 +207,13 @@ def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_envir
 
         listed = client.get("/api/v1/users", headers=headers)
         assert listed.status_code == 200
-        created_user = next(
-            item for item in listed.json() if item["id"] == created.json()["id"]
-        )
+        created_user = next(item for item in listed.json() if item["id"] == created.json()["id"])
         assert created_user["roles"] == ["qc-reader"]
         login = client.post(
             "/api/v1/auth/login",
             json={"username": payload["username"], "password": payload["password"]},
         )
         assert login.status_code == 200, login.text
-
 
     def test_internal_user_creation_rejects_duplicates_supplier_identity_and_invalid_roles(
         access_environment,
@@ -224,26 +227,43 @@ def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_envir
         duplicate = client.post("/api/v1/users", json=payload, headers=headers)
         assert duplicate.status_code == 409
 
-        assert client.post(
-            "/api/v1/users",
-            json={**payload, "username": "supplier-in-disguise", "supplier_id": 1},
-            headers=headers,
-        ).status_code == 422
-        assert client.post(
-            "/api/v1/users",
-            json={**payload, "username": "supplier-role-user", "role_ids": [ids["role_portal"]]},
-            headers=headers,
-        ).status_code == 409
-        assert client.post(
-            "/api/v1/users",
-            json={**payload, "username": "unknown-role-user", "role_ids": [99999]},
-            headers=headers,
-        ).status_code == 404
-        assert client.post(
-            "/api/v1/users",
-            json={**payload, "username": "invalid user"},
-            headers=headers,
-        ).status_code == 422
+        assert (
+            client.post(
+                "/api/v1/users",
+                json={**payload, "username": "supplier-in-disguise", "supplier_id": 1},
+                headers=headers,
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/api/v1/users",
+                json={
+                    **payload,
+                    "username": "supplier-role-user",
+                    "role_ids": [ids["role_portal"]],
+                },
+                headers=headers,
+            ).status_code
+            == 409
+        )
+        assert (
+            client.post(
+                "/api/v1/users",
+                json={**payload, "username": "unknown-role-user", "role_ids": [99999]},
+                headers=headers,
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/api/v1/users",
+                json={**payload, "username": "invalid user"},
+                headers=headers,
+            ).status_code
+            == 422
+        )
+
     permissions = client.get("/api/v1/permissions", headers=headers)
     assert permissions.status_code == 200
     assert "users:manage" in {item["code"] for item in permissions.json()}
@@ -261,11 +281,14 @@ def test_admin_can_manage_roles_permissions_and_internal_user_roles(access_envir
     )
     assert created.status_code == 201, created.text
     new_role_id = created.json()["id"]
-    assert client.post(
-        "/api/v1/roles",
-        json={"name": "qc-lead"},
-        headers=headers,
-    ).status_code == 409
+    assert (
+        client.post(
+            "/api/v1/roles",
+            json={"name": "qc-lead"},
+            headers=headers,
+        ).status_code
+        == 409
+    )
 
     updated = client.patch(
         f"/api/v1/roles/{new_role_id}",
@@ -300,37 +323,54 @@ def test_unknown_role_permission_and_user_ids_are_rejected(access_environment) -
     client, _, ids = access_environment
     headers = _headers(client, "admin-one")
 
-    assert client.patch(
-        "/api/v1/roles/99999", json={"description": "x"}, headers=headers
-    ).status_code == 404
-    assert client.put(
-        "/api/v1/roles/99999/permissions",
-        json={"permission_ids": []},
-        headers=headers,
-    ).status_code == 404
-    assert client.put(
-        f"/api/v1/roles/{ids['role_reader']}/permissions",
-        json={"permission_ids": [99999]},
-        headers=headers,
-    ).status_code == 404
-    assert client.put(
-        "/api/v1/users/99999/roles", json={"role_ids": []}, headers=headers
-    ).status_code == 404
-    assert client.put(
-        f"/api/v1/users/{ids['user_staff']}/roles",
-        json={"role_ids": [99999]},
-        headers=headers,
-    ).status_code == 404
-    assert client.post(
-        "/api/v1/roles",
-        json={"name": "   "},
-        headers=headers,
-    ).status_code == 422
-    assert client.put(
-        f"/api/v1/roles/{ids['role_reader']}/permissions",
-        json={"unexpected": 1},
-        headers=headers,
-    ).status_code == 422
+    assert (
+        client.patch("/api/v1/roles/99999", json={"description": "x"}, headers=headers).status_code
+        == 404
+    )
+    assert (
+        client.put(
+            "/api/v1/roles/99999/permissions",
+            json={"permission_ids": []},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.put(
+            f"/api/v1/roles/{ids['role_reader']}/permissions",
+            json={"permission_ids": [99999]},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.put("/api/v1/users/99999/roles", json={"role_ids": []}, headers=headers).status_code
+        == 404
+    )
+    assert (
+        client.put(
+            f"/api/v1/users/{ids['user_staff']}/roles",
+            json={"role_ids": [99999]},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/v1/roles",
+            json={"name": "   "},
+            headers=headers,
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            f"/api/v1/roles/{ids['role_reader']}/permissions",
+            json={"unexpected": 1},
+            headers=headers,
+        ).status_code
+        == 422
+    )
 
 
 def test_last_management_administrator_cannot_be_removed(access_environment) -> None:
@@ -338,23 +378,32 @@ def test_last_management_administrator_cannot_be_removed(access_environment) -> 
     headers = _headers(client, "admin-one")
 
     # Removing one of two managers is allowed.
-    assert client.put(
-        f"/api/v1/users/{ids['user_admin_two']}/roles",
-        json={"role_ids": []},
-        headers=headers,
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/v1/users/{ids['user_admin_two']}/roles",
+            json={"role_ids": []},
+            headers=headers,
+        ).status_code
+        == 200
+    )
 
     # Only one manager remains, so the last grant cannot be dropped.
-    assert client.put(
-        f"/api/v1/users/{ids['user_admin_one']}/roles",
-        json={"role_ids": []},
-        headers=headers,
-    ).status_code == 409
-    assert client.put(
-        f"/api/v1/roles/{ids['role_admin']}/permissions",
-        json={"permission_ids": [ids["perm_suppliers_read"]]},
-        headers=headers,
-    ).status_code == 409
+    assert (
+        client.put(
+            f"/api/v1/users/{ids['user_admin_one']}/roles",
+            json={"role_ids": []},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.put(
+            f"/api/v1/roles/{ids['role_admin']}/permissions",
+            json={"permission_ids": [ids["perm_suppliers_read"]]},
+            headers=headers,
+        ).status_code
+        == 409
+    )
 
     # The refusal must roll back the pending change.
     roles = client.get("/api/v1/roles", headers=headers)
@@ -369,21 +418,30 @@ def test_supplier_portal_accounts_cannot_gain_internal_access(access_environment
     client, _, ids = access_environment
     headers = _headers(client, "admin-one")
 
-    assert client.put(
-        f"/api/v1/users/{ids['user_portal']}/roles",
-        json={"role_ids": [ids["role_admin"]]},
-        headers=headers,
-    ).status_code == 409
-    assert client.put(
-        f"/api/v1/roles/{ids['role_portal']}/permissions",
-        json={"permission_ids": [ids["perm_manage"]]},
-        headers=headers,
-    ).status_code == 409
-    assert client.put(
-        f"/api/v1/roles/{ids['role_portal']}/permissions",
-        json={"permission_ids": [ids["perm_suppliers_read"]]},
-        headers=headers,
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/v1/users/{ids['user_portal']}/roles",
+            json={"role_ids": [ids["role_admin"]]},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.put(
+            f"/api/v1/roles/{ids['role_portal']}/permissions",
+            json={"permission_ids": [ids["perm_manage"]]},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+    assert (
+        client.put(
+            f"/api/v1/roles/{ids['role_portal']}/permissions",
+            json={"permission_ids": [ids["perm_suppliers_read"]]},
+            headers=headers,
+        ).status_code
+        == 200
+    )
 
     # The portal account itself never holds the management permission.
     portal_headers = _headers(client, "portal-user")

@@ -17,7 +17,9 @@ def test_redis_client_can_ping(monkeypatch) -> None:
             return True
 
     fake_client = FakeRedis()
-    monkeypatch.setattr("app.core.redis_client.redis.Redis.from_url", lambda *args, **kwargs: fake_client)
+    monkeypatch.setattr(
+        "app.core.redis_client.redis.Redis.from_url", lambda *args, **kwargs: fake_client
+    )
     client = get_redis_client()
     assert client is fake_client
     assert ping_redis() is True

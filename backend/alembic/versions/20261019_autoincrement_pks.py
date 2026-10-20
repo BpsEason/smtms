@@ -179,8 +179,7 @@ def _modify_primary_keys(*, auto_increment: bool) -> None:
     attribute = " AUTO_INCREMENT" if auto_increment else ""
     for table, comment in PRIMARY_KEY_COMMENTS.items():
         op.execute(
-            f"ALTER TABLE `{table}` MODIFY COLUMN `id` INT NOT NULL{attribute} "
-            f"COMMENT '{comment}'"
+            f"ALTER TABLE `{table}` MODIFY COLUMN `id` INT NOT NULL{attribute} COMMENT '{comment}'"
         )
 
 
