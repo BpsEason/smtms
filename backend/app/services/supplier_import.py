@@ -143,6 +143,7 @@ class CreatedAccount:
 def build_template_bytes() -> bytes:
     workbook = Workbook()
     sheet = workbook.active
+    assert sheet is not None, "Worksheet should always exist for new workbook"
     sheet.title = SHEET_TITLE
     sheet.append(list(TEMPLATE_HEADERS))
     sheet.append(list(HEADER_EXAMPLE_ROW))
@@ -194,6 +195,7 @@ def parse_supplier_workbook(content: bytes) -> ParsedWorkbook:
         sheet = workbook.active
         if sheet is None:
             raise ImportFormatError([RowError("", 0, "file", "找不到工作表。")])
+        assert sheet is not None
         sheet_name = sheet.title
         rows = sheet.iter_rows(values_only=True)
         try:

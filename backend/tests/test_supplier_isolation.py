@@ -239,11 +239,18 @@ def test_supplier_lot_writer_is_still_limited_to_own_supplier(isolation_environm
         headers=headers,
     )
     assert cross_supplier_lot.status_code == 403
-    assert client.post(
+    # 測試重複的 lot 編號會被拒絕
+    duplicate_lot = client.post(
         "/api/v1/supplier-lots",
-        json={"supplier_id": 1, "material_id": 1, "supplier_lot_no": "PORTAL-NO-LOT", "qty_received": "1"},
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_no": "PORTAL-OWN-LOT",
+            "qty_received": "1.0000"
+        },
         headers=headers,
-    ).status_code == 403
+    )
+    assert duplicate_lot.status_code == 409
 
 
 def test_supplier_document_and_traceability_operations_remain_scoped(isolation_environment) -> None:

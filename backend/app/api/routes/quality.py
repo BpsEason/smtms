@@ -521,7 +521,7 @@ def search_traceability(
             detail="Traceability record not found",
         )
 
-    ids = db.scalars(
+    ids: list[int] = db.scalars(
         select(matching_ids.c.id)
         .order_by(matching_ids.c.id)
         .offset((page - 1) * page_size)
@@ -1127,7 +1127,7 @@ def return_iqc_review(
 def list_quality_reviews(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    status: str | None = Query(default=None, max_length=20),
+    review_status: str | None = Query(default=None, max_length=20),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(
         require_any_permission("quality:review", "quality:approve", "quality:return")
@@ -1137,9 +1137,9 @@ def list_quality_reviews(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Internal QA users only")
     statement = select(QualityReviewORM)
     count_statement = select(func.count()).select_from(QualityReviewORM)
-    if status:
-        statement = statement.where(QualityReviewORM.review_status == status)
-        count_statement = count_statement.where(QualityReviewORM.review_status == status)
+    if review_status:
+        statement = statement.where(QualityReviewORM.review_status == review_status)
+        count_statement = count_statement.where(QualityReviewORM.review_status == review_status)
     total = db.scalar(count_statement) or 0
     rows = db.scalars(
         statement.order_by(QualityReviewORM.id.desc())

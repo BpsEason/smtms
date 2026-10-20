@@ -86,7 +86,7 @@ function response(body: unknown, status = 200): Response {
 function page<T>(items: T[], total = items.length) {
   return { items, total, page: 1, page_size: 100 };
 }
-function installApiMock(withWorkflowData = false) {
+function installApiMock(withWorkflowData = false, withQualityPermissions = false) {
   let savedReceipt: typeof receipt | null = null;
   let savedLot: typeof internalLot | null = null;
   let savedIqc: Record<string, unknown> | null = null;
@@ -117,7 +117,13 @@ function installApiMock(withWorkflowData = false) {
                 "iqc:read",
                 "iqc:write",
               ]
-            : ["iqc:read", "iqc:write"],
+            : [
+                "iqc:read",
+                "iqc:write",
+                ...(withQualityPermissions
+                  ? ["quality:review", "quality:approve", "quality:return"]
+                  : []),
+              ],
         });
       if (url.includes("/api/v1/suppliers"))
         return response(page(withWorkflowData ? [supplier] : []));
@@ -213,6 +219,15 @@ function installSignoffMock() {
     review_decision_note: null as string | null,
     created_at: '',
   }
+  const secondRecord = {
+    ...record,
+    id: 42,
+    internal_lot_id: 32,
+    internal_lot_no: 'SEED-ILOT-003-1',
+    sample_qty: '2.0000',
+    inspection_result: 'failed',
+    release_status: 'rejected',
+  }
   const reviews: Array<Record<string, unknown>> = []
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -242,8 +257,8 @@ function installSignoffMock() {
     if (url.includes('/api/v1/iqc/41/reviews')) return response(page(reviews))
     if (url.includes('/api/v1/iqc')) {
       const filter = new URL(url).searchParams.get('review_status')
-      const matches = !filter || filter === record.review_status
-      return response(page(matches ? [{ ...record }] : []))
+      const items = [record, secondRecord].filter((item) => !filter || filter === item.review_status)
+      return response(page(items))
     }
     return response(page([]))
   })
@@ -256,6 +271,32 @@ async function signIn() {
 }
 
 describe("SMTMS application", () => {
+  it("keeps sign-off controls out of IQC for QA users", async () => {
+    installApiMock(false, true);
+    render(<App />);
+    await signIn();
+
+    expect(
+      await screen.findByRole("link", { name: "品保簽核" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("link", { name: "進料檢驗（IQC）" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "進料檢驗（IQC）" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("品保審核簽核")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("選擇簽核目標")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "核准" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "退回" })).not.toBeInTheDocument();
+    expect(screen.queryByText("審核歷程")).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/reviews"),
+      ),
+    ).toBe(false);
+  });
+
   it("lets a quality-only user enter sign-off from navigation and approve with visible history", async () => {
     installSignoffMock();
     render(<App />);
@@ -269,6 +310,21 @@ describe("SMTMS application", () => {
     await userEvent.click(await screen.findByRole("button", { name: "確認核准" }));
     expect(await screen.findByText(/IQC-41 已核准/)).toBeInTheDocument();
     expect(await screen.findByText("seed_qa_1")).toBeInTheDocument();
+  });
+
+  it("shows the selected IQC details left of the list and updates them when another row is selected", async () => {
+    installSignoffMock();
+    render(<App />);
+    await signIn();
+    await userEvent.click(await screen.findByRole("link", { name: "品保簽核" }));
+
+    const detailHeading = await screen.findByRole("heading", { name: /檢驗內容與簽核　IQC-41/ });
+    const listHeading = screen.getByRole("heading", { name: "待簽核清單" });
+    expect(detailHeading.compareDocumentPosition(listHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await userEvent.click(screen.getByText("IQC-42"));
+    expect(await screen.findByRole("heading", { name: /檢驗內容與簽核　IQC-42/ })).toBeInTheDocument();
+    expect(screen.getAllByText("SEED-ILOT-003-1")).toHaveLength(2);
   });
 
   it("requires a return reason and shows the returned review history", async () => {

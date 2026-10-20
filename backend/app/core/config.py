@@ -7,6 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
     app_name: str = Field(default="SMTMS")
     app_env: str = Field(default="development")
     app_debug: bool = Field(default=True)
@@ -57,14 +63,18 @@ class Settings(BaseSettings):
             return [item.strip() for item in parsed.split(",") if item.strip()]
         return value
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    import os
+    # 根據系統環境變數 APP_ENV 選擇要載入的環境檔案
+    app_env = os.getenv("APP_ENV", "development")
+    env_file = ".env.test" if app_env == "test" else ".env"
+    
+    # 動態更新 model_config 的 env_file，並在最後恢復原值，避免跨環境污染
+    original_env_file = Settings.model_config.get("env_file")
+    try:
+        Settings.model_config["env_file"] = env_file
+        return Settings()
+    finally:
+        if original_env_file is not None:
+            Settings.model_config["env_file"] = original_env_file

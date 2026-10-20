@@ -35,7 +35,6 @@ import type {
   IQCRecord,
   Material,
   PaginatedResponse,
-  QualityReview,
   Receipt,
   ReceiptTrace,
   Supplier,
@@ -1119,19 +1118,10 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const [records, setRecords] = useState<PaginatedResponse<IQCRecord> | null>(
     null,
   );
-  const [reviewHistory, setReviewHistory] = useState<{
-    iqcRecordId: number;
-    items: QualityReview[];
-  } | null>(null);
   const [query, setQuery] = useState("");
   const [resultFilter, setResultFilter] = useState("");
   const [page, setPage] = useState(1);
   const [lots, setLots] = useState<InternalLot[]>([]);
-  const [reviewDecision, setReviewDecision] = useState({
-    note: "",
-    reason: "",
-  });
-  const [reviewTargetId, setReviewTargetId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [lotsLoading, setLotsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1147,13 +1137,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const [updatedLot, setUpdatedLot] = useState<InternalLot | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const canWrite = Boolean(profile?.permissions.includes("iqc:write"));
-  const canReview = Boolean(
-    profile?.permissions.some((permission) =>
-      ["quality:review", "quality:approve", "quality:return"].includes(
-        permission,
-      ),
-    ),
-  );
   const outcomeStatus =
     form.result === "passed"
       ? "released"
@@ -1161,35 +1144,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         ? "rejected"
         : "hold";
   const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
-  const selectedReviewRecord =
-    (records?.items ?? [])
-      .filter((record) =>
-        ["pending", "returned"].includes(record.review_status || "pending"),
-      )
-      .find((record) => record.id === reviewTargetId) ?? null;
-  const currentReviewHistory =
-    reviewHistory?.iqcRecordId === selectedReviewRecord?.id
-      ? (reviewHistory?.items ?? null)
-      : null;
-
-  useEffect(() => {
-    if (!selectedReviewRecord || !canReview) return;
-    let active = true;
-    api
-      .listQualityReviews(selectedReviewRecord.id)
-      .then((result) => {
-        if (active) {
-          setReviewHistory({
-            iqcRecordId: selectedReviewRecord.id,
-            items: result.items,
-          });
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [selectedReviewRecord, canReview]);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -1279,45 +1233,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
     }
   };
 
-  const submitReviewDecision = async (decision: "approve" | "return") => {
-    if (!selectedReviewRecord) return;
-    setError("");
-    setSuccess("");
-    try {
-      const payload = {
-        decision_note: reviewDecision.note.trim() || undefined,
-        reason:
-          decision === "return"
-            ? reviewDecision.reason.trim() || undefined
-            : undefined,
-      };
-      if (decision === "approve") {
-        await api.approveQualityReview(selectedReviewRecord.id, payload);
-        setSuccess("檢驗已核准，審核歷程已保存。");
-      } else {
-        if (!payload.reason) {
-          setError("退回時必須填寫退回理由。");
-          return;
-        }
-        await api.returnQualityReview(selectedReviewRecord.id, payload);
-        setSuccess("檢驗已退回，審核歷程已保存。");
-      }
-      setReviewDecision({ note: "", reason: "" });
-      await loadRecords();
-      if (selectedReviewRecord.id) {
-        const nextHistory = await api.listQualityReviews(
-          selectedReviewRecord.id,
-        );
-        setReviewHistory({
-          iqcRecordId: selectedReviewRecord.id,
-          items: nextHistory.items,
-        });
-      }
-    } catch (err) {
-      setError(getErrorMessage(err));
-      throw err;
-    }
-  };
   return (
     <section>
       <PageHeader
@@ -1591,148 +1506,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
               setPage(next);
             }}
           />
-          {canReview && (
-            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3">
-                <p className="text-sm font-semibold text-slate-900">
-                  品保審核簽核
-                </p>
-                <p className="text-xs text-slate-500">
-                  請先選擇要簽核的檢驗紀錄（僅「待簽核」或「已退回」可再次簽核）。簽核結果由後端驗證並保存歷程。
-                </p>
-              </div>
-              <FormField label="簽核目標">
-                <select
-                  className={inputClass}
-                  aria-label="選擇簽核目標"
-                  value={reviewTargetId ?? ""}
-                  onChange={(event) => {
-                    setReviewTargetId(
-                      event.target.value ? Number(event.target.value) : null,
-                    );
-                    setSuccess("");
-                    setError("");
-                  }}
-                >
-                  <option value="">請選擇檢驗紀錄</option>
-                  {(records?.items ?? [])
-                    .filter((record) =>
-                      ["pending", "returned"].includes(
-                        record.review_status || "pending",
-                      ),
-                    )
-                    .map((record) => (
-                      <option key={record.id} value={record.id}>
-                        IQC-{record.id} ·{" "}
-                        {record.review_status === "returned"
-                          ? "已退回"
-                          : "待簽核"}
-                      </option>
-                    ))}
-                </select>
-              </FormField>
-              {selectedReviewRecord ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-                  <div className="space-y-3">
-                    <FormField label="審核意見">
-                      <textarea
-                        className={`${inputClass} min-h-20 resize-y`}
-                        value={reviewDecision.note}
-                        onChange={(event) =>
-                          setReviewDecision((old) => ({
-                            ...old,
-                            note: event.target.value,
-                          }))
-                        }
-                        placeholder="如：文件齊全，核准簽核。"
-                      />
-                    </FormField>
-                    <FormField label="退回理由（退回時必填）">
-                      <textarea
-                        className={`${inputClass} min-h-20 resize-y`}
-                        value={reviewDecision.reason}
-                        onChange={(event) =>
-                          setReviewDecision((old) => ({
-                            ...old,
-                            reason: event.target.value,
-                          }))
-                        }
-                        placeholder="請輸入退回理由，例如：缺少供應商檢驗報告。"
-                      />
-                    </FormField>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className={buttonClass}
-                        onClick={() => void submitReviewDecision("approve")}
-                      >
-                        核准
-                      </button>
-                      <button
-                        type="button"
-                        className={secondaryButtonClass}
-                        onClick={() => void submitReviewDecision("return")}
-                      >
-                        退回
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      審核歷程
-                    </p>
-                    {currentReviewHistory?.length ? (
-                      <div className="space-y-2">
-                        {currentReviewHistory.map((review) => (
-                          <div
-                            key={review.id}
-                            className="rounded-md border border-slate-200 bg-white p-3"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="flex items-center gap-2">
-                                <StatusBadge value={review.review_status} />
-                                <span className="text-[11px] text-slate-600">
-                                  簽核人員：
-                                  {review.reviewed_by_username ||
-                                    `使用者 ${review.reviewed_by_user_id ?? "—"}`}
-                                </span>
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {review.reviewed_at
-                                  ? new Date(review.reviewed_at).toLocaleString(
-                                      "zh-TW",
-                                    )
-                                  : "—"}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-600">
-                              {review.decision_note ||
-                                review.reason ||
-                                "無補充說明"}
-                            </p>
-                            {review.reason && (
-                              <p className="mt-2 text-[11px] text-rose-700">
-                                退回理由：{review.reason}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <EmptyState
-                        title="尚無審核歷程"
-                        description="此檢驗紀錄尚未進入品保簽核流程。"
-                      />
-                    )}{" "}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-xs text-slate-500">
-                  請從上方選擇要簽核的檢驗紀錄。
-                </p>
-              )}
-            </div>
-          )}
         </Panel>
       </div>
     </section>

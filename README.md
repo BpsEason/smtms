@@ -1,5 +1,7 @@
 # SMTMS — Supplier Material Traceability Management System
 
+![CI](https://github.com/BpsEason/smtms/actions/workflows/ci.yml/badge.svg)
+
 SMTMS 是一個以供應商、物料批號與 IQC 品保流程為核心的追溯管理系統，目標是把供應商宣告、實際收料、內部批號拆分與檢驗結果連成一條可稽核的資料鏈。
 
 這個專案聚焦於一個常見的製造場景：供應商交貨時宣告批號，倉儲實際收料後，內部需將貨品拆分成內部批號，再由品保進行檢驗與放行。若沒有統一的資料鏈與數量/權限約束，這些資訊很容易散落在 Excel、手工紀錄與不同系統之間，造成追溯困難與資料錯誤。
@@ -166,6 +168,14 @@ flowchart LR
     Backend --> Redis[(Redis)]
 ```
 
+## 9. 持續整合 (CI)
+
+本專案使用 GitHub Actions 自動執行持續整合驗證，每當程式碼 Push 到主要分支或建立 Pull Request 時，都會自動執行：
+
+- 後端：程式碼檢查（ruff）、型別檢查（mypy）、單元測試（pytest）
+- 前端：程式碼檢查（oxlint）、型別檢查（TypeScript）、單元測試（vitest）、生產環境建置
+
+詳細的 CI 設定與操作說明請參考 [docs/github-actions.md](docs/github-actions.md)。
 ### 架構說明
 
 - 前端是基於 Vite 的 React 應用，並在前端層保護路由權限。
@@ -386,6 +396,8 @@ Seeder 僅允許 development/test 的 localhost MySQL `smtms` 資料庫，並要
 │   └── package.json
 ├── docker/
 │   └── nginx/
+├── .github/workflows/ci.yml
+├── docs/github-actions.md
 ├── docker-compose.yml
 ├── README.md
 ├── spec.md
@@ -425,4 +437,3 @@ SMTMS 是一個以真實製造流程為核心的追溯管理專案，不是單�
 - 驗證是基於本機執行結果與實際資料，而非空泛宣稱
 
 這個 repository 適合做技術審查，但不被呈現成已完成的正式企業級生產系統。
-
