@@ -48,16 +48,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "uv"
 
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          source $HOME/.local/bin/env
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
       - name: Install dependencies
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
       - name: Lint with ruff
         run: |
