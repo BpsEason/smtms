@@ -68,14 +68,14 @@ def test_valid_sample_workbook_passes_every_row(empty_session: Session) -> None:
 
 
 def test_valid_sample_does_not_collide_with_seed_prefixes(empty_session: Session) -> None:
-    from scripts import seed_dev
+    from seeders import dev_data
 
     content = _load(generate_import_samples.VALID_FILENAME)
     outcome = _validate(content, empty_session)
 
     for row in outcome.rows:
-        assert not row.supplier_code.startswith(seed_dev.SEED_SUPPLIER_PREFIX)
-        assert not row.login_username.startswith(seed_dev.SEED_SUPPLIER_USER_PREFIX)
+        assert not row.supplier_code.startswith(dev_data.SEED_SUPPLIER_PREFIX)
+        assert not row.login_username.startswith(dev_data.SEED_SUPPLIER_USER_PREFIX)
 
 
 def test_error_sample_workbook_covers_expected_rules(empty_session: Session) -> None:

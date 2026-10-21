@@ -10,13 +10,21 @@ from app.models.quality import (
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    NonconformanceORM,
     QualityReviewORM,
     SupplierLotORM,
     SupplierORM,
 )
 from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRoleORM
 from app.services import supplier_import
-from scripts import seed_dev
+from seeders import dev_data, dev_sync
+from seeders.dev_sync import sync_seed
+from seeders.dev_validation import validate_seed
+from seeders.quality_abnormal.seeder import (
+    SEED_CASE_PREFIX,
+    load_cases,
+    seed_quality_abnormal_cases,
+)
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -42,8 +50,8 @@ def seed_session() -> Generator[Session, None, None]:
 
 
 def _run_seed(session: Session) -> dict[str, int]:
-    seed_dev._sync_seed(session, SEED_PASSWORD)
-    return seed_dev._validate_seed(session)
+    sync_seed(session, SEED_PASSWORD)
+    return validate_seed(session)
 
 
 def test_seed_builds_full_traceability_graph(seed_session: Session) -> None:
@@ -58,7 +66,34 @@ def test_seed_builds_full_traceability_graph(seed_session: Session) -> None:
     assert counts["iqc_records"] == 25
     assert counts["supplier_accounts"] == 6
     assert counts["internal_users"] == 4
+    assert counts["nonconformance_cases"] == 12
     assert counts["user_roles"] == 10
+
+    cases = seed_session.scalars(
+        select(NonconformanceORM).where(NonconformanceORM.case_no.like(f"{SEED_CASE_PREFIX}%"))
+    ).all()
+    assert len(load_cases()) == len(cases) == 12
+    for case in cases:
+        assert seed_session.get(UserORM, case.found_by_user_id) is not None
+        assert seed_session.get(UserORM, case.owner_user_id) is not None
+        assert seed_session.get(SupplierORM, case.supplier_id) is not None
+        assert seed_session.get(MaterialORM, case.material_id) is not None
+        receipt = seed_session.get(MaterialReceiptORM, case.receipt_id)
+        assert receipt is not None
+        assert (receipt.supplier_id, receipt.material_id, receipt.supplier_lot_id) == (
+            case.supplier_id,
+            case.material_id,
+            case.supplier_lot_id,
+        )
+        internal = seed_session.get(InternalMaterialLotORM, case.internal_lot_id)
+        assert internal is not None
+        assert (internal.receipt_id, internal.supplier_lot_id) == (
+            case.receipt_id,
+            case.supplier_lot_id,
+        )
+        iqc = seed_session.get(IQCRecordORM, case.iqc_record_id)
+        assert iqc is not None
+        assert (iqc.internal_lot_id, iqc.receipt_id) == (internal.id, receipt.id)
 
     split_receipts = seed_session.scalars(
         select(InternalMaterialLotORM.receipt_id)
@@ -84,6 +119,14 @@ def test_seed_is_repeatable_without_duplicates(seed_session: Session) -> None:
     first = _run_seed(seed_session)
     second = _run_seed(seed_session)
     assert first == second
+    assert (
+        seed_session.scalar(
+            select(func.count())
+            .select_from(NonconformanceORM)
+            .where(NonconformanceORM.case_no.like(f"{SEED_CASE_PREFIX}%"))
+        )
+        == 12
+    )
 
     usernames = seed_session.scalars(select(UserORM.username)).all()
     assert len(usernames) == len(set(usernames))
@@ -110,7 +153,7 @@ def test_seed_provides_actionable_signoff_examples_with_valid_history(
     assert counts["seed_signoff_history"] == 2
 
     iqcs = seed_session.scalars(
-        select(IQCRecordORM).where(IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%"))
+        select(IQCRecordORM).where(IQCRecordORM.remarks.like(f"{dev_data.SEED_IQC_REMARK_PREFIX}%"))
     ).all()
     approved = next(record for record in iqcs if record.review_status == "approved")
     returned = next(record for record in iqcs if record.review_status == "returned")
@@ -138,7 +181,7 @@ def test_seed_provides_actionable_signoff_examples_with_valid_history(
             select(UserORM.id)
             .join(UserRoleORM, UserRoleORM.user_id == UserORM.id)
             .join(RoleORM, RoleORM.id == UserRoleORM.role_id)
-            .where(RoleORM.name == seed_dev.SEED_ROLE_NAMES[1])
+            .where(RoleORM.name == dev_data.SEED_ROLE_NAMES[1])
         )
     )
     assert approved_history.reviewed_by_user_id in qa_user_ids
@@ -149,7 +192,7 @@ def test_seed_provides_actionable_signoff_examples_with_valid_history(
         seed_session.scalar(
             select(func.count())
             .select_from(QualityReviewORM)
-            .where(QualityReviewORM.decision_note.like(f"{seed_dev.SEED_REVIEW_NOTE_PREFIX}%"))
+            .where(QualityReviewORM.decision_note.like(f"{dev_data.SEED_REVIEW_NOTE_PREFIX}%"))
         )
         == 2
     )
@@ -159,7 +202,7 @@ def test_seed_never_resets_an_operator_signoff(seed_session: Session) -> None:
     _run_seed(seed_session)
     record = seed_session.scalar(
         select(IQCRecordORM).where(
-            IQCRecordORM.remarks.like(f"{seed_dev.SEED_IQC_REMARK_PREFIX}%"),
+            IQCRecordORM.remarks.like(f"{dev_data.SEED_IQC_REMARK_PREFIX}%"),
             IQCRecordORM.review_status == "pending",
         )
     )
@@ -214,7 +257,7 @@ def test_supplier_lot_permission_is_limited_to_receivers_and_admins(seed_session
         )
         for role in seed_session.scalars(
             select(RoleORM).where(
-                RoleORM.name.in_((*seed_dev.SEED_ROLE_NAMES, supplier_import.SUPPLIER_ROLE_NAME))
+                RoleORM.name.in_((*dev_data.SEED_ROLE_NAMES, supplier_import.SUPPLIER_ROLE_NAME))
             )
         )
     }
@@ -237,7 +280,7 @@ def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Sessi
 
     suppliers = seed_session.scalars(
         select(SupplierORM).where(
-            SupplierORM.supplier_code.like(f"{seed_dev.SEED_SUPPLIER_PREFIX}%")
+            SupplierORM.supplier_code.like(f"{dev_data.SEED_SUPPLIER_PREFIX}%")
         )
     ).all()
     assert len(suppliers) == 6
@@ -247,7 +290,7 @@ def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Sessi
     assert len(set(tax_ids)) == len(tax_ids)
 
     accounts = seed_session.scalars(
-        select(UserORM).where(UserORM.username.like(f"{seed_dev.SEED_SUPPLIER_USER_PREFIX}%"))
+        select(UserORM).where(UserORM.username.like(f"{dev_data.SEED_SUPPLIER_USER_PREFIX}%"))
     ).all()
     assert len(accounts) == len(suppliers)
     assert {account.supplier_id for account in accounts} == {supplier.id for supplier in suppliers}
@@ -266,7 +309,7 @@ def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Sessi
         assert roles == {supplier_import.SUPPLIER_ROLE_NAME}
 
     internal_roles = set(
-        seed_session.scalars(select(RoleORM.name).where(RoleORM.name.in_(seed_dev.SEED_ROLE_NAMES)))
+        seed_session.scalars(select(RoleORM.name).where(RoleORM.name.in_(dev_data.SEED_ROLE_NAMES)))
     )
     assert internal_roles.isdisjoint(
         {
@@ -293,7 +336,7 @@ def test_upsert_refuses_to_overwrite_non_seeder_row(seed_session: Session) -> No
     seed_session.flush()
 
     with pytest.raises(RuntimeError, match="Refusing to overwrite non-seeder data"):
-        seed_dev._upsert(
+        dev_sync._upsert(
             seed_session,
             SupplierORM,
             {"supplier_code": "SEED-SUP-001"},
@@ -314,17 +357,17 @@ def test_seed_preserves_live_and_foreign_records(seed_session: Session) -> None:
 
     supplier = seed_session.scalar(
         select(SupplierORM).where(
-            SupplierORM.supplier_code == f"{seed_dev.SEED_SUPPLIER_PREFIX}001"
+            SupplierORM.supplier_code == f"{dev_data.SEED_SUPPLIER_PREFIX}001"
         )
     )
     material = seed_session.scalar(
         select(MaterialORM).where(
-            MaterialORM.material_code == f"{seed_dev.SEED_MATERIAL_PREFIX}001"
+            MaterialORM.material_code == f"{dev_data.SEED_MATERIAL_PREFIX}001"
         )
     )
     supplier_lot = seed_session.scalar(
         select(SupplierLotORM).where(
-            SupplierLotORM.supplier_lot_no == f"{seed_dev.SEED_SUPPLIER_LOT_PREFIX}001"
+            SupplierLotORM.supplier_lot_no == f"{dev_data.SEED_SUPPLIER_LOT_PREFIX}001"
         )
     )
     assert supplier is not None and material is not None and supplier_lot is not None
@@ -411,3 +454,25 @@ def test_seed_preserves_live_and_foreign_records(seed_session: Session) -> None:
         )
         is not None
     )
+
+
+def test_quality_case_seeder_reports_missing_prerequisites(seed_session: Session) -> None:
+    with pytest.raises(RuntimeError, match="缺少有效前置資料") as exc_info:
+        seed_quality_abnormal_cases(seed_session)
+    assert "使用者 seed_qa_1" in str(exc_info.value)
+    assert "收料單 SEED-REC-" in str(exc_info.value)
+    assert seed_session.scalar(select(func.count()).select_from(NonconformanceORM)) == 0
+
+
+def test_quality_case_seeder_does_not_overwrite_existing_case(seed_session: Session) -> None:
+    _run_seed(seed_session)
+    existing = seed_session.scalar(
+        select(NonconformanceORM).where(NonconformanceORM.case_no == "SEED-NC-IQC-001")
+    )
+    assert existing is not None
+    existing.title = "使用者修改內容"
+    seed_session.flush()
+
+    with pytest.raises(RuntimeError, match="為避免覆寫資料已停止"):
+        seed_quality_abnormal_cases(seed_session)
+    assert existing.title == "使用者修改內容"
