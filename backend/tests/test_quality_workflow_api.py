@@ -289,7 +289,9 @@ def test_receipt_rejects_mismatched_supplier_lot_and_missing_supplier_material_l
     assert unlinked.json()["detail"] == "Supplier is not linked to the material"
 
 
-def test_receipt_split_rejects_excess_and_duplicate_internal_lot_number(quality_environment) -> None:
+def test_receipt_split_rejects_excess_and_duplicate_internal_lot_number(
+    quality_environment,
+) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
     excess = client.post(

@@ -256,7 +256,9 @@ def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(
     )
 
 
-def test_redis_outage_fails_closed_and_health_remains_available(auth_environment, monkeypatch) -> None:
+def test_redis_outage_fails_closed_and_health_remains_available(
+    auth_environment, monkeypatch
+) -> None:
     client, _, _ = auth_environment
     login = client.post(
         "/api/v1/auth/login",
