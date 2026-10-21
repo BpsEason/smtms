@@ -2,7 +2,7 @@
 
 ## 文件資訊
 - 版本：1.0.0
-- 最後更新：2026-10-20
+- 最後更新：2026-10-21
 - 相關文件：[驗收標準](./07_ACCEPTANCE.md), [開發路線圖](./08_ROADMAP.md)
 
 ---
@@ -22,6 +22,7 @@
 | IQC建立 | 建立IQC記錄、自動更新批次狀態 | `quality.py::create_iqc_record` | ✅ 有測試 |
 | IQC更新 | 更新IQC記錄、狀態同步 | `quality.py::update_iqc_record` | ✅ 更新邏輯有測試 |
 | 不合格品管理 | 建立、更新不合格品記錄 | `backend/app/api/routes/nonconformances.py` | ✅ 基本流程有測試 |
+| 稽核軌跡 | ORM 異動與成功登入紀錄、RBAC 查詢、後台分頁/明細、CSV串流匯出 | `backend/app/services/audit.py`、`backend/app/api/routes/audit.py`、`frontend/src/pages/AuditLogPage.tsx` | ✅ 核心交易/遮蔽/CSV測試及前端操作測試通過；Windows API TestClient 整合測試待補驗 |
 
 ### ⚠️ Partially Implemented（部分實作）
 | 功能模組 | 功能說明 | 已實作 | 缺少部分 |
@@ -37,7 +38,6 @@
 | 供應商/物料/收料等的刪除功能 | 所有資源的DELETE端點 | P2 |
 | 檔案上傳下載功能 | 供應商文件等的實體檔案處理 | P2 |
 - 追溯查詢API：由批次反查完整履歷 | P1
-- 稽核軌跡(audit log) | 所有資料異動記錄 | P2
 - CAPA整改流程 | 完整的矯正預防措施流程 | P2
 - 報表匯出功能 | Excel/PDF匯出 | P3
 - 郵件通知系統 | 異常通知、待辦提醒 | P3

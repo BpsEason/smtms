@@ -1,5 +1,6 @@
 import type {
   AdminUser,
+  AuditLog,
   IQCCreatePayload,
   IQCRecord,
   InternalLot,
@@ -132,6 +133,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  listAuditLogs: async (params?: Record<string, string | number | undefined | null>) =>
+    request<{ items: AuditLog[]; page: number; page_size: number }>(
+      `/api/v1/audit-logs${buildQueryString(params ?? {})}`,
+    ),
+  exportAuditLogs: async (params?: Record<string, string | number | undefined | null>) => {
+    const headers = new Headers();
+    const token = readToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/audit-logs/export.csv${buildQueryString(params ?? {})}`,
+      { headers },
+    );
+    if (!response.ok) throw new ApiError(response.status, "稽核紀錄匯出失敗");
+    return response.blob();
+  },
   listNonconformances: async (params?: Record<string, string | number | undefined | null>) =>
     request<PaginatedResponse<Nonconformance>>(`/api/v1/nonconformances${buildQueryString(params ?? {})}`),
   getNonconformance: async (id: number) => request<Nonconformance>(`/api/v1/nonconformances/${id}`),

@@ -11,7 +11,7 @@ SEED_RECEIPT_PREFIX = "SEED-REC-"
 SEED_INTERNAL_LOT_PREFIX = "SEED-ILOT-"
 SEED_DOCUMENT_PREFIX = "SEED-CERT-"
 SEED_IQC_REMARK_PREFIX = "Seeded inspection outcome:"
-SEED_REQUIRED_REVISION = "20261021_nc_permissions"
+SEED_REQUIRED_REVISION = "20261021_audit_logs"
 SEED_REVIEW_NOTE_PREFIX = "SEED-SIGNOFF:"
 
 SUPPLIER_DATA = (
@@ -102,6 +102,7 @@ PERMISSIONS = (
     ("nonconformance:read", "Read quality nonconformance cases"),
     ("nonconformance:write", "Manage quality nonconformance cases"),
     ("users:manage", "Manage user access"),
+    ("audit:read", "Read audit logs"),
 )
 
 INTERNAL_USERS = (
@@ -173,6 +174,6 @@ EXPECTED_SEEDED_COUNTS = {
     "roles": 3,
     "permissions": len(PERMISSIONS),
     "user_roles": 10,
-    "role_permissions": 30,
+    "role_permissions": 31,
     "nonconformance_cases": 12,
 }

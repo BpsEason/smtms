@@ -1,3 +1,4 @@
+from app.models.audit import AuditLogORM
 from app.models.quality import (
     InternalMaterialLotORM,
     IQCRecordORM,
@@ -44,4 +45,5 @@ __all__ = [
     "NonconformanceHistoryORM",
     "NonconformanceAttachmentORM",
     "SupplierDocumentAttachmentORM",
+    "AuditLogORM",
 ]

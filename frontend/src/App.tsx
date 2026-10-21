@@ -24,6 +24,7 @@ import { SignoffPage } from "./pages/SignoffPage";
 import { LoginPage } from "./pages/LoginPage";
 import { TraceabilityPage } from "./pages/TraceabilityPage";
 import { NonconformancePage } from "./pages/NonconformancePage";
+import { AuditLogPage } from "./pages/AuditLogPage";
 import type { UserProfile } from "./types";
 
 function normalizePermissions(
@@ -224,6 +225,14 @@ function AppShell() {
           element={
             <PermissionPage profile={profile} permission="users:manage">
               <RolesPermissionsPage profile={profile} />
+            </PermissionPage>
+          }
+        />
+        <Route
+          path="admin/audit-logs"
+          element={
+            <PermissionPage profile={profile} permission="audit:read">
+              <AuditLogPage />
             </PermissionPage>
           }
         />

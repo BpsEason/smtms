@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 import jwt
 from app.core import redis_client
 from app.core.config import get_settings
@@ -18,12 +19,10 @@ from app.models.user import (
 )
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 settings = get_settings()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security_scheme = HTTPBearer(auto_error=False)
 
 
@@ -45,13 +44,14 @@ def normalize_permission_code(permission: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except (TypeError, ValueError):
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except (TypeError, ValueError, UnicodeEncodeError):
         return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12))
+    return hashed.decode("ascii")
 
 
 def create_access_token(
@@ -154,6 +154,8 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User is disabled or not found",
         )
+
+    db.info["audit_actor_id"] = user.id
 
     role_names = tuple(
         db.scalars(

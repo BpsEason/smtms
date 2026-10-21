@@ -1,4 +1,4 @@
-import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck, TriangleAlert } from 'lucide-react'
+import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck, TriangleAlert, ScrollText } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import type { UserProfile } from '../types'
 import { buttonClass } from './ui'
@@ -23,6 +23,7 @@ const navigation: NavItem[] = [
 
   // 系統設定
   { group: '系統設定', label: '角色與權限', to: '/admin/roles', icon: ShieldCheck, permission: 'users:manage' },
+  { group: '系統設定', label: '稽核紀錄', to: '/admin/audit-logs', icon: ScrollText, permission: 'audit:read' },
 ]
 
 export function AppLayout({ profile, onLogout }: { profile: UserProfile; onLogout: () => void }) {

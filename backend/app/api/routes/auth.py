@@ -14,6 +14,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
+from app.models.audit import AuditLogORM
 from app.models.user import UserORM
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -39,6 +40,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
+
+    db.info["audit_actor_id"] = user.id
+    db.add(
+        AuditLogORM(
+            actor_user_id=user.id,
+            action="LOGIN",
+            resource_type="users",
+            resource_id=str(user.id),
+            after_data={"username": user.username, "result": "success"},
+        )
+    )
+    db.commit()
 
     token = create_access_token(
         subject=user.username,

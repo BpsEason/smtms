@@ -27,6 +27,19 @@ export type PaginatedResponse<T> = {
   page_size: number;
 };
 
+export type AuditLog = {
+  id: number;
+  actor_user_id: number | null;
+  actor_username: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  before_data: Record<string, unknown> | null;
+  after_data: Record<string, unknown> | null;
+  request_id: string | null;
+  created_at: string;
+};
+
 export type Role = {
   id: number;
   name: string;

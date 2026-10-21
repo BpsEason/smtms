@@ -2,7 +2,7 @@
 
 ## 文件資訊
 - 版本：1.0.0
-- 最後更新：2026-10-20
+- 最後更新：2026-10-21
 - 基礎路徑：`/api/v1`
 - 相關文件：[領域規則](./02_DOMAIN_RULES.md), [目前實作狀態](./06_CURRENT_STATE.md)
 
@@ -270,4 +270,17 @@
 - ❌ 角色/權限管理API：所有`/roles`、`/permissions`相關端點
 - ❌ 檔案上傳下載API：`POST /upload`、`GET /files/{id}`
 - ❌ 追溯查詢API：`GET /trace/{lot_no}`
-- ❌ 稽核軌跡API：`GET /audit-logs`
+
+## 稽核紀錄 API
+
+### GET /audit-logs
+- **權限**：`audit:read`
+- **查詢參數**：`actor_username`、`actor_user_id`、`action`、`resource_type`、`resource_id`、`start_at`、`end_at`、`page`、`page_size`（最大100）
+- **回應**：`items`、`page`、`page_size`；紀錄包含操作者帳號、時間、操作類型、資源識別及異動前後內容。
+- **限制**：僅提供GET查詢，無修改或刪除端點。
+
+### GET /audit-logs/export.csv
+- **權限**：`audit:read`
+- **查詢參數**：與清單篩選條件相同；匯出套用所有篩選條件，不套用清單分頁。
+- **回應**：UTF-8 CSV，後端以分批方式串流；欄位包含操作時間、操作者、操作類型、資源類型、資源ID及異動前後內容。
+- **安全**：延用稽核內容敏感資料遮蔽，CSV 欄位進行公式注入防護。

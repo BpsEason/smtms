@@ -36,8 +36,10 @@
 | A22 | DB異常行為                 | DB 健康檢查依賴發生連線例外（測試以 mock 注入） | 呼叫`health/database`、`health/ready`及`health/live`           | DB 回報`unavailable`、ready 為`degraded`，live 仍可用；受保護端點 DB 故障回應未驗 | 自動化部分通過（健康檢查例外與存活狀態；未使用真實 MySQL 中斷） |
 | A23 | Redis異常行為              | Redis 操作發生連線例外（測試以 mock 注入） | 使用有效 Token 呼叫`GET /auth/me`及健康檢查                    | 回503 `Authentication service unavailable`（不放行）；ready 為`degraded`、live 仍可用 | 自動化通過（mock Redis 故障；未使用真實 Redis 中斷） |
 | A24 | 健康檢查端點可用            | 服務啟動                                 | 呼叫`/api/v1/health`、`/live`、`/ready`、`/database`、`/redis` | 200且含`status`                                              | 是（僅斷言鍵存在） |
-| A25 | 前端建置                    | 已安裝依賴                               | `npm run build`                                                 | 建置成功                                                       | 已通過（先前實際執行；本次未重跑） |
+| A25 | 前端建置                    | 已安裝依賴                               | `npm run build`                                                 | 建置成功                                                       | 本次通過 |
 | A26 | 前端主要頁面操作            | 已安裝依賴                               | 登入→收料建立→拆分→IQC                                          | 流程完成並顯示後端確認狀態                                     | 是（`App.test.tsx`，以mock API） |
+| A27 | 稽核紀錄查詢與唯讀明細 | 帳號具`audit:read` | 篩選操作者/操作/資源/時間，分頁並檢視異動前後 | 僅授權使用者可查詢；資料唯讀且明細正確 | 自動化部分通過（前端篩選、分頁、明細測試；後端權限整合測試受 Windows TestClient 環境限制未完成） |
+| A28 | 稽核紀錄 CSV 匯出 | 帳號具`audit:read` | 以篩選條件匯出全部匹配紀錄 | 欄位含異動前後；特殊字元正確跳脫、公式內容中和、大量資料分批串流 | 自動化部分通過（前端匯出呼叫、後端 CSV quoting/公式注入單元測試；HTTP 串流整合未完成） |
 
 ---
 
@@ -45,10 +47,15 @@
 | 項目     | 命令                                          | 結果                                                              |
 | -------- | --------------------------------------------- | ----------------------------------------------------------------- |
 | 後端驗收相關測試 | `pytest -q tests/test_quality_workflow_api.py tests/test_infrastructure.py tests/test_jwt_rbac.py tests/test_access_control_api.py tests/test_seed_dev.py::test_seed_administrator_has_every_seeded_permission`（於`backend/`） | **42 項中 1 項略過，其餘通過**，exit code 0；略過項目需專用 MySQL 測試資料庫 |
-| 前端測試 | `npm test`（於`frontend/`，即`vitest run`） | **29 passed**（4 個測試檔），exit code 0 |
+| 前端測試 | `npm test`（於`frontend/`，即`vitest run`） | **32 passed**（5 個測試檔），exit code 0 |
+| Audit Log 前端測試 | `npm test -- --run src/pages/AuditLogPage.test.tsx`（於`frontend/`） | **3 passed**，含篩選、分頁、明細及 CSV 匯出 |
+| Audit Log 後端單元測試 | `pytest -q tests/test_audit_api.py::test_audit_csv_export_quotes_content_and_neutralizes_formula_injection tests/test_audit_api.py::test_audit_commit_rolls_back_with_business_change_and_secrets_are_filtered`（於`backend/`） | **2 passed**；CSV 公式注入/引號、交易回滾與敏感欄位遮蔽 |
+| 前端 production build | `npm run build`（於`frontend/`） | **本次通過** |
 | 差異檢查 | `git diff --check`（工作區） | **通過** |
 
-> 後端測試使用記憶體 SQLite 與假 Redis；外部故障測試以 mock 注入例外，並非實際中斷 MySQL／Redis。前端測試使用 mock API。為完成 Starlette `TestClient` 測試，需允許本機 loopback socket；沙箱限制 loopback 時，AnyIO／Windows asyncio socket 建立會停滯，允許後測試完成。前端長流程測試超過 Vitest 預設 5 秒，僅將該既有測試逾時設為 15 秒後通過。前端 production build 已於先前執行通過，本次未重跑。未在真實 MySQL／Redis 或 Docker Compose 環境執行。
+> 後端測試使用記憶體 SQLite 與假 Redis；外部故障測試以 mock 注入例外，並非實際中斷 MySQL／Redis。前端測試使用 mock API。為完成 Starlette `TestClient` 測試，需允許本機 loopback socket；沙箱限制 loopback 時，AnyIO／Windows asyncio socket 建立會停滯，允許後測試完成。前端長流程測試超過 Vitest 預設 5 秒，僅將該既有測試逾時設為 15 秒後通過。本次已執行前端 production build。未在真實 MySQL／Redis 或 Docker Compose 環境執行。
+
+> Audit Log API 權限與串流端點未能在本機 Windows TestClient 環境完成端對端請求；已分別以交易/CSV 單元測試及 mock API 的前端測試驗證核心行為。大量資料實際串流吞吐及 MySQL cursor 行為仍待整合環境驗收。
 
 ---
 

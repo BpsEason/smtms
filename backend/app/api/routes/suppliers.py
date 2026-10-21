@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -123,9 +123,7 @@ def create_supplier(
     db: Session = Depends(get_db),
     _user: AuthenticatedUser = Depends(require_permission("suppliers:write")),
 ):
-    if db.scalar(
-        select(SupplierORM.id).where(SupplierORM.supplier_code == payload.supplier_code)
-    ):
+    if db.scalar(select(SupplierORM.id).where(SupplierORM.supplier_code == payload.supplier_code)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Supplier code already exists",
@@ -547,11 +545,16 @@ def add_supplier_material(
         )
 
     if payload.is_preferred:
-        db.execute(
-            update(SupplierMaterialORM)
-            .where(SupplierMaterialORM.material_id == payload.material_id)
-            .values(is_preferred=False)
-        )
+        preferred_links = db.scalars(
+            select(SupplierMaterialORM)
+            .where(
+                SupplierMaterialORM.material_id == payload.material_id,
+                SupplierMaterialORM.is_preferred.is_(True),
+            )
+            .with_for_update()
+        ).all()
+        for existing_link in preferred_links:
+            existing_link.is_preferred = False
     link = SupplierMaterialORM(
         supplier_id=supplier.id,
         material_id=material.id,
