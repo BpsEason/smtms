@@ -1,12 +1,13 @@
 import csv
 import io
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core.security import AuthenticatedUser, require_permission
@@ -26,7 +27,7 @@ def _filtered_statement(
     action: str | None,
     start_at: datetime | None,
     end_at: datetime | None,
-):
+) -> Select[AuditLogORM, str]:
     statement = select(AuditLogORM, UserORM.username).outerjoin(
         UserORM, UserORM.id == AuditLogORM.actor_user_id
     )
@@ -54,14 +55,19 @@ def _csv_cell(value: object) -> str:
     return text
 
 
-def _audit_csv(db: Session, statement) -> Iterator[str]:
+def _audit_csv(
+    db: Session, statement: Select[AuditLogORM, str]
+) -> Iterator[str]:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"])
     yield "\ufeff" + buffer.getvalue()
     buffer.seek(0)
     buffer.truncate(0)
-    result = db.execute(statement.execution_options(yield_per=500))
+    result = cast(
+        Iterable[tuple[AuditLogORM, str | None]],
+        db.execute(statement.execution_options(yield_per=500)),
+    )
     for log, username in result:
         writer.writerow(
             [
@@ -109,7 +115,10 @@ def list_audit_logs(
         start_at=start_at,
         end_at=end_at,
     )
-    rows = db.execute(statement.offset((page - 1) * page_size).limit(page_size)).all()
+    rows = cast(
+        list[tuple[AuditLogORM, str | None]],
+        db.execute(statement.offset((page - 1) * page_size).limit(page_size)).all(),
+    )
     return {
         "items": [
             {
