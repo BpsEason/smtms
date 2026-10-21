@@ -225,6 +225,116 @@ def test_receipt_and_iqc_flow_quality_environment(quality_environment) -> None:
     assert listing.json()["total"] >= 1
 
 
+def test_receipt_detail_missing_id_returns_not_found(quality_environment) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    response = client.get("/api/v1/receipts/999999", headers=headers)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Receipt not found"
+
+
+def test_receipt_rejects_mismatched_supplier_lot_and_missing_supplier_material_link(
+    quality_environment,
+) -> None:
+    client, sessions = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    with sessions.begin() as session:
+        other_supplier = SupplierORM(
+            supplier_code="SUP-MISMATCH", supplier_name="Other Supplier", status="active"
+        )
+        session.add(other_supplier)
+        session.flush()
+        other_lot = SupplierLotORM(
+            supplier_id=other_supplier.id,
+            material_id=1,
+            supplier_lot_no="LOT-RECEIPT-MISMATCH",
+            qty_received=10,
+            uom="pcs",
+            qc_status="received",
+        )
+        session.add(other_lot)
+        session.flush()
+        mismatched_lot_id = other_lot.id
+    mismatch = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_id": mismatched_lot_id,
+            "receipt_no": "REC-MISMATCH-SUPPLIER",
+            "qty_received": "1.0000",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert mismatch.status_code == 400
+    assert "does not match" in mismatch.json()["detail"]
+
+    with sessions.begin() as session:
+        link = session.query(SupplierMaterialORM).filter_by(supplier_id=1, material_id=1).one()
+        session.delete(link)
+    unlinked = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_id": 1,
+            "receipt_no": "REC-UNLINKED",
+            "qty_received": "1.0000",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert unlinked.status_code == 400
+    assert unlinked.json()["detail"] == "Supplier is not linked to the material"
+
+
+def test_receipt_split_rejects_excess_and_duplicate_internal_lot_number(quality_environment) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    excess = client.post(
+        "/api/v1/receipts/1/internal-lots",
+        json={"internal_lot_no": "ILT-EXCESS", "qty": "50.0001"},
+        headers=headers,
+    )
+    assert excess.status_code == 400
+    assert "exceeds" in excess.json()["detail"]
+    duplicate = client.post(
+        "/api/v1/receipts/1/internal-lots",
+        json={"internal_lot_no": "ILT-100", "qty": "1.0000"},
+        headers=headers,
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Internal lot number already exists"
+    receipt = client.get("/api/v1/receipts/1", headers=headers)
+    assert receipt.status_code == 200
+    assert receipt.json()["qty_remaining"] == "50.0000"
+
+
+def test_iqc_detail_returns_created_record_and_missing_record_is_404(quality_environment) -> None:
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+    created = client.post(
+        "/api/v1/iqc",
+        json={
+            "internal_lot_id": 1,
+            "sample_qty": "1.0000",
+            "inspection_result": "passed",
+            "release_status": "released",
+            "remarks": "detail lookup",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    detail = client.get(f"/api/v1/iqc/{created.json()['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["id"] == created.json()["id"]
+    assert detail.json()["remarks"] == "detail lookup"
+    missing = client.get("/api/v1/iqc/999999", headers=headers)
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "IQC record not found"
+
+
 def test_receipt_list_searches_supplier_lot_and_returns_iqc_summary_only_with_permission(
     quality_environment,
 ) -> None:

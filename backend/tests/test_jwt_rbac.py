@@ -254,3 +254,33 @@ def test_seed_permission_codes_are_normalized_for_profile_and_access_checks(
         protected_client.get("/suppliers", headers={"Authorization": f"Bearer {token}"}).status_code
         == 200
     )
+
+
+def test_redis_outage_fails_closed_and_health_remains_available(auth_environment, monkeypatch) -> None:
+    client, _, _ = auth_environment
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "qa.tester", "password": "Correct-Test-Password-2026!"},
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    class BrokenRedis:
+        def exists(self, key: str) -> int:
+            raise OSError("redis connection refused")
+
+        def ping(self) -> bool:
+            raise OSError("redis connection refused")
+
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: BrokenRedis())
+    protected = client.get("/api/v1/auth/me", headers=headers)
+    assert protected.status_code == 503
+    assert protected.json()["detail"] == "Authentication service unavailable"
+    redis_health = client.get("/api/v1/health/redis")
+    assert redis_health.status_code == 200
+    assert redis_health.json() == {"status": "unavailable"}
+    ready = client.get("/api/v1/health/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "degraded"
+    assert ready.json()["checks"]["redis"]["status"] == "unavailable"
+    assert client.get("/api/v1/health/live").json()["status"] == "live"

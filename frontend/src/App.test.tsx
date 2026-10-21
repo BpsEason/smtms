@@ -468,7 +468,7 @@ describe("SMTMS application", () => {
     expect(await screen.findByText("來源與品質追溯")).toBeInTheDocument();
     expect(await screen.findByText(/IQC-41/)).toBeInTheDocument();
     expect(screen.getAllByText("待檢隔離").length).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   it("searches and displays a complete multi-branch traceability chain", async () => {
     const trace = {

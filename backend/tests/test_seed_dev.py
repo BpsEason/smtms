@@ -275,6 +275,31 @@ def test_supplier_lot_permission_is_limited_to_receivers_and_admins(seed_session
     )
 
 
+def test_seed_administrator_has_every_seeded_permission(seed_session: Session) -> None:
+    _run_seed(seed_session)
+    admin_role = seed_session.scalar(
+        select(RoleORM).where(RoleORM.name == "SMTMS Seed Administrator")
+    )
+    assert admin_role is not None
+    granted = set(
+        seed_session.scalars(
+            select(PermissionORM.code)
+            .join(RolePermissionORM, RolePermissionORM.permission_id == PermissionORM.id)
+            .where(RolePermissionORM.role_id == admin_role.id)
+        )
+    )
+    expected = {f"seed:{code}" for code, _ in dev_data.PERMISSIONS}
+    assert granted == expected
+    admin_user = seed_session.scalar(select(UserORM).where(UserORM.username == "seed_admin"))
+    assert admin_user is not None
+    assert seed_session.scalar(
+        select(UserRoleORM.id).where(
+            UserRoleORM.user_id == admin_user.id,
+            UserRoleORM.role_id == admin_role.id,
+        )
+    ) is not None
+
+
 def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Session) -> None:
     _run_seed(seed_session)
 

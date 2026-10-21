@@ -36,3 +36,21 @@ def test_health_routes_are_available() -> None:
     redis_status = redis_health_check()
     assert "status" in database_status
     assert "status" in redis_status
+
+
+def test_database_health_reports_unavailable_without_breaking_liveness(monkeypatch) -> None:
+    def database_down() -> bool:
+        raise OSError("database connection refused")
+
+    monkeypatch.setattr("app.api.routes.health.check_database_health", database_down)
+    client = TestClient(app)
+    database = client.get("/api/v1/health/database")
+    ready = client.get("/api/v1/health/ready")
+    live = client.get("/api/v1/health/live")
+    assert database.status_code == 200
+    assert database.json() == {"status": "unavailable"}
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "degraded"
+    assert ready.json()["checks"]["database"]["status"] == "unavailable"
+    assert live.status_code == 200
+    assert live.json()["status"] == "live"
