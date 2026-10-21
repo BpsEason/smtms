@@ -21,9 +21,10 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 | 進料檢驗（IQC） | IQC 紀錄建立與更新、受規則限制的檢驗狀態；另提供品保審核清單、核准／退回及審核歷程，退回需理由 | `quality.py`、`backend/tests/test_quality_workflow_api.py` |
 | 品質異常管理 | 異常案件查詢、建立與更新、調查狀態流轉、處置紀錄、歷程及受控附件；可連結供應商、物料、收料、批號或 IQC | `backend/app/api/routes/nonconformances.py`、`backend/app/models/quality.py`、`backend/tests/test_quality_workflow_api.py` |
 | 物料追溯 | 以供應商批號、收料單、內部批號、IQC ID 或物料代碼查詢關聯流程；結果分頁，前端 CSV 匯出目前結果頁 | `quality.py` 的 `/traceability`、`frontend/src/pages/TraceabilityPage.tsx`、`test_quality_workflow_api.py` |
+| 稽核紀錄 | 記錄重要 ORM 建立／更新／刪除與成功登入；後台依 `audit:read` 權限查詢，支援操作者、操作類型、資源及時間範圍篩選、分頁、唯讀異動明細與 CSV 串流匯出 | `backend/app/services/audit.py`、`backend/app/api/routes/audit.py`、`frontend/src/pages/AuditLogPage.tsx`、`backend/tests/test_audit_api.py` |
 | 角色與權限管理 | 使用者、角色、權限及角色指派 API；前端依權限保護頁面，後端 API 另行授權；供應商帳號依綁定的供應商範圍隔離 | `backend/app/api/routes/access.py`、`backend/app/core/security.py`、`frontend/src/App.tsx`、`backend/tests/test_access_control_api.py`、`test_supplier_isolation.py` |
 
-以上列出程式碼與測試中可查證的範圍。附件目前存於後端設定的本機持久化目錄，限制格式與大小；尚未包含病毒掃描或外部物件儲存。CSV 僅匯出當前頁。正式部署、長時間負載與合規認證尚未完成。
+以上列出程式碼與測試中可查證的範圍。附件目前存於後端設定的本機持久化目錄，限制格式與大小；尚未包含病毒掃描或外部物件儲存。追溯頁 CSV 僅匯出當前頁；Audit Log CSV 依目前篩選條件分批串流匯出所有符合紀錄。正式部署、長時間負載與合規認證尚未完成。
 
 ## 核心設計
 
@@ -159,7 +160,9 @@ npm test                     # Vitest 單元測試
 npm run build                # 生產建置
 ```
 
-CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。完整後端環境設定及 Seeder 限制見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)，資料表與技術規格見 [`spec.md`](spec.md)。
+CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。完整後端環境設定及 Seeder 限制見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)。正式規格入口為 [`docs/01_SRS.md`](docs/01_SRS.md)，並包括[領域規則](docs/02_DOMAIN_RULES.md)、[API 契約](docs/04_API_CONTRACT.md)、[資料庫結構](docs/05_DATABASE_SCHEMA.md)、[目前實作狀態](docs/06_CURRENT_STATE.md)、[驗收標準](docs/07_ACCEPTANCE.md)及[開發路線圖](docs/08_ROADMAP.md)。
+
+目前文件記錄的驗收結果：前端 Vitest **32 項通過**（5 個測試檔），Audit Log 頁面測試 **3 項通過**，production build 通過；後端驗收相關測試 **42 項中 1 項略過，其餘通過**，另有 Audit Log 交易一致性／敏感欄位遮蔽與 CSV 安全單元測試 **2 項通過**。Audit Log API 的 Windows TestClient 權限及串流端對端測試、真實 MySQL／Redis 與大量資料吞吐仍待整合環境驗收。詳見[驗收標準](docs/07_ACCEPTANCE.md)與[目前實作狀態](docs/06_CURRENT_STATE.md)。
 
 ## 專案結構
 
@@ -168,5 +171,5 @@ backend/                 FastAPI API、模型、Alembic 遷移、Seeder 與測�
 frontend/                React/TypeScript UI 與前端測試
 docker/nginx/            Nginx 反向代理設定
 docker-compose.yml       Redis、backend、frontend、Nginx 服務定義
-spec.md                  資料模型與技術規格
+docs/                    領域規則、API 契約、資料庫結構、現況、驗收與路線圖
 ```

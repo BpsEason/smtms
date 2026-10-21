@@ -84,7 +84,7 @@ uv run python -m alembic -c alembic.ini upgrade head
 uv run python -m alembic -c alembic.ini current
 ```
 
-目前唯一 migration head 為 `20261021_nc_permissions`。Seeder 只接受此版本，不會執行資料庫遷移；應先自行套用遷移，再執行 Seeder。
+目前唯一 migration head 為 `20261021_audit_logs`。Seeder 只接受此版本，不會執行資料庫遷移；應先自行套用遷移，再執行 Seeder。
 
 ## 啟動後端
 
@@ -106,7 +106,7 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### 安全限制與交易
 
-`scripts/seed_dev.py` 僅允許 `APP_ENV=development` 或 `test`，且只接受本機 `localhost:3306/smtms` 或 `127.0.0.1:3306/smtms`。它會連線確認實際資料庫、埠號及 `alembic_version` 為 `20261021_nc_permissions`，並要求設定符合長度限制的 `SMTMS_SEED_PASSWORD`。任何檢查失敗都會停止執行。
+`scripts/seed_dev.py` 僅允許 `APP_ENV=development` 或 `test`，且只接受本機 `localhost:3306/smtms` 或 `127.0.0.1:3306/smtms`。它會連線確認實際資料庫、埠號及 `alembic_version` 為 `20261021_audit_logs`，並要求設定符合長度限制的 `SMTMS_SEED_PASSWORD`。任何檢查失敗都會停止執行。
 
 同步資料與整體驗證由同一個 `SessionLocal` 工作階段及單一 `session.begin()` 交易包覆；不會在 Seeder 中執行遷移或刪除資料。發生錯誤時交易會回滾。
 

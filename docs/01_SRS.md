@@ -3,7 +3,7 @@
 ## 文件資訊
 - 版本：1.0.0
 - 最後更新：2026-10-20
-- 原始文件：../spec.md
+- 依據：本文件與 `02_DOMAIN_RULES.md`、`04_API_CONTRACT.md`、`05_DATABASE_SCHEMA.md`、`06_CURRENT_STATE.md`、`07_ACCEPTANCE.md`、`08_ROADMAP.md` 為目前維護中的正式規格文件。
 
 ## 1. 系統目標
 解決SMT電子製造業中，供應商物料追溯的痛點：

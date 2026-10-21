@@ -105,13 +105,13 @@
 ## 測試覆蓋現況
 ### 後端測試
 - 執行方式：`uv run pytest` (於backend/)
-- 目前結果：17個測試通過，1個StarletteDeprecationWarning
-- 測試覆蓋範圍：認證、RBAC、基礎CRUD有較好覆蓋；品質流程的邊界條件覆蓋不足
+- 目前驗收測試結果：42項中1項略過，其餘通過；另有Audit Log交易一致性／敏感欄位遮蔽及CSV安全單元測試2項通過。完整執行結果與環境限制見[驗收標準](./07_ACCEPTANCE.md)。
+- 測試覆蓋範圍：認證、RBAC、主要CRUD、品質流程與Audit Log核心交易／CSV行為；品質流程邊界條件及Audit Log HTTP整合仍有待驗證項目。
 
 ### 前端測試
 - 執行方式：`npm test` (於frontend/)
-- 目前結果：2個測試通過
-- 測試覆蓋範圍：僅基礎頁面渲染，業務邏輯幾乎無覆蓋
+- 目前結果：32項通過（5個測試檔）；Audit Log頁面測試3項通過，production build通過。
+- 測試覆蓋範圍：包含主要流程、管理介面及Audit Log篩選、分頁、明細與CSV匯出；測試使用mock API。
 
 ### CI流程
 - GitHub Actions設定存在：`.github/workflows/ci.yml`
