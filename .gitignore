@@ -30,3 +30,8 @@ backups/
 
 # Persistent uploaded supplier qualification attachments
 backend/var/documents/
+
+# AI Coding Context - .ai/目錄保留，但忽略AI工具產生的臨時快取
+.ai/*.tmp
+.ai/cache/
+.trae/temp/
