@@ -2,9 +2,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import { saveToken } from "../api/client";
-import { AuditLogPage } from "./AuditLogPage";
-import type { AuditLog } from "../types";
+import { saveToken } from "../../src/api/client";
+import { AuditLogPage } from "../../src/pages/AuditLogPage";
+import type { AuditLog } from "../../src/types";
 
 const fetchMock = vi.fn();
 const entry: AuditLog = {

@@ -48,7 +48,7 @@
 | -------- | --------------------------------------------- | ----------------------------------------------------------------- |
 | 後端驗收相關測試 | `pytest -q tests/test_quality_workflow_api.py tests/test_infrastructure.py tests/test_jwt_rbac.py tests/test_access_control_api.py tests/test_seed_dev.py::test_seed_administrator_has_every_seeded_permission`（於`backend/`） | **42 項中 1 項略過，其餘通過**，exit code 0；略過項目需專用 MySQL 測試資料庫 |
 | 前端測試 | `npm test`（於`frontend/`，即`vitest run`） | **32 passed**（5 個測試檔），exit code 0 |
-| Audit Log 前端測試 | `npm test -- --run src/pages/AuditLogPage.test.tsx`（於`frontend/`） | **3 passed**，含篩選、分頁、明細及 CSV 匯出 |
+| Audit Log 前端測試 | `npm test -- --run tests/pages/AuditLogPage.test.tsx`（於`frontend/`） | **3 passed**，含篩選、分頁、明細及 CSV 匯出 |
 | Audit Log 後端單元測試 | `pytest -q tests/test_audit_api.py::test_audit_csv_export_quotes_content_and_neutralizes_formula_injection tests/test_audit_api.py::test_audit_commit_rolls_back_with_business_change_and_secrets_are_filtered`（於`backend/`） | **2 passed**；CSV 公式注入/引號、交易回滾與敏感欄位遮蔽 |
 | 前端 production build | `npm run build`（於`frontend/`） | **本次通過** |
 | 差異檢查 | `git diff --check`（工作區） | **通過** |

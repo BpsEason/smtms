@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
-import { buildTraceabilityPageCsv } from "./lib/traceabilityCsv";
+import App from "../src/App";
+import { buildTraceabilityPageCsv } from "../src/lib/traceabilityCsv";
 
 const fetchMock = vi.fn();
 const receipt = {

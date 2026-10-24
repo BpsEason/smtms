@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogPages } from "./CatalogPages";
-import type { UserProfile } from "../types";
+import { CatalogPages } from "../../src/pages/CatalogPages";
+import type { UserProfile } from "../../src/types";
 
 const fetchMock = vi.fn();
 
@@ -66,6 +66,30 @@ function blobResponse(blob: Blob, status = 200): Response {
 
 function page<T>(items: T[]) {
   return { items, total: items.length, page: 1, page_size: 20 };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function supplierNamed(id: number, name: string) {
+  return { ...supplier, id, supplier_code: `SUP-${id}`, supplier_name: name };
+}
+
+async function waitForSupplierRequest(count: number) {
+  await waitFor(() => {
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/api/v1/suppliers?"),
+      ),
+    ).toHaveLength(count);
+  });
 }
 
 function installMock(handlers: { preview?: Response; confirm?: Response }) {
@@ -237,5 +261,113 @@ describe("supplier-material setup", () => {
       expect.stringContaining("/api/v1/suppliers/4/materials"),
       expect.objectContaining({ method: "POST", body: expect.stringContaining('"material_id":8') }),
     );
+  });
+});
+
+describe("supplier list request races", () => {
+  it("keeps the newest result when an earlier request finishes later", async () => {
+    const oldRequest = deferred<Response>();
+    const newRequest = deferred<Response>();
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).includes("keyword=latest")
+        ? newRequest.promise
+        : oldRequest.promise,
+    );
+    render(<CatalogPages kind="suppliers" profile={writerProfile} />);
+    await waitForSupplierRequest(1);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "搜尋供應商" }), {
+      target: { value: "latest" },
+    });
+    await waitForSupplierRequest(2);
+
+    await act(async () => {
+      newRequest.resolve(jsonResponse(page([supplierNamed(2, "Latest Supplier")])));
+      await newRequest.promise;
+    });
+    expect(await screen.findByText("Latest Supplier")).toBeInTheDocument();
+
+    await act(async () => {
+      oldRequest.resolve(jsonResponse(page([supplierNamed(1, "Old Supplier")])));
+      await oldRequest.promise;
+    });
+    expect(screen.getByText("Latest Supplier")).toBeInTheDocument();
+    expect(screen.queryByText("Old Supplier")).not.toBeInTheDocument();
+  });
+
+  it("does not let an earlier failure replace the newest error", async () => {
+    const oldRequest = deferred<Response>();
+    const newRequest = deferred<Response>();
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).includes("keyword=latest")
+        ? newRequest.promise
+        : oldRequest.promise,
+    );
+    render(<CatalogPages kind="suppliers" profile={writerProfile} />);
+    await waitForSupplierRequest(1);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "搜尋供應商" }), {
+      target: { value: "latest" },
+    });
+    await waitForSupplierRequest(2);
+
+    await act(async () => {
+      newRequest.resolve(jsonResponse({ detail: "最新查詢失敗" }, 500));
+      await newRequest.promise;
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("最新查詢失敗");
+
+    await act(async () => {
+      oldRequest.resolve(jsonResponse({ detail: "舊查詢失敗" }, 500));
+      await oldRequest.promise;
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("最新查詢失敗");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("舊查詢失敗");
+  });
+
+  it("keeps loading while the latest request is pending after an older one finishes", async () => {
+    const oldRequest = deferred<Response>();
+    const newRequest = deferred<Response>();
+    fetchMock.mockImplementation((input: RequestInfo | URL) =>
+      String(input).includes("keyword=latest")
+        ? newRequest.promise
+        : oldRequest.promise,
+    );
+    render(<CatalogPages kind="suppliers" profile={writerProfile} />);
+    await waitForSupplierRequest(1);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "搜尋供應商" }), {
+      target: { value: "latest" },
+    });
+    await waitForSupplierRequest(2);
+
+    await act(async () => {
+      oldRequest.resolve(jsonResponse(page([supplierNamed(1, "Old Supplier")])));
+      await oldRequest.promise;
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("正在載入供應商資料");
+
+    await act(async () => {
+      newRequest.resolve(jsonResponse(page([supplierNamed(2, "Latest Supplier")])));
+      await newRequest.promise;
+    });
+    expect(await screen.findByText("Latest Supplier")).toBeInTheDocument();
+    expect(screen.queryByText("正在載入供應商資料")).not.toBeInTheDocument();
+  });
+
+  it("ignores a pending list response after unmount", async () => {
+    const pendingRequest = deferred<Response>();
+    fetchMock.mockImplementation(() => pendingRequest.promise);
+    const { unmount } = render(
+      <CatalogPages kind="suppliers" profile={writerProfile} />,
+    );
+    await waitForSupplierRequest(1);
+    unmount();
+
+    await act(async () => {
+      pendingRequest.resolve(jsonResponse(page([supplierNamed(1, "Late Supplier")])));
+      await pendingRequest.promise;
+    });
+    expect(screen.queryByText("Late Supplier")).not.toBeInTheDocument();
   });
 });

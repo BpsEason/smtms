@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -70,23 +71,24 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
   const [documentSupplier, setDocumentSupplier] = useState<Supplier | null>(null);
   const [materialOptions, setMaterialOptions] = useState<Material[]>([]);
   const [linkBusy, setLinkBusy] = useState(false);
+  const listRequestId = useRef(0);
   const canWrite = Boolean(profile?.permissions.includes("suppliers:write"));
   const load = useCallback(async () => {
+    const requestId = ++listRequestId.current;
     setLoading(true);
     setError("");
     try {
-      setData(
-        await api.listSuppliers({
-          keyword: query || undefined,
-          status: status || undefined,
-          page,
-          page_size: 20,
-        }),
-      );
+      const result = await api.listSuppliers({
+        keyword: query || undefined,
+        status: status || undefined,
+        page,
+        page_size: 20,
+      });
+      if (requestId === listRequestId.current) setData(result);
     } catch (err) {
-      setError(message(err));
+      if (requestId === listRequestId.current) setError(message(err));
     } finally {
-      setLoading(false);
+      if (requestId === listRequestId.current) setLoading(false);
     }
   }, [query, status, page]);
   useEffect(() => {
@@ -98,6 +100,9 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
     );
     return () => window.clearTimeout(timer);
   }, [load, query]);
+  useEffect(() => () => {
+    listRequestId.current += 1;
+  }, []);
   useEffect(() => {
     if (!linkingSupplier) return;
     let active = true;

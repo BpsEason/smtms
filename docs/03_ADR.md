@@ -102,7 +102,7 @@
 - **前端測試**：vitest + Testing Library + fetch mock
 - **原則**：所有測試不依賴外部服務，可獨立執行
 - **現況**：✅ 已實作
-- **實作位置**：`backend/tests/`, `frontend/src/App.test.tsx`
+- **實作位置**：`backend/tests/`, `frontend/tests/App.test.tsx`
 
 ---
 

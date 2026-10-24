@@ -44,9 +44,15 @@ frontend/
 ├── public/
 │   ├── favicon.svg
 │   └── icons.svg
+├── tests/
+│   ├── App.test.tsx
+│   └── pages/
+│       ├── AdminPage.test.tsx
+│       ├── AuditLogPage.test.tsx
+│       ├── CatalogPages.test.tsx
+│       └── NonconformancePage.test.tsx
 └── src/
   ├── App.tsx
-  ├── App.test.tsx
   ├── main.tsx
   ├── index.css
   ├── types.ts

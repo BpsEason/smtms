@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RolesPermissionsPage } from "./AdminPage";
-import type { UserProfile } from "../types";
+import { RolesPermissionsPage } from "../../src/pages/AdminPage";
+import type { UserProfile } from "../../src/types";
 
 const fetchMock = vi.fn();
 

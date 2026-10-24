@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NonconformancePage } from "./NonconformancePage";
-import type { UserProfile } from "../types";
+import { NonconformancePage } from "../../src/pages/NonconformancePage";
+import type { UserProfile } from "../../src/types";
 
 const fetchMock = vi.fn();
 const profile: UserProfile = { id: 4, username: "qa", email: null, is_active: true, roles: ["qa"], permissions: ["nonconformance:read", "nonconformance:write"] };
