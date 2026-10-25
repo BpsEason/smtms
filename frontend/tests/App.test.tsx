@@ -424,9 +424,9 @@ describe("SMTMS application", () => {
     ).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("收料單號"), "RCV-TEST-21");
     await userEvent.type(screen.getByLabelText("收料數量"), "12");
-    await userEvent.click(screen.getByRole("button", { name: "確認收料資料" }));
+    await userEvent.click(screen.getByRole("button", { name: "確認建立收料單" }));
     await userEvent.click(
-      await screen.findByRole("button", { name: "建立收料紀錄" }),
+      await screen.findByRole("button", { name: "建立收料單" }),
     );
     expect(
       await screen.findByText(/收料單 RCV-TEST-21 已建立/),
@@ -434,11 +434,10 @@ describe("SMTMS application", () => {
 
     await userEvent.type(screen.getByLabelText("內部批號"), "LOT-TEST-31");
     await userEvent.type(screen.getByLabelText(/拆分數量/), "5");
-    await userEvent.click(screen.getByRole("button", { name: "建立批號" }));
+    await userEvent.click(screen.getByRole("button", { name: "拆分批號" }));
     await userEvent.click(
-      await screen.findByRole("button", { name: "建立內部批號" }),
+      await screen.findByRole("button", { name: "確認拆分" }),
     );
-    expect((await screen.findAllByText("待檢隔離")).length).toBeGreaterThan(0);
     expect(await screen.findByText("來源與品質追溯")).toBeInTheDocument();
     expect((await screen.findAllByText("SUPLOT-13")).length).toBeGreaterThan(0);
 
@@ -450,6 +449,9 @@ describe("SMTMS application", () => {
       await screen.findByLabelText(/內部批號/),
       "31",
     );
+    expect(
+      await screen.findByText(/目前後端批號狀態：待檢隔離 · 庫存 5 kg/),
+    ).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("抽樣數量"), "1");
     await userEvent.click(screen.getByRole("button", { name: "確認檢驗資料" }));
     await userEvent.click(

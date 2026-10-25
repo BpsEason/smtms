@@ -181,7 +181,7 @@ function AppShell() {
           path="internal-lots"
           element={
             <PermissionPage profile={profile} permission="materials:read">
-              <InternalLotsPage />
+              <InternalLotsPage profile={profile} />
             </PermissionPage>
           }
         />
