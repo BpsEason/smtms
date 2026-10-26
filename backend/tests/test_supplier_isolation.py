@@ -381,7 +381,7 @@ def test_must_change_password_blocks_protected_endpoints(isolation_environment) 
 
 
 def test_change_password_only_affects_the_caller(isolation_environment) -> None:
-    client, TestSession = isolation_environment
+    client, _TestSession = isolation_environment
     headers = _headers(client, "portal-a")
     new_password = "Portal-A-New-Password-2026!"
     changed = client.post(

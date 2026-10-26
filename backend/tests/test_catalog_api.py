@@ -176,7 +176,7 @@ def catalog_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
 
 
 def test_catalog_routes_require_auth_and_permissions(catalog_environment) -> None:
-    client, TestSession = catalog_environment
+    client, _TestSession = catalog_environment
     assert client.get("/api/v1/suppliers").status_code == 401
     assert client.get("/api/v1/materials").status_code == 401
     read_headers = _headers(client, "catalog-reader", "Catalog-Test-Password-2026!")

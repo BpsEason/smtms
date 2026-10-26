@@ -84,7 +84,7 @@ def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
 
 
 def test_audit_api_requires_permission_and_returns_filtered_events(audit_environment) -> None:
-    client, sessions = audit_environment
+    client, _sessions = audit_environment
     writer = _login(client, "writer", "Writer-Test-Password!")
     denied = client.get("/api/v1/audit-logs", headers=writer)
     assert denied.status_code == 403
