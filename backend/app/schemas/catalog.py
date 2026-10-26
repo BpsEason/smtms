@@ -273,6 +273,25 @@ class SupplierLotCreate(BaseModel):
         return self
 
 
+class SupplierLotUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supplier_lot_no: str | None = Field(default=None, min_length=1, max_length=120)
+    manufacturing_date: datetime | None = None
+    expiry_date: datetime | None = None
+    qc_status: str | None = Field(default=None, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if (
+            self.manufacturing_date is not None
+            and self.expiry_date is not None
+            and self.expiry_date < self.manufacturing_date
+        ):
+            raise ValueError("Expiry date cannot be earlier than manufacturing date")
+        return self
+
+
 class ReceiptCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

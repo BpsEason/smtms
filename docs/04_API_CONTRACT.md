@@ -1,8 +1,8 @@
 # SMTMS - API Contract (API契約)
 
 ## 文件資訊
-- 版本：1.0.0
-- 最後更新：2026-10-21
+- 版本：1.0.1
+- 最後更新：2026-10-26
 - 基礎路徑：`/api/v1`
 - 相關文件：[領域規則](./02_DOMAIN_RULES.md), [目前實作狀態](./06_CURRENT_STATE.md)
 
@@ -122,6 +122,55 @@
 - **功能**：取得供應商的資格文件清單
 - **實作狀態**：✅ 已實作
 
+### GET /suppliers/{id}/documents/{document_id}
+- **權限**：`suppliers:read`
+- **功能**：取得單一供應商資格文件詳細資料
+- **實作狀態**：✅ 已實作
+
+### POST /suppliers/{id}/documents
+- **權限**：`suppliers:write`
+- **功能**：建立新供應商資格文件
+- **驗證規則**：
+  - 頒發日期(issued_at)必須早於有效期限(expires_at)
+  - 文件編號(document_no)必須唯一
+- **實作狀態**：✅ 已實作
+
+### PATCH /suppliers/{id}/documents/{document_id}
+- **權限**：`suppliers:write`
+- **功能**：更新供應商資格文件資料
+- **更新限制**：
+  - 頒發日期與有效期限仍需維持時間先後順序
+  - 可更新文件狀態、有效期限等欄位
+- **實作狀態**：✅ 已實作
+
+### DELETE /suppliers/{id}/documents/{document_id}
+- **權限**：`suppliers:write`
+- **功能**：刪除供應商資格文件及其所有附件
+- **回應**：`204 No Content`（成功刪除無返回內容）
+- **實作狀態**：✅ 已實作
+
+### GET /suppliers/{id}/documents/{document_id}/attachments
+- **權限**：`suppliers:read`
+- **功能**：取得文件的附件清單
+- **實作狀態**：✅ 已實作
+
+### POST /suppliers/{id}/documents/{document_id}/attachments
+- **權限**：`suppliers:write`
+- **功能**：上傳文件附件
+- **檔案限制**：支援常見文件格式，檔案大小受限於伺服器設定
+- **實作狀態**：✅ 已實作
+
+### GET /suppliers/{id}/documents/{document_id}/attachments/{attachment_id}/download
+- **權限**：`suppliers:read`
+- **功能**：下載附件檔案
+- **實作狀態**：✅ 已實作
+
+### DELETE /suppliers/{id}/documents/{document_id}/attachments/{attachment_id}
+- **權限**：`suppliers:write`
+- **功能**：刪除單一附件
+- **回應**：`204 No Content`
+- **實作狀態**：✅ 已實作
+
 ### POST /suppliers/{id}/materials
 - **權限**：`suppliers:write`
 - **功能**：建立供應商-物料供貨關聯
@@ -163,17 +212,44 @@
 
 ---
 
-## 供應商批次 API (供應商批次的CUD尚未實作)
+## 供應商批次 API
 
 ### GET /supplier-lots
-- **權限**：`supplier_lots:read`
-- **功能**：供應商批次清單
-- **實作狀態**：⚠️ 僅查詢已實作，建立/更新未實作
+- **權限**：`suppliers:read`
+- **功能**：供應商批次清單（支援關鍵字搜尋、狀態篩選、日期範圍篩選、分頁）
+- **實作狀態**：✅ 已實作
 
-### GET /supplier-lots/{id}
-- **權限**：`supplier_lots:read`
-- **功能**：取得單一批次詳細資料
-- **實作狀態**：⚠️ 僅查詢已實作
+### POST /supplier-lots
+- **權限**：`suppliers:write` 或 `supplier-lots:write`
+- **功能**：建立新供應商批次
+- **驗證規則**：
+  - 同一供應商+物料的批號(supplier_lot_no)必須唯一
+  - 製造日期必須早於有效期限
+  - 數量必須大於0
+- **實作狀態**：✅ 已實作
+
+### GET /supplier-lots/{supplier_lot_id}
+- **權限**：`suppliers:read`
+- **功能**：取得單一供應商批次詳細資料
+- **實作狀態**：✅ 已實作
+
+### PATCH /supplier-lots/{supplier_lot_id}
+- **權限**：`suppliers:write` 或 `supplier-lots:write`
+- **功能**：部分更新供應商批次資料
+- **更新限制**：
+  - 若已有關聯的收料單或內部批次，禁止修改數量欄位
+  - 仍可修改批號、製造日期、有效期限、品質狀態
+  - 批號修改仍需維持唯一性約束
+- **實作狀態**：✅ 已實作
+
+### DELETE /supplier-lots/{supplier_lot_id}
+- **權限**：`suppliers:write` 或 `supplier-lots:write`
+- **功能**：刪除供應商批次
+- **刪除限制**：
+  - 若存在關聯的收料單或內部批次，禁止刪除（返回409）
+  - 僅能刪除未被使用的獨立批次
+- **回應**：`204 No Content`（成功刪除無返回內容）
+- **實作狀態**：✅ 已實作
 
 ---
 
@@ -263,13 +339,76 @@
 
 ---
 
-## 未實作 API 清單
-以下API於規格中定義，但尚未實作：
-- ❌ 供應商批次建立/更新/刪除：`POST/PUT/DELETE /supplier-lots`
-- ❌ 使用者管理API：所有`/users`相關端點
-- ❌ 角色/權限管理API：所有`/roles`、`/permissions`相關端點
-- ❌ 檔案上傳下載API：`POST /upload`、`GET /files/{id}`
+## 目前未實作 API 清單
+以下API於規格中規劃，但尚未實作：
 - ❌ 追溯查詢API：`GET /trace/{lot_no}`
+- ❌ CAPA整改流程相關API
+- ❌ 報表匯出功能API
+
+---
+
+## 權限管理 API
+
+### GET /permissions
+- **權限**：`users:manage`
+- **功能**：取得系統所有可用權限清單
+- **實作狀態**：✅ 已實作
+
+### GET /roles
+- **權限**：`users:manage`
+- **功能**：取得角色清單，包含每個角色的權限與使用者數量
+- **實作狀態**：✅ 已實作
+
+### GET /roles/{role_id}
+- **權限**：`users:manage`
+- **功能**：取得單一角色詳細資料
+- **實作狀態**：✅ 已實作
+
+### POST /roles
+- **權限**：`users:manage`
+- **功能**：建立新角色
+- **實作狀態**：✅ 已實作
+
+### PATCH /roles/{role_id}
+- **權限**：`users:manage`
+- **功能**：更新角色基本資訊
+- **實作狀態**：✅ 已實作
+
+### PATCH /roles/{role_id}/permissions
+- **權限**：`users:manage`
+- **功能**：更新角色的權限指派
+- **安全限制**：不可移除最後一位管理員的管理權限
+- **實作狀態**：✅ 已實作，包含並發安全機制
+
+### DELETE /roles/{role_id}
+- **權限**：`users:manage`
+- **功能**：刪除角色
+- **安全限制**：不可刪除系統保留角色、不可移除最後一位管理員
+- **回應**：`204 No Content`
+- **實作狀態**：✅ 已實作
+
+### GET /users
+- **權限**：`users:manage`
+- **功能**：取得內部使用者清單
+- **實作狀態**：✅ 已實作
+
+### GET /users/{user_id}
+- **權限**：`users:manage`
+- **功能**：取得單一使用者詳細資料與其角色
+- **實作狀態**：✅ 已實作
+
+### POST /users
+- **權限**：`users:manage`
+- **功能**：建立新內部使用者
+- **實作狀態**：✅ 已實作
+
+### PATCH /users/{user_id}/roles
+- **權限**：`users:manage`
+- **功能**：更新使用者的角色指派
+- **安全限制**：不可移除最後一位管理員的管理權限
+- **實作狀態**：✅ 已實作，包含MySQL advisory lock並發控制
+
+---
 
 ## 稽核紀錄 API
 

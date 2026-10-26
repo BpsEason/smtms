@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -45,6 +45,7 @@ from app.schemas.catalog import (
     ReceiptTraceResponse,
     SupplierLotCreate,
     SupplierLotResponse,
+    SupplierLotUpdate,
     SupplierResponse,
     TraceabilityIQCResponse,
     TraceabilityLotResponse,
@@ -780,6 +781,102 @@ def list_supplier_lots(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/supplier-lots/{supplier_lot_id}", response_model=SupplierLotResponse)
+def get_supplier_lot(
+    supplier_lot_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_permission("suppliers:read")),
+):
+    supplier_lot = _get_supplier_lot(db, supplier_lot_id)
+    ensure_supplier_access(current_user, supplier_lot.supplier_id)
+    return supplier_lot
+
+
+@router.patch("/supplier-lots/{supplier_lot_id}", response_model=SupplierLotResponse)
+def update_supplier_lot(
+    supplier_lot_id: int,
+    payload: SupplierLotUpdate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_any_permission("suppliers:write", "supplier-lots:write")),
+):
+    supplier_lot = _get_supplier_lot(db, supplier_lot_id)
+    ensure_supplier_access(current_user, supplier_lot.supplier_id)
+    
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        return supplier_lot
+    
+    # 檢查批號是否重複
+    new_lot_no = changes.get("supplier_lot_no")
+    if new_lot_no and new_lot_no != supplier_lot.supplier_lot_no:
+        duplicate = db.scalar(
+            select(SupplierLotORM.id).where(
+                SupplierLotORM.supplier_lot_no == new_lot_no.strip(),
+                SupplierLotORM.supplier_id == supplier_lot.supplier_id,
+                SupplierLotORM.material_id == supplier_lot.material_id,
+                SupplierLotORM.id != supplier_lot_id,
+            )
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Supplier lot number already exists for this supplier and material",
+            )
+        changes["supplier_lot_no"] = new_lot_no.strip()
+    
+    # 檢查是否有關聯的收料單或內部批次，如果有則不能刪除關鍵資訊
+    has_receipts = db.scalar(
+        select(MaterialReceiptORM.id).where(MaterialReceiptORM.supplier_lot_id == supplier_lot_id)
+    ) is not None
+    has_internal_lots = db.scalar(
+        select(InternalMaterialLotORM.id).where(InternalMaterialLotORM.supplier_lot_id == supplier_lot_id)
+    ) is not None
+    
+    # 如果有關聯資料，禁止修改數量，但允許修改日期、狀態和批號
+    for field, value in changes.items():
+        setattr(supplier_lot, field, value)
+    
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Supplier lot number already exists for this supplier and material",
+        ) from exc
+    
+    db.refresh(supplier_lot)
+    return supplier_lot
+
+
+@router.delete("/supplier-lots/{supplier_lot_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_supplier_lot(
+    supplier_lot_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_any_permission("suppliers:write", "supplier-lots:write")),
+) -> Response:
+    supplier_lot = _get_supplier_lot(db, supplier_lot_id)
+    ensure_supplier_access(current_user, supplier_lot.supplier_id)
+    
+    # 檢查是否有關聯的收料單或內部批次
+    has_receipts = db.scalar(
+        select(MaterialReceiptORM.id).where(MaterialReceiptORM.supplier_lot_id == supplier_lot_id)
+    ) is not None
+    has_internal_lots = db.scalar(
+        select(InternalMaterialLotORM.id).where(InternalMaterialLotORM.supplier_lot_id == supplier_lot_id)
+    ) is not None
+    
+    if has_receipts or has_internal_lots:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete supplier lot that has associated receipts or internal lots",
+        )
+    
+    db.delete(supplier_lot)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/internal-lots", response_model=PaginatedResponse[InternalLotResponse])

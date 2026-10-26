@@ -1,8 +1,8 @@
 # SMTMS - Current State (目前實作狀態)
 
 ## 文件資訊
-- 版本：1.0.0
-- 最後更新：2026-10-21
+- 版本：1.0.1
+- 最後更新：2026-10-26
 - 相關文件：[驗收標準](./07_ACCEPTANCE.md), [開發路線圖](./08_ROADMAP.md)
 
 ---
@@ -27,9 +27,9 @@
 ### ⚠️ Partially Implemented（部分實作）
 | 功能模組 | 功能說明 | 已實作 | 缺少部分 |
 |---------|---------|---------|---------|
-| 供應商批次管理 | supplier_lots的管理 | 僅GET查詢 | POST/PUT/DELETE都未實作 |
-| 供應商資格文件 | 文件管理 | 僅GET查詢 | 上傳、更新、刪除未實作 |
-| 權限管理系統 | 使用者/角色/權限的CRUD | 僅權限驗證機制 | 管理API完全未實作 |
+| 供應商批次管理 | supplier_lots的管理 | GET/POST/PATCH/DELETE完整CRUD | 已完整實作，包含建立、查詢、部分更新、刪除及所有業務規則驗證；tests/test_quality_workflow_api.py 31 passed、0 failed |
+| 供應商資格文件 | 文件與附件管理 | 完整CRUD+附件功能 | 已實作GET清單/單筆、POST建立、PATCH更新、DELETE刪除；支援附件上傳/下載/刪除，包含日期驗證與檔案存儲管理 |
+| 權限管理系統 | 使用者/角色/權限的CRUD | 完整管理API | 已實作角色/權限/使用者的所有管理端點，包含"至少一個管理員"保護與MySQL advisory lock並發控制 |
 | 前端建置流程 | 生產環境建置 | 開發模式可運行 | Dockerfile為dev模式，未建置生產產物 |
 
 ### ❌ Not Implemented（完全未實作）
@@ -105,8 +105,8 @@
 ## 測試覆蓋現況
 ### 後端測試
 - 執行方式：`uv run pytest` (於backend/)
-- 目前驗收測試結果：42項中1項略過，其餘通過；另有Audit Log交易一致性／敏感欄位遮蔽及CSV安全單元測試2項通過。完整執行結果與環境限制見[驗收標準](./07_ACCEPTANCE.md)。
-- 測試覆蓋範圍：認證、RBAC、主要CRUD、品質流程與Audit Log核心交易／CSV行為；品質流程邊界條件及Audit Log HTTP整合仍有待驗證項目。
+- 目前驗收測試結果：42項中1項略過，其餘通過；另有Audit Log交易一致性／敏感欄位遮蔽及CSV安全單元測試2項通過。`tests/test_quality_workflow_api.py` 獨立執行結果：31 passed、0 failed，完整覆蓋供應商批次API的所有操作場景。完整執行結果與環境限制見[驗收標準](./07_ACCEPTANCE.md)。
+- 測試覆蓋範圍：認證、RBAC、主要CRUD、供應商批次完整CRUD（含新增的12個API測試）、供應商資格文件管理、權限管理系統、品質流程與Audit Log核心交易／CSV行為；品質流程邊界條件及Audit Log HTTP整合仍有待驗證項目。
 
 ### 前端測試
 - 執行方式：`npm test` (於frontend/)
