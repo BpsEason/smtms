@@ -47,6 +47,7 @@ exclude = [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "C4", "RUF"]
+ignore = ["RUF012"]
 allowed-confusables = ["，", "。", "！", "？", "：", "；", "「", "」", "『", "』", "（", "）", "【", "】", "／"]
 
 [tool.ruff.format]
