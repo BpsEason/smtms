@@ -292,12 +292,15 @@ def test_seed_administrator_has_every_seeded_permission(seed_session: Session) -
     assert granted == expected
     admin_user = seed_session.scalar(select(UserORM).where(UserORM.username == "seed_admin"))
     assert admin_user is not None
-    assert seed_session.scalar(
-        select(UserRoleORM.id).where(
-            UserRoleORM.user_id == admin_user.id,
-            UserRoleORM.role_id == admin_role.id,
+    assert (
+        seed_session.scalar(
+            select(UserRoleORM.id).where(
+                UserRoleORM.user_id == admin_user.id,
+                UserRoleORM.role_id == admin_role.id,
+            )
         )
-    ) is not None
+        is not None
+    )
 
 
 def test_supplier_accounts_link_to_supplier_with_portal_role(seed_session: Session) -> None:

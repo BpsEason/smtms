@@ -42,10 +42,16 @@ include = ["app", "tests", "README.md", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100
-src = ["app"]
+src = ["app", "tests"]
+exclude = [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "W", "C4", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

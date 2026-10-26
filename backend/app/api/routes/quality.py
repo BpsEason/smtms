@@ -805,11 +805,11 @@ def update_supplier_lot(
 ):
     supplier_lot = _get_supplier_lot(db, supplier_lot_id)
     ensure_supplier_access(current_user, supplier_lot.supplier_id)
-    
+
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         return supplier_lot
-    
+
     # 檢查批號是否重複
     new_lot_no = changes.get("supplier_lot_no")
     if new_lot_no and new_lot_no != supplier_lot.supplier_lot_no:
@@ -827,19 +827,25 @@ def update_supplier_lot(
                 detail="Supplier lot number already exists for this supplier and material",
             )
         changes["supplier_lot_no"] = new_lot_no.strip()
-    
+
     # 檢查是否有關聯的收料單或內部批次，如果有則不能刪除關鍵資訊
-    has_receipts = db.scalar(
-        select(MaterialReceiptORM.id).where(
-            MaterialReceiptORM.supplier_lot_id == supplier_lot_id
+    has_receipts = (
+        db.scalar(
+            select(MaterialReceiptORM.id).where(
+                MaterialReceiptORM.supplier_lot_id == supplier_lot_id
+            )
         )
-    ) is not None
-    has_internal_lots = db.scalar(
-        select(InternalMaterialLotORM.id).where(
-            InternalMaterialLotORM.supplier_lot_id == supplier_lot_id
+        is not None
+    )
+    has_internal_lots = (
+        db.scalar(
+            select(InternalMaterialLotORM.id).where(
+                InternalMaterialLotORM.supplier_lot_id == supplier_lot_id
+            )
         )
-    ) is not None
-    
+        is not None
+    )
+
     # 如果有關聯資料，禁止修改數量，但允許修改日期、狀態和批號
     if has_receipts or has_internal_lots:
         # 禁止修改數量相關欄位
@@ -847,16 +853,16 @@ def update_supplier_lot(
         for field in list(changes.keys()):
             if field in forbidden_fields:
                 raise HTTPException(
-                     status_code=status.HTTP_409_CONFLICT,
-                     detail=(
-                         "Cannot modify quantity fields for supplier lot with "
-                         "associated receipts or internal lots"
-                     ),
-                 )
-    
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Cannot modify quantity fields for supplier lot with "
+                        "associated receipts or internal lots"
+                    ),
+                )
+
     for field, value in changes.items():
         setattr(supplier_lot, field, value)
-    
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -865,7 +871,7 @@ def update_supplier_lot(
             status_code=status.HTTP_409_CONFLICT,
             detail="Supplier lot number already exists for this supplier and material",
         ) from exc
-    
+
     db.refresh(supplier_lot)
     return supplier_lot
 
@@ -884,25 +890,31 @@ def delete_supplier_lot(
 ) -> Response:
     supplier_lot = _get_supplier_lot(db, supplier_lot_id)
     ensure_supplier_access(current_user, supplier_lot.supplier_id)
-    
+
     # 檢查是否有關聯的收料單或內部批次
-    has_receipts = db.scalar(
-        select(MaterialReceiptORM.id).where(
-            MaterialReceiptORM.supplier_lot_id == supplier_lot_id
+    has_receipts = (
+        db.scalar(
+            select(MaterialReceiptORM.id).where(
+                MaterialReceiptORM.supplier_lot_id == supplier_lot_id
+            )
         )
-    ) is not None
-    has_internal_lots = db.scalar(
-        select(InternalMaterialLotORM.id).where(
-            InternalMaterialLotORM.supplier_lot_id == supplier_lot_id
+        is not None
+    )
+    has_internal_lots = (
+        db.scalar(
+            select(InternalMaterialLotORM.id).where(
+                InternalMaterialLotORM.supplier_lot_id == supplier_lot_id
+            )
         )
-    ) is not None
-    
+        is not None
+    )
+
     if has_receipts or has_internal_lots:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete supplier lot that has associated receipts or internal lots",
         )
-    
+
     db.delete(supplier_lot)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

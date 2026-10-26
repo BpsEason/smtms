@@ -250,9 +250,7 @@ def validate_supplier_rows(db: Session, parsed: ParsedWorkbook) -> ValidationOut
         supplier.supplier_code: supplier for supplier in db.scalars(select(SupplierORM)).all()
     }
     existing_tax_ids = {
-        supplier.tax_id: supplier
-        for supplier in existing_suppliers.values()
-        if supplier.tax_id
+        supplier.tax_id: supplier for supplier in existing_suppliers.values() if supplier.tax_id
     }
     existing_usernames = {user.username for user in db.scalars(select(UserORM)).all()}
     linked_usernames = {

@@ -131,9 +131,7 @@ def _management_grants(db: Session) -> set[int]:
     """Ids of active internal users that currently hold ``users:manage``."""
     rows = cast(Sequence[tuple[int, str]], db.execute(_management_grants_statement()).all())
     return {
-        user_id
-        for user_id, code in rows
-        if normalize_permission_code(code) == MANAGE_PERMISSION
+        user_id for user_id, code in rows if normalize_permission_code(code) == MANAGE_PERMISSION
     }
 
 
@@ -383,11 +381,7 @@ def create_internal_user(
         )
 
     role_ids = set(payload.role_ids)
-    roles = (
-        db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all()
-        if role_ids
-        else []
-    )
+    roles = db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all() if role_ids else []
     if len(roles) != len(role_ids):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     if any(role.name == SUPPLIER_ROLE_NAME for role in roles):
@@ -436,11 +430,7 @@ def set_user_roles(
         )
 
     role_ids = set(payload.role_ids)
-    roles = (
-        db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all()
-        if role_ids
-        else []
-    )
+    roles = db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all() if role_ids else []
     if len(roles) != len(role_ids):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     if any(role.name == SUPPLIER_ROLE_NAME for role in roles):

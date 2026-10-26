@@ -70,9 +70,7 @@ def create_material(
     db: Session = Depends(get_db),
     _user: AuthenticatedUser = Depends(require_permission("materials:write")),
 ):
-    if db.scalar(
-        select(MaterialORM.id).where(MaterialORM.material_code == payload.material_code)
-    ):
+    if db.scalar(select(MaterialORM.id).where(MaterialORM.material_code == payload.material_code)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Material code already exists",

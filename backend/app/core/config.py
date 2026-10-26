@@ -65,13 +65,15 @@ class Settings(BaseSettings):
             return [item.strip() for item in parsed.split(",") if item.strip()]
         return value
 
+
 @lru_cache
 def get_settings() -> Settings:
     import os
+
     # 根據系統環境變數 APP_ENV 選擇要載入的環境檔案
     app_env = os.getenv("APP_ENV", "development")
     env_file = ".env.test" if app_env == "test" else ".env"
-    
+
     settings_factory = cast(
         Callable[[], Settings],
         type(

@@ -63,8 +63,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE `users` COMMENT = '使用者基本資料'")
     op.execute("ALTER TABLE `users` MODIFY COLUMN `id` INT NOT NULL COMMENT '使用者主鍵編號'")
     op.execute(
-        "ALTER TABLE `users` MODIFY COLUMN `username` VARCHAR(80) NOT NULL "
-        "COMMENT '登入帳號'"
+        "ALTER TABLE `users` MODIFY COLUMN `username` VARCHAR(80) NOT NULL COMMENT '登入帳號'"
     )
     op.execute("ALTER TABLE `users` MODIFY COLUMN `email` VARCHAR(255) NULL COMMENT '聯絡信箱'")
     op.execute(
@@ -90,8 +89,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE `roles` MODIFY COLUMN `id` INT NOT NULL COMMENT '角色主鍵編號'")
     op.execute("ALTER TABLE `roles` MODIFY COLUMN `name` VARCHAR(80) NOT NULL COMMENT '角色名稱'")
     op.execute(
-        "ALTER TABLE `roles` MODIFY COLUMN `description` VARCHAR(255) NULL "
-        "COMMENT '角色說明'"
+        "ALTER TABLE `roles` MODIFY COLUMN `description` VARCHAR(255) NULL COMMENT '角色說明'"
     )
     op.execute(
         "ALTER TABLE `roles` MODIFY COLUMN `created_at` DATETIME NOT NULL DEFAULT "
@@ -105,16 +103,13 @@ def upgrade() -> None:
     op.execute("ALTER TABLE `permissions` COMMENT = '權限項目定義'")
     op.execute("ALTER TABLE `permissions` MODIFY COLUMN `id` INT NOT NULL COMMENT '權限主鍵編號'")
     op.execute(
-        "ALTER TABLE `permissions` MODIFY COLUMN `code` VARCHAR(80) NOT "
-        "NULL COMMENT '權限代碼'"
+        "ALTER TABLE `permissions` MODIFY COLUMN `code` VARCHAR(80) NOT NULL COMMENT '權限代碼'"
     )
     op.execute(
-        "ALTER TABLE `permissions` MODIFY COLUMN `name` VARCHAR(120) NOT "
-        "NULL COMMENT '權限名稱'"
+        "ALTER TABLE `permissions` MODIFY COLUMN `name` VARCHAR(120) NOT NULL COMMENT '權限名稱'"
     )
     op.execute(
-        "ALTER TABLE `permissions` MODIFY COLUMN `description` "
-        "VARCHAR(255) NULL COMMENT '權限說明'"
+        "ALTER TABLE `permissions` MODIFY COLUMN `description` VARCHAR(255) NULL COMMENT '權限說明'"
     )
     op.execute(
         "ALTER TABLE `permissions` MODIFY COLUMN `created_at` DATETIME NOT "
@@ -139,12 +134,10 @@ def upgrade() -> None:
 
     op.execute("ALTER TABLE `role_permissions` COMMENT = '角色權限對應表'")
     op.execute(
-        "ALTER TABLE `role_permissions` MODIFY COLUMN `id` INT NOT NULL "
-        "COMMENT '對應紀錄主鍵'"
+        "ALTER TABLE `role_permissions` MODIFY COLUMN `id` INT NOT NULL COMMENT '對應紀錄主鍵'"
     )
     op.execute(
-        "ALTER TABLE `role_permissions` MODIFY COLUMN `role_id` INT NOT "
-        "NULL COMMENT '角色主鍵'"
+        "ALTER TABLE `role_permissions` MODIFY COLUMN `role_id` INT NOT NULL COMMENT '角色主鍵'"
     )
     op.execute(
         "ALTER TABLE `role_permissions` MODIFY COLUMN `permission_id` INT "
@@ -179,12 +172,10 @@ def upgrade() -> None:
         "'active' COMMENT '供應商狀態'"
     )
     op.execute(
-        "ALTER TABLE `suppliers` MODIFY COLUMN `address` VARCHAR(255) NULL "
-        "COMMENT '供應商地址'"
+        "ALTER TABLE `suppliers` MODIFY COLUMN `address` VARCHAR(255) NULL COMMENT '供應商地址'"
     )
     op.execute(
-        "ALTER TABLE `suppliers` MODIFY COLUMN `country` VARCHAR(80) NULL "
-        "COMMENT '供應商所在國家'"
+        "ALTER TABLE `suppliers` MODIFY COLUMN `country` VARCHAR(80) NULL COMMENT '供應商所在國家'"
     )
     op.execute(
         "ALTER TABLE `suppliers` MODIFY COLUMN `created_at` DATETIME NOT "
@@ -267,8 +258,7 @@ def upgrade() -> None:
     )
     op.execute("ALTER TABLE `materials` MODIFY COLUMN `spec` VARCHAR(255) NULL COMMENT '規格說明'")
     op.execute(
-        "ALTER TABLE `materials` MODIFY COLUMN `uom` VARCHAR(30) NOT NULL "
-        "COMMENT '計量單位'"
+        "ALTER TABLE `materials` MODIFY COLUMN `uom` VARCHAR(30) NOT NULL COMMENT '計量單位'"
     )
     op.execute(
         "ALTER TABLE `materials` MODIFY COLUMN `status` VARCHAR(20) NOT "
@@ -288,8 +278,7 @@ def upgrade() -> None:
 
     op.execute("ALTER TABLE `supplier_materials` COMMENT = '供應商原物料對應表'")
     op.execute(
-        "ALTER TABLE `supplier_materials` MODIFY COLUMN `id` INT NOT NULL "
-        "COMMENT '對應紀錄主鍵'"
+        "ALTER TABLE `supplier_materials` MODIFY COLUMN `id` INT NOT NULL COMMENT '對應紀錄主鍵'"
     )
     op.execute(
         "ALTER TABLE `supplier_materials` MODIFY COLUMN `supplier_id` INT "
@@ -317,12 +306,10 @@ def upgrade() -> None:
     op.execute("ALTER TABLE `supplier_lots` COMMENT = '供應商批次資料'")
     op.execute("ALTER TABLE `supplier_lots` MODIFY COLUMN `id` INT NOT NULL COMMENT '批次主鍵'")
     op.execute(
-        "ALTER TABLE `supplier_lots` MODIFY COLUMN `supplier_id` INT NOT "
-        "NULL COMMENT '供應商主鍵'"
+        "ALTER TABLE `supplier_lots` MODIFY COLUMN `supplier_id` INT NOT NULL COMMENT '供應商主鍵'"
     )
     op.execute(
-        "ALTER TABLE `supplier_lots` MODIFY COLUMN `material_id` INT NOT "
-        "NULL COMMENT '原物料主鍵'"
+        "ALTER TABLE `supplier_lots` MODIFY COLUMN `material_id` INT NOT NULL COMMENT '原物料主鍵'"
     )
     op.execute(
         "ALTER TABLE `supplier_lots` MODIFY COLUMN `supplier_lot_no` "
@@ -335,8 +322,7 @@ def upgrade() -> None:
         "COMMENT '製造日期'"
     )
     op.execute(
-        "ALTER TABLE `supplier_lots` MODIFY COLUMN `expiry_date` DATETIME "
-        "NULL COMMENT '有效日期'"
+        "ALTER TABLE `supplier_lots` MODIFY COLUMN `expiry_date` DATETIME NULL COMMENT '有效日期'"
     )
     op.execute(
         "ALTER TABLE `supplier_lots` MODIFY COLUMN `qty_received` "
@@ -360,8 +346,7 @@ def upgrade() -> None:
 
     op.execute("ALTER TABLE `material_receipts` COMMENT = '原物料收料紀錄'")
     op.execute(
-        "ALTER TABLE `material_receipts` MODIFY COLUMN `id` INT NOT NULL "
-        "COMMENT '收料紀錄主鍵'"
+        "ALTER TABLE `material_receipts` MODIFY COLUMN `id` INT NOT NULL COMMENT '收料紀錄主鍵'"
     )
     op.execute(
         "ALTER TABLE `material_receipts` MODIFY COLUMN `supplier_id` INT "
@@ -407,8 +392,7 @@ def upgrade() -> None:
         "DEFAULT 'received' COMMENT '收料狀態'"
     )
     op.execute(
-        "ALTER TABLE `material_receipts` MODIFY COLUMN `notes` "
-        "VARCHAR(500) NULL COMMENT '收料備註'"
+        "ALTER TABLE `material_receipts` MODIFY COLUMN `notes` VARCHAR(500) NULL COMMENT '收料備註'"
     )
     op.execute(
         "ALTER TABLE `material_receipts` MODIFY COLUMN `created_at` "
@@ -475,8 +459,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE `iqc_records` COMMENT = '來料檢驗紀錄'")
     op.execute("ALTER TABLE `iqc_records` MODIFY COLUMN `id` INT NOT NULL COMMENT '檢驗紀錄主鍵'")
     op.execute(
-        "ALTER TABLE `iqc_records` MODIFY COLUMN `receipt_id` INT NULL "
-        "COMMENT '關聯收料紀錄主鍵'"
+        "ALTER TABLE `iqc_records` MODIFY COLUMN `receipt_id` INT NULL COMMENT '關聯收料紀錄主鍵'"
     )
     op.execute(
         "ALTER TABLE `iqc_records` MODIFY COLUMN `internal_lot_id` INT "
@@ -497,8 +480,7 @@ def upgrade() -> None:
         "DEFAULT 'pending' COMMENT '檢驗結果'"
     )
     op.execute(
-        "ALTER TABLE `iqc_records` MODIFY COLUMN `inspection_date` "
-        "DATETIME NULL COMMENT '檢驗日期'"
+        "ALTER TABLE `iqc_records` MODIFY COLUMN `inspection_date` DATETIME NULL COMMENT '檢驗日期'"
     )
     op.execute(
         "ALTER TABLE `iqc_records` MODIFY COLUMN `release_status` "
@@ -506,8 +488,7 @@ def upgrade() -> None:
         "DEFAULT 'hold' COMMENT '放行狀態'"
     )
     op.execute(
-        "ALTER TABLE `iqc_records` MODIFY COLUMN `remarks` VARCHAR(500) "
-        "NULL COMMENT '檢驗備註'"
+        "ALTER TABLE `iqc_records` MODIFY COLUMN `remarks` VARCHAR(500) NULL COMMENT '檢驗備註'"
     )
     op.execute(
         "ALTER TABLE `iqc_records` MODIFY COLUMN `created_at` DATETIME NOT "

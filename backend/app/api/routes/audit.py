@@ -55,9 +55,7 @@ def _csv_cell(value: object) -> str:
     return text
 
 
-def _audit_csv(
-    db: Session, statement: Select[AuditLogORM, str]
-) -> Iterator[str]:
+def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str]:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"])

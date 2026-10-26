@@ -900,7 +900,7 @@ def test_iqc_review_approval_records_history_and_blocks_resign(quality_environme
 def test_get_supplier_lot_returns_correct_data(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 先建立一個測試供應商批次
     create_response = client.post(
         "/api/v1/supplier-lots",
@@ -916,7 +916,7 @@ def test_get_supplier_lot_returns_correct_data(quality_environment) -> None:
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 測試有效ID查詢
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert get_response.status_code == 200
@@ -931,7 +931,7 @@ def test_get_supplier_lot_returns_correct_data(quality_environment) -> None:
 def test_get_supplier_lot_missing_id_returns_404(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 測試不存在的ID
     response = client.get("/api/v1/supplier-lots/999999", headers=headers)
     assert response.status_code == 404
@@ -951,14 +951,16 @@ def test_get_supplier_lot_unauthorized_returns_403(quality_environment) -> None:
         limited_role = RoleORM(name="limited-role")
         session.add_all([limited_user, limited_role])
         session.flush()
-        session.add_all([
-            UserRoleORM(user_id=limited_user.id, role_id=limited_role.id),
-        ])
-    
+        session.add_all(
+            [
+                UserRoleORM(user_id=limited_user.id, role_id=limited_role.id),
+            ]
+        )
+
     # 未登入直接存取
     response = client.get("/api/v1/supplier-lots/1")
     assert response.status_code == 401
-    
+
     # 使用有限權限的使用者登入
     limited_headers = _headers(client, "limited-user", "Quality-Test-Password-2026!")
     response = client.get("/api/v1/supplier-lots/1", headers=limited_headers)
@@ -968,23 +970,23 @@ def test_get_supplier_lot_unauthorized_returns_403(quality_environment) -> None:
 def test_patch_supplier_lot_partial_update_preserves_other_fields(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 先建立一個測試供應商批次
     create_response = client.post(
         "/api/v1/supplier-lots",
         json={
-                "supplier_id": 1,
-                "material_id": 1,
-                "supplier_lot_no": "LOT-PATCH-ORIGINAL",
-                "qty_received": "50.0000",
-                "manufacturing_date": "2026-02-01T00:00:00Z",
-                "expiry_date": "2027-02-01T00:00:00Z",
-            },
+            "supplier_id": 1,
+            "material_id": 1,
+            "supplier_lot_no": "LOT-PATCH-ORIGINAL",
+            "qty_received": "50.0000",
+            "manufacturing_date": "2026-02-01T00:00:00Z",
+            "expiry_date": "2027-02-01T00:00:00Z",
+        },
         headers=headers,
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 只更新部分欄位
     patch_response = client.patch(
         f"/api/v1/supplier-lots/{lot_id}",
@@ -995,7 +997,7 @@ def test_patch_supplier_lot_partial_update_preserves_other_fields(quality_enviro
         headers=headers,
     )
     assert patch_response.status_code == 200
-    
+
     # 驗證更新的欄位正確，未更新的欄位保持不變
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert get_response.json()["qc_status"] == "inspected"
@@ -1009,7 +1011,7 @@ def test_patch_supplier_lot_partial_update_preserves_other_fields(quality_enviro
 def test_patch_supplier_lot_duplicate_lot_no_rejected(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 建立第一個批次
     create1 = client.post(
         "/api/v1/supplier-lots",
@@ -1022,7 +1024,7 @@ def test_patch_supplier_lot_duplicate_lot_no_rejected(quality_environment) -> No
         headers=headers,
     )
     assert create1.status_code == 201
-    
+
     # 建立第二個批次
     create2 = client.post(
         "/api/v1/supplier-lots",
@@ -1036,7 +1038,7 @@ def test_patch_supplier_lot_duplicate_lot_no_rejected(quality_environment) -> No
     )
     assert create2.status_code == 201
     lot2_id = create2.json()["id"]
-    
+
     # 嘗試將第二個批次的批號更新為與第一個相同，應該被拒絕
     patch_response = client.patch(
         f"/api/v1/supplier-lots/{lot2_id}",
@@ -1050,7 +1052,7 @@ def test_patch_supplier_lot_duplicate_lot_no_rejected(quality_environment) -> No
 def test_patch_supplier_lot_expiry_before_manufacturing_rejected(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 建立測試批次
     create_response = client.post(
         "/api/v1/supplier-lots",
@@ -1064,7 +1066,7 @@ def test_patch_supplier_lot_expiry_before_manufacturing_rejected(quality_environ
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 嘗試設定有效期早於製造日期，應該被Pydantic驗證拒絕
     patch_response = client.patch(
         f"/api/v1/supplier-lots/{lot_id}",
@@ -1080,7 +1082,7 @@ def test_patch_supplier_lot_expiry_before_manufacturing_rejected(quality_environ
 def test_patch_supplier_lot_missing_id_returns_404(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 測試更新不存在的批次
     patch_response = client.patch(
         "/api/v1/supplier-lots/999999",
@@ -1091,9 +1093,9 @@ def test_patch_supplier_lot_missing_id_returns_404(quality_environment) -> None:
 
 
 def test_delete_supplier_lot_success_returns_204(quality_environment) -> None:
-    client, TestSession = quality_environment
+    client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 建立一個沒有關聯資料的批次
     create_response = client.post(
         "/api/v1/supplier-lots",
@@ -1107,12 +1109,12 @@ def test_delete_supplier_lot_success_returns_204(quality_environment) -> None:
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 刪除它
     delete_response = client.delete(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert delete_response.status_code == 204
     assert delete_response.text == ""  # 沒有回應主體
-    
+
     # 驗證已被刪除
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert get_response.status_code == 404
@@ -1121,7 +1123,7 @@ def test_delete_supplier_lot_success_returns_204(quality_environment) -> None:
 def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environment) -> None:
     client, TestSession = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 建立一個批次
     create_response = client.post(
         "/api/v1/supplier-lots",
@@ -1135,7 +1137,7 @@ def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environme
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 建立一個關聯的收料單
     with TestSession.begin() as session:
         receipt = MaterialReceiptORM(
@@ -1148,7 +1150,7 @@ def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environme
             qty_remaining=5,
         )
         session.add(receipt)
-    
+
     # 嘗試刪除，應該被拒絕
     delete_response = client.delete(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert delete_response.status_code == 409
@@ -1156,7 +1158,7 @@ def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environme
         "Cannot delete supplier lot that has associated receipts or internal lots"
         in delete_response.json()["detail"]
     )
-    
+
     # 驗證批次仍然存在
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert get_response.status_code == 200
@@ -1165,7 +1167,7 @@ def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environme
 def test_delete_supplier_lot_with_associated_internal_lots_rejected(quality_environment) -> None:
     client, TestSession = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 建立一個批次
     create_response = client.post(
         "/api/v1/supplier-lots",
@@ -1179,7 +1181,7 @@ def test_delete_supplier_lot_with_associated_internal_lots_rejected(quality_envi
     )
     assert create_response.status_code == 201
     lot_id = create_response.json()["id"]
-    
+
     # 建立一個關聯的內部批次
     with TestSession.begin() as session:
         internal_lot = InternalMaterialLotORM(
@@ -1192,11 +1194,11 @@ def test_delete_supplier_lot_with_associated_internal_lots_rejected(quality_envi
             lot_status="available",
         )
         session.add(internal_lot)
-    
+
     # 嘗試刪除，應該被拒絕
     delete_response = client.delete(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert delete_response.status_code == 409
-    
+
     # 驗證批次仍然存在
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert get_response.status_code == 200
@@ -1205,7 +1207,7 @@ def test_delete_supplier_lot_with_associated_internal_lots_rejected(quality_envi
 def test_delete_supplier_lot_missing_id_returns_404(quality_environment) -> None:
     client, _ = quality_environment
     headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
-    
+
     # 嘗試刪除不存在的批次
     delete_response = client.delete("/api/v1/supplier-lots/999999", headers=headers)
     assert delete_response.status_code == 404
@@ -1225,7 +1227,7 @@ def test_delete_supplier_lot_unauthorized_returns_403(quality_environment) -> No
         session.add_all([limited_user, limited_role])
         session.flush()
         session.add(UserRoleORM(user_id=limited_user.id, role_id=limited_role.id))
-    
+
     # 未登入直接刪除
     response = client.delete("/api/v1/supplier-lots/1")
     assert response.status_code == 401

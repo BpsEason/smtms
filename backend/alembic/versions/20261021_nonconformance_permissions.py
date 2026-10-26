@@ -61,17 +61,13 @@ def upgrade() -> None:
             ).first()
             if exists is None:
                 connection.execute(
-                    sa.insert(role_permissions).values(
-                        role_id=role_id, permission_id=permission_id
-                    )
+                    sa.insert(role_permissions).values(role_id=role_id, permission_id=permission_id)
                 )
 
 
 def downgrade() -> None:
     connection = op.get_bind()
-    permissions = sa.table(
-        "permissions", sa.column("id", sa.Integer), sa.column("code", sa.String)
-    )
+    permissions = sa.table("permissions", sa.column("id", sa.Integer), sa.column("code", sa.String))
     role_permissions = sa.table(
         "role_permissions",
         sa.column("role_id", sa.Integer),
@@ -84,6 +80,4 @@ def downgrade() -> None:
         sa.delete(role_permissions).where(role_permissions.c.permission_id.in_(permission_ids))
     )
     permission_codes = [code for code, _ in PERMISSIONS]
-    connection.execute(
-        sa.delete(permissions).where(permissions.c.code.in_(permission_codes))
-    )
+    connection.execute(sa.delete(permissions).where(permissions.c.code.in_(permission_codes)))

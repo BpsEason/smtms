@@ -209,8 +209,7 @@ def require_permission(*required_permissions: str):
     ) -> AuthenticatedUser:
         _ensure_password_changed(current_user)
         granted_permissions = {
-            normalize_permission_code(permission)
-            for permission in current_user.permissions
+            normalize_permission_code(permission) for permission in current_user.permissions
         }
         missing = set(required_permissions) - granted_permissions
         if missing:
@@ -229,8 +228,7 @@ def require_any_permission(*required_permissions: str):
     ) -> AuthenticatedUser:
         _ensure_password_changed(current_user)
         granted_permissions = {
-            normalize_permission_code(permission)
-            for permission in current_user.permissions
+            normalize_permission_code(permission) for permission in current_user.permissions
         }
         if not set(required_permissions).intersection(granted_permissions):
             raise HTTPException(

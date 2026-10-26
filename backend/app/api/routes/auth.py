@@ -113,4 +113,4 @@ def change_password(
 
 
 # Shared dependencies are imported here for discoverability by downstream API modules.
-__all__ = ["router", "require_permission", "require_role"]
+__all__ = ["require_permission", "require_role", "router"]
