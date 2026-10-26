@@ -7,8 +7,8 @@ import {
   getErrorMessage,
   localDateTimeNow,
 } from "../../lib/data";
+import { Button } from "@/components/shadcn/button";
 import {
-  buttonClass,
   ConfirmDialog,
   DataTable,
   EmptyState,
@@ -18,7 +18,6 @@ import {
   LoadingState,
   PageHeader,
   Panel,
-  secondaryButtonClass,
   StatusBadge,
   SuccessMessage,
   TableBody,
@@ -314,7 +313,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         eyebrow="進料管理"
         title="收料紀錄"
         description="檢視收料日期、供應商批號與 IQC 進度；收料登錄依既有供應商批號進行。"
-        action={canWrite ? <button className={buttonClass} onClick={() => setShowReceiptForm((value) => !value)}>{showReceiptForm ? "關閉新增表單" : "新增收料紀錄"}</button> : undefined}
+        action={canWrite ? <Button variant="default" onClick={() => setShowReceiptForm((value) => !value)}>{showReceiptForm ? "關閉新增表單" : "新增收料紀錄"}</Button> : undefined}
       />
       {error && (
         <div className="mb-4">
@@ -342,14 +341,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                     步驟一：登錄供應商批號
                   </h3>
                   {canCreateSupplierLots && (
-                    <button
+                    <Button
                       type="button"
-                      className={secondaryButtonClass}
+                      variant="secondary"
                       disabled={!suppliers.length || !materials.length}
                       onClick={() => setShowLotForm((open) => !open)}
                     >
                       {showLotForm ? "關閉批號登錄" : "新增供應商批號"}
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {showLotForm && canCreateSupplierLots && (
@@ -412,29 +411,30 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                           required
                         />
                       </FormField>
-                      <FormField label="製造日期">
-                        <input
-                          className={inputClass}
-                          type="date"
-                          name="manufacturing_date"
-                        />
-                      </FormField>
-                      <FormField label="有效期限">
-                        <input
-                          className={inputClass}
-                          type="date"
-                          name="expiry_date"
-                        />
-                      </FormField>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="製造日期">
+                      <input
+                        className={inputClass}
+                        type="date"
+                        name="manufacturing_date"
+                      />
+                    </FormField>
+                    <FormField label="有效期限">
+                      <input
+                        className={inputClass}
+                        type="date"
+                        name="expiry_date"
+                      />
+                    </FormField>
+                  </div>
                       <p className="text-xs text-slate-600 sm:col-span-2">
                         僅能為已建立供應商－物料關聯的組合建立批號。若關聯不存在，請先到「供應商」頁面選擇「連結物料」。
                       </p>
                       <div className="flex gap-2 sm:col-span-2">
                         <ConfirmDialog
                           trigger={
-                            <button
+                            <Button
                               type="button"
-                              className={buttonClass}
                               disabled={lotSaving}
                               onClick={(event) => {
                                 if (!lotFormRef.current?.reportValidity())
@@ -442,21 +442,21 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                               }}
                             >
                               {lotSaving ? "建立中…" : "確認批號資料"}
-                            </button>
+                            </Button>
                           }
                           title="建立供應商批號？"
                           description="批號將與所選供應商及物料關聯，建立後可用於收料登錄。後端會檢查供應關係及批號唯一性。"
                           confirmLabel="建立批號"
                           onConfirm={createSupplierLot}
                         />
-                        <button
+                        <Button
                           type="button"
-                          className={secondaryButtonClass}
+                          variant="secondary"
                           disabled={lotSaving}
                           onClick={() => setShowLotForm(false)}
                         >
                           取消
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   </div>
@@ -582,29 +582,28 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                   <div className="flex gap-2">
                     <ConfirmDialog
                       trigger={
-                        <button
+                        <Button
                           type="button"
-                          className={buttonClass}
                           onClick={(event) => {
                             if (!receiptFormRef.current?.reportValidity())
                               event.preventDefault();
                           }}
                         >
                           確認建立收料單
-                        </button>
+                        </Button>
                       }
                       title="建立收料紀錄？"
                       description="收料單將與所選供應商、物料及供應商批號關聯，後端會進行資料驗證。"
                       confirmLabel="建立收料單"
                       onConfirm={createReceipt}
                     />
-                    <button
+                    <Button
                       type="button"
-                      className={secondaryButtonClass}
+                      variant="secondary"
                       onClick={() => setShowReceiptForm(false)}
                     >
                       取消
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </div>
@@ -613,8 +612,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         )}
 
         <Panel title="收料列表">
-          <div className="mb-4 flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
+          <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="sm:col-span-1 md:col-span-2">
               <input
                 className={inputClass}
                 placeholder="搜尋收料單號、供應商或物料..."
@@ -623,7 +622,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
               />
             </div>
             <select
-              className={inputClass}
+              className={`${inputClass} min-w-[140px]`}
               value={receiptStatus}
               onChange={(e) => setReceiptStatus(e.target.value)}
             >
@@ -635,15 +634,13 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
             </select>
             <input
               type="date"
-              className={inputClass}
-              placeholder="開始日期"
+              className={`${inputClass} min-w-[150px]`}
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
             />
             <input
               type="date"
-              className={inputClass}
-              placeholder="結束日期"
+              className={`${inputClass} min-w-[150px]`}
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
             />
@@ -760,9 +757,9 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                   <div className="flex items-end">
                     <ConfirmDialog
                       trigger={
-                        <button className={buttonClass} type="button">
+                        <Button type="button">
                           拆分批號
-                        </button>
+                        </Button>
                       }
                       title="建立內部批號？"
                       description="將從此收料單拆分出一個新的內部批號，剩餘數量將自動更新。"

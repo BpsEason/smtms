@@ -8,6 +8,7 @@ import {
   TableHead,
   TableRow,
   inputClass,
+  EmptyState,
 } from "../../components/ui";
 import type { NonconformanceListProps } from "./types";
 import { SOURCE_OPTIONS, STATUS_OPTIONS } from "./constants";
@@ -115,9 +116,9 @@ export function NonconformanceList({
       </DataTable>
 
       {!nonconformanceList.length && !errorMessage && (
-        <p className="py-5 text-sm text-slate-500">
-          目前沒有符合條件的案件。
-        </p>
+        <EmptyState
+          title="目前沒有符合條件的案件。"
+        />
       )}
     </Panel>
   );

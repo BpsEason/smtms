@@ -1,0 +1,1 @@
+{'style': 'default', 'rsc': False, 'tsx': True, 'tailwind': {'config': '', 'css': 'src/index.css', 'baseColor': 'slate', 'cssVariables': True, 'prefix': ''}, 'aliases': {'components': '@/components', 'utils': '@/lib/utils', 'ui': '@/components/shadcn'}, 'iconLibrary': 'lucide'}

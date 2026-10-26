@@ -1,10 +1,9 @@
 import {
-  buttonClass,
-  secondaryButtonClass,
   Panel,
   FormField,
   inputClass,
 } from "../../components/ui";
+import { Button } from "@/components/shadcn/button";
 import type { NonconformanceCreateFormProps } from "./types";
 import { SOURCE_OPTIONS, SEVERITY_OPTIONS } from "./constants";
 
@@ -161,16 +160,12 @@ export function NonconformanceCreateForm({
         </div>
 
         <div className="flex gap-2 md:col-span-2">
-          <button disabled={isLoading} className={buttonClass}>
+          <Button type="submit" disabled={isLoading} variant="default">
             建立案件
-          </button>
-          <button
-            type="button"
-            className={secondaryButtonClass}
-            onClick={onClose}
-          >
+          </Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
             取消
-          </button>
+          </Button>
         </div>
       </form>
     </Panel>

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../api/client";
+import { Button } from "../../components/shadcn/button";
 import {
-  buttonClass,
   ErrorState,
   PageHeader,
 } from "../../components/ui";
@@ -270,12 +270,11 @@ export function NonconformancePage({
         description="記錄品質事件、追蹤圍堵與初步處置，並保留案件操作歷程。"
         action={
           canModify ? (
-            <button
-              className={buttonClass}
+            <Button
               onClick={() => setIsCreateModalOpen(!isCreateModalOpen)}
             >
               新增案件
-            </button>
+            </Button>
           ) : undefined
         }
       />

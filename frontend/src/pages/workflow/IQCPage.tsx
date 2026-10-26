@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { allInternalLots, getErrorMessage, localDateTimeNow } from "../../lib/data";
+import { Button } from "@/components/shadcn/button";
 import {
-  buttonClass,
   ConfirmDialog,
   DataTable,
   EmptyState,
@@ -13,7 +13,6 @@ import {
   LoadingState,
   PageHeader,
   Panel,
-
   StatusBadge,
   SuccessMessage,
   TableBody,
@@ -288,9 +287,9 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 </FormField>
                 <ConfirmDialog
                   trigger={
-                    <button
+                    <Button
                       type="button"
-                      className={buttonClass}
+                      variant="default"
                       disabled={!selectedLot}
                       onClick={(event) => {
                         if (!formRef.current?.reportValidity())
@@ -298,7 +297,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                       }}
                     >
                       確認檢驗資料
-                    </button>
+                    </Button>
                   }
                   title="確定儲存檢驗結果？"
                   description={

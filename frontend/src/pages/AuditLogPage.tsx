@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Download, Eye } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { AuditLog } from "../types";
+import { Button } from "../components/shadcn/button";
 import {
-  buttonClass,
   DataTable,
   EmptyState,
   ErrorState,
@@ -12,7 +12,6 @@ import {
   LoadingState,
   PageHeader,
   Panel,
-  secondaryButtonClass,
   TableBody,
   TableHead,
   TableRow,
@@ -138,9 +137,9 @@ export function AuditLogPage() {
         title="稽核紀錄"
         description="檢視系統操作、異動內容與操作者。稽核紀錄僅供查詢。"
         action={
-          <button className={secondaryButtonClass} onClick={() => void exportCsv()} disabled={exporting}>
+          <Button variant="secondary" onClick={() => void exportCsv()} disabled={exporting}>
             <Download className="h-4 w-4" />{exporting ? "匯出中…" : "匯出篩選結果 CSV"}
-          </button>
+          </Button>
         }
       />
       <div className="space-y-5">
@@ -164,8 +163,8 @@ export function AuditLogPage() {
               <input className={inputClass} type="datetime-local" value={draft.end_at} onChange={(event) => setDraft({ ...draft, end_at: event.target.value })} />
             </FormField>
             <div className="flex gap-2 sm:col-span-2 xl:col-span-5">
-              <button className={buttonClass} type="submit">套用篩選</button>
-              <button className={secondaryButtonClass} type="button" onClick={() => { setLoading(true); setError(""); setDraft(EMPTY_FILTERS); setFilters(EMPTY_FILTERS); setPage(1); setSelected(null); setRefresh((value) => value + 1); }}>清除</button>
+              <Button type="submit">套用篩選</Button>
+              <Button variant="secondary" type="button" onClick={() => { setLoading(true); setError(""); setDraft(EMPTY_FILTERS); setFilters(EMPTY_FILTERS); setPage(1); setSelected(null); setRefresh((value) => value + 1); }}>清除</Button>
             </div>
           </form>
         </Panel>
@@ -188,9 +187,9 @@ export function AuditLogPage() {
                 ))}</TableBody>
               </DataTable>
               <div className="mt-4 flex items-center justify-between">
-                <button className={secondaryButtonClass} disabled={page <= 1 || loading} onClick={() => changePage(Math.max(1, page - 1))}>上一頁</button>
+                <Button variant="secondary" disabled={page <= 1 || loading} onClick={() => changePage(Math.max(1, page - 1))}>上一頁</Button>
                 <span className="text-sm text-slate-500">第 {page} 頁</span>
-                <button className={secondaryButtonClass} disabled={!hasNext || loading} onClick={() => changePage(page + 1)}>下一頁</button>
+                <Button variant="secondary" disabled={!hasNext || loading} onClick={() => changePage(page + 1)}>下一頁</Button>
               </div>
               {selected && <section aria-label="稽核紀錄明細" className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">紀錄 #{selected.id} 明細</h3><button className="text-sm text-slate-600 underline" onClick={() => setSelected(null)}>關閉明細</button></div>

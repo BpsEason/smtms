@@ -9,6 +9,7 @@ import {
 import { Download, FileText, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { allMaterials } from "../lib/data";
+import { Button } from "@/components/shadcn/button";
 import {
   buttonClass,
   ConfirmDialog,
@@ -168,8 +169,8 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         action={
           canWrite && (
             <div className="flex flex-wrap gap-2">
-              <button
-                className={secondaryButtonClass}
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setShowImport((value) => !value);
                   setSuccess("");
@@ -177,14 +178,14 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
               >
                 <Upload className="h-4 w-4" />
                 {showImport ? "關閉匯入" : "批次匯入"}
-              </button>
-              <button
-                className={buttonClass}
+              </Button>
+              <Button
+                variant="default"
                 onClick={() => { setEditingSupplier(null); setShowForm((value) => !value); setError("") }}
               >
                 <Plus className="h-4 w-4" />
                 {showForm ? "關閉" : "新增供應商"}
-              </button>
+              </Button>
             </div>
           )
         }
@@ -249,12 +250,12 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
             <FormField label="地址"><input name="address" className={inputClass} maxLength={255} defaultValue={editingSupplier?.address ?? ""} /></FormField>
             <FormField label="供應商狀態" hint="停用不會刪除供應商及歷史作業資料。"><select name="status" className={inputClass} defaultValue={editingSupplier?.status ?? "active"}><option value="active">啟用</option><option value="inactive">停用</option></select></FormField>
             <div className="sm:col-span-2 xl:col-span-3">
-              <div className="flex gap-2"><button className={buttonClass} disabled={saving}>{saving ? "儲存中…" : editingSupplier ? "儲存變更" : "建立供應商"}</button><button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => { setShowForm(false); setEditingSupplier(null) }}>取消</button></div>
+              <div className="flex gap-2"><Button variant="default" disabled={saving}>{saving ? "儲存中…" : editingSupplier ? "儲存變更" : "建立供應商"}</Button><Button type="button" variant="secondary" disabled={saving} onClick={() => { setShowForm(false); setEditingSupplier(null) }}>取消</Button></div>
             </div>
           </form>
         </Panel>
       )}
-      {linkingSupplier && <Panel title={`建立供應物料關聯：${linkingSupplier.supplier_name}`} description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。" className="mb-5"><form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2"><FormField label="物料"><select name="material_id" className={inputClass} required defaultValue=""><option value="">選擇物料</option>{materialOptions.map((material) => <option key={material.id} value={material.id}>{material.material_code} · {material.material_name}</option>)}</select></FormField><FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。"><input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} /></FormField><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="is_preferred" />設為此物料的首選供應商</label><div className="flex gap-2 sm:col-span-2"><button className={buttonClass} disabled={linkBusy || !materialOptions.length}>{linkBusy ? "建立中…" : "建立關聯"}</button><button type="button" className={secondaryButtonClass} disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>取消</button></div></form></Panel>}
+      {linkingSupplier && <Panel title={`建立供應物料關聯：${linkingSupplier.supplier_name}`} description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。" className="mb-5"><form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2"><FormField label="物料"><select name="material_id" className={inputClass} required defaultValue=""><option value="">選擇物料</option>{materialOptions.map((material) => <option key={material.id} value={material.id}>{material.material_code} · {material.material_name}</option>)}</select></FormField><FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。"><input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} /></FormField><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="is_preferred" />設為此物料的首選供應商</label><div className="flex gap-2 sm:col-span-2"><Button variant="default" disabled={linkBusy || !materialOptions.length}>{linkBusy ? "建立中…" : "建立關聯"}</Button><Button type="button" variant="secondary" disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>取消</Button></div></form></Panel>}
       {success && (
         <p role="status" className="mb-4 text-sm text-emerald-800">
           {success}
@@ -312,7 +313,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <StatusBadge value={supplier.status} />
                   </Td>
-                  <Td><div className="flex flex-wrap gap-2"><button className={secondaryButtonClass} onClick={() => setDocumentSupplier(supplier)}><FileText className="h-4 w-4" />資格文件</button>{canWrite && <><button className={secondaryButtonClass} onClick={() => { setLinkingSupplier(supplier); setShowForm(false); setShowImport(false); setError("") }}>連結物料</button><button className={secondaryButtonClass} onClick={() => { setEditingSupplier(supplier); setShowForm(true); setShowImport(false); setLinkingSupplier(null); setError("") }}>編輯資料</button></>}</div></Td>
+                  <Td><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setDocumentSupplier(supplier)}><FileText className="h-4 w-4" />資格文件</Button>{canWrite && <><Button variant="secondary" onClick={() => { setLinkingSupplier(supplier); setShowForm(false); setShowImport(false); setError("") }}>連結物料</Button><Button variant="secondary" onClick={() => { setEditingSupplier(supplier); setShowForm(true); setShowImport(false); setLinkingSupplier(null); setError("") }}>編輯資料</Button></>}</div></Td>
                 </TableRow>
               ))}
             </TableBody>
@@ -419,7 +420,7 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
     if (selected?.id === document.id) setSelected(null);
     setSuccess("資格文件及其附件已刪除。");
   };
-  return <Panel title={`資格文件：${supplier.supplier_name}`} description="文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。" className="mt-5" action={<button className={secondaryButtonClass} onClick={onClose}>關閉</button>}>
+  return <Panel title={`資格文件：${supplier.supplier_name}`} description="文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。" className="mt-5" action={<Button variant="secondary" onClick={onClose}>關閉</Button>}>
     {error && <div className="mb-3"><ErrorState message={error} onRetry={() => void refresh()} /></div>}{success && <div className="mb-3"><SuccessMessage>{success}</SuccessMessage></div>}
     {canWrite && <form key={editing?.id ?? `new-${supplier.id}`} onSubmit={save} className="mb-5 grid gap-3 rounded-md bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
       <FormField label="文件類型"><input className={inputClass} name="doc_type" required maxLength={50} defaultValue={editing?.doc_type ?? ""} /></FormField>
@@ -428,10 +429,10 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
       <FormField label="狀態"><select className={inputClass} name="status" defaultValue={editing?.status ?? "active"}><option value="active">有效</option><option value="expired">已到期</option><option value="inactive">停用</option></select></FormField>
       <FormField label="發證日"><input className={inputClass} name="issued_at" type="date" defaultValue={editing?.issued_at?.slice(0, 10) ?? ""} /></FormField>
       <FormField label="到期日"><input className={inputClass} name="expires_at" type="date" defaultValue={editing?.expires_at?.slice(0, 10) ?? ""} /></FormField>
-      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2"><button className={buttonClass} disabled={busy}>{busy ? "儲存中…" : editing ? "儲存變更" : "新增文件"}</button>{editing && <button type="button" className={secondaryButtonClass} onClick={() => setEditing(null)}>取消編輯</button>}</div>
+      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2"><Button variant="default" disabled={busy}>{busy ? "儲存中…" : editing ? "儲存變更" : "新增文件"}</Button>{editing && <Button type="button" variant="secondary" onClick={() => setEditing(null)}>取消編輯</Button>}</div>
     </form>}
-    {loading ? <LoadingState label="正在載入資格文件…" /> : documents.length ? <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]"><DataTable><TableHead><TableRow><Th>文件</Th><Th>類型／編號</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead><TableBody>{documents.map((document) => <TableRow key={document.id}><Td><button className="font-medium text-sky-800 hover:underline" onClick={() => setSelected(document)}>{document.doc_name}</button></Td><Td>{document.doc_type}<span className="block text-xs text-slate-500">{document.doc_code || "—"}</span></Td><Td><StatusBadge value={document.status} /></Td><Td><div className="flex gap-2">{canWrite && <><button className={secondaryButtonClass} onClick={() => { setEditing(document); setSelected(document); }}>編輯</button><ConfirmDialog trigger={<button className={secondaryButtonClass}><Trash2 className="h-4 w-4" />刪除</button>} title="刪除資格文件？" description="文件及其附件 metadata 將一併刪除，實際附件檔案也會在資料庫交易成功後移除。" confirmLabel="刪除文件" destructive onConfirm={() => removeDocument(document)} /></>}</div></Td></TableRow>)}</TableBody></DataTable>
-      <div className="rounded-md border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{selected ? selected.doc_name : "選取文件以管理附件"}</h3>{selected && <><p className="mt-1 text-xs text-slate-500">發證：{selected.issued_at ? new Date(selected.issued_at).toLocaleDateString("zh-TW") : "—"} · 到期：{selected.expires_at ? new Date(selected.expires_at).toLocaleDateString("zh-TW") : "—"}</p>{canWrite && <form onSubmit={upload} className="mt-4 flex flex-wrap items-end gap-2"><FormField label="新增附件"><input className={inputClass} type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required /></FormField><button className={buttonClass} disabled={busy}><Upload className="h-4 w-4" />{busy ? "上傳中…" : "上傳附件"}</button></form>}<div className="mt-4 space-y-2">{attachments.length ? attachments.map((attachment) => <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate text-sm">{attachment.original_filename}</span><span className="text-xs text-slate-500">{Math.ceil(attachment.size_bytes / 1024)} KB · {attachment.media_type}</span></span><div className="flex gap-2"><button className={secondaryButtonClass} onClick={() => void download(attachment)}><Download className="h-4 w-4" />下載</button>{canWrite && <ConfirmDialog trigger={<button className={secondaryButtonClass} aria-label={`刪除 ${attachment.original_filename}`}><Trash2 className="h-4 w-4" /></button>} title="刪除附件？" description="此操作只會刪除目前文件所屬的附件。" confirmLabel="刪除附件" destructive onConfirm={() => removeAttachment(attachment)} />}</div></div>) : <EmptyState title="尚無附件" description="可上傳 PDF、PNG 或 JPEG，單檔大小上限依後端設定。" />}</div></>}</div></div> : <EmptyState title="尚無資格文件" description="具備供應商管理權限的使用者可新增文件。" />}
+    {loading ? <LoadingState label="正在載入資格文件…" /> : documents.length ? <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]"><DataTable><TableHead><TableRow><Th>文件</Th><Th>類型／編號</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead><TableBody>{documents.map((document) => <TableRow key={document.id}><Td><button className="font-medium text-sky-800 hover:underline" onClick={() => setSelected(document)}>{document.doc_name}</button></Td><Td>{document.doc_type}<span className="block text-xs text-slate-500">{document.doc_code || "—"}</span></Td><Td><StatusBadge value={document.status} /></Td><Td><div className="flex gap-2">{canWrite && (<><Button variant="secondary" onClick={() => { setEditing(document); setSelected(document); }}>編輯</Button><ConfirmDialog trigger={<Button variant="secondary"><Trash2 className="h-4 w-4" />刪除</Button>} title="刪除資格文件？" description="文件及其附件 metadata 將一併刪除，實際附件檔案也會在資料庫交易成功後移除。" confirmLabel="刪除文件" destructive onConfirm={() => removeDocument(document)} /></>)}</div></Td></TableRow>)}</TableBody></DataTable>
+      <div className="rounded-md border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{selected ? selected.doc_name : "選取文件以管理附件"}</h3>{selected && <><p className="mt-1 text-xs text-slate-500">發證：{selected.issued_at ? new Date(selected.issued_at).toLocaleDateString("zh-TW") : "—"} · 到期：{selected.expires_at ? new Date(selected.expires_at).toLocaleDateString("zh-TW") : "—"}</p>{canWrite && <form onSubmit={upload} className="mt-4 flex flex-wrap items-end gap-2"><FormField label="新增附件"><input className={inputClass} type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required /></FormField><Button variant="default" disabled={busy}><Upload className="h-4 w-4" />{busy ? "上傳中…" : "上傳附件"}</Button></form>}<div className="mt-4 space-y-2">{attachments.length ? attachments.map((attachment) => <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate text-sm">{attachment.original_filename}</span><span className="text-xs text-slate-500">{Math.ceil(attachment.size_bytes / 1024)} KB · {attachment.media_type}</span></span><div className="flex gap-2"><Button variant="secondary" onClick={() => void download(attachment)}><Download className="h-4 w-4" />下載</Button>{canWrite && <ConfirmDialog trigger={<Button variant="secondary" aria-label={`刪除 ${attachment.original_filename}`}><Trash2 className="h-4 w-4" /></Button>} title="刪除附件？" description="此操作只會刪除目前文件所屬的附件。" confirmLabel="刪除附件" destructive onConfirm={() => removeAttachment(attachment)} />}</div></div>) : <EmptyState title="尚無附件" description="可上傳 PDF、PNG 或 JPEG，單檔大小上限依後端設定。" />}</div></>}</div></div> : <EmptyState title="尚無資格文件" description="具備供應商管理權限的使用者可新增文件。" />}
   </Panel>;
 }
 
@@ -545,14 +546,14 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
       description="下載範本後填入資料，上傳可先預覽驗證，確認無誤再寫入。每列會建立一筆供應商與其登入帳號。"
       className="mb-5"
       action={
-        <button
-          className={secondaryButtonClass}
+        <Button
+          variant="secondary"
           disabled={busy !== ""}
           onClick={() => void downloadTemplate()}
         >
           <Download className="h-4 w-4" />
           {busy === "template" ? "下載中…" : "下載 Excel 範本"}
-        </button>
+        </Button>
       }
     >
       <div className="space-y-4">
@@ -572,28 +573,28 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
           <p className="text-xs text-slate-500">已選擇：{fileName}</p>
         )}
         <div className="flex flex-wrap gap-2">
-          <button
-            className={secondaryButtonClass}
+          <Button
+            variant="secondary"
             disabled={!file || busy !== ""}
             onClick={() => void runPreview()}
           >
             {busy === "preview" ? "驗證中…" : "預覽驗證"}
-          </button>
-          <button
-            className={buttonClass}
+          </Button>
+          <Button
+            variant="default"
             disabled={!canConfirm}
             onClick={() => void runConfirm()}
           >
             {busy === "confirm" ? "匯入中…" : "確認匯入"}
-          </button>
+          </Button>
           {errors.length > 0 && (
-            <button
-              className={secondaryButtonClass}
+            <Button
+              variant="secondary"
               onClick={downloadErrorReport}
             >
               <Download className="h-4 w-4" />
               下載錯誤報告
-            </button>
+            </Button>
           )}
         </div>
 
@@ -701,8 +702,8 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
             <p className="text-xs text-rose-700">
               初始密碼僅顯示本次，請立即妥善保存並通知供應商。供應商首次登入時必須變更密碼。
             </p>
-            <button
-              className={secondaryButtonClass}
+            <Button
+              variant="secondary"
               onClick={() =>
                 setResult((previous) =>
                   previous ? { ...previous, accounts: [] } : previous,
@@ -710,7 +711,7 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
               }
             >
               清除密碼顯示
-            </button>
+            </Button>
           </div>
         ) : null}
 

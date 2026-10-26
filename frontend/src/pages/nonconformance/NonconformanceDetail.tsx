@@ -1,6 +1,5 @@
+import { Button } from "../../components/shadcn/button";
 import {
-  buttonClass,
-  secondaryButtonClass,
   Panel,
   FormField,
   StatusBadge,
@@ -35,45 +34,42 @@ export function NonconformanceDetail({
 
     if (selectedItem.status === "open") {
       return (
-        <button
-          className={buttonClass}
+        <Button
           disabled={isLoading}
           onClick={() => onStatusTransition("investigating")}
         >
           開始調查
-        </button>
+        </Button>
       );
     }
 
     if (selectedItem.status === "investigating") {
       return (
-        <button
-          className={buttonClass}
+        <Button
           disabled={isLoading}
           onClick={() => onStatusTransition("pending_confirmation")}
         >
           送待確認
-        </button>
+        </Button>
       );
     }
 
     if (selectedItem.status === "pending_confirmation") {
       return (
         <div className="flex gap-2">
-          <button
-            className={secondaryButtonClass}
+          <Button
+            variant="secondary"
             disabled={isLoading}
             onClick={() => onStatusTransition("investigating")}
           >
             退回調查
-          </button>
-          <button
-            className={buttonClass}
+          </Button>
+          <Button
             disabled={isLoading}
             onClick={() => onStatusTransition("closed")}
           >
             結案
-          </button>
+          </Button>
         </div>
       );
     }
@@ -160,9 +156,9 @@ export function NonconformanceDetail({
           />
         </FormField>
 
-        <button disabled={isLoading} className={buttonClass}>
+        <Button disabled={isLoading}>
           新增處置紀錄
-        </button>
+        </Button>
       </form>
     );
   };
@@ -172,15 +168,15 @@ export function NonconformanceDetail({
     if (!canEditSelected) return null;
 
     return (
-      <label className={`${secondaryButtonClass} cursor-pointer`}>
-        上傳附件（PDF／PNG／JPEG）
-        <input
-          className="sr-only"
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg"
-          onChange={(e) => onUploadAttachment(e.target.files?.[0])}
-        />
-      </label>
+        <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
+          上傳附件（PDF／PNG／JPEG）
+          <input
+            className="sr-only"
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={(e) => onUploadAttachment(e.target.files?.[0])}
+          />
+        </label>
     );
   };
 
@@ -224,13 +220,13 @@ export function NonconformanceDetail({
           />
 
           {canEditSelected && (
-            <button
-              className={secondaryButtonClass}
+            <Button
+              variant="secondary"
               disabled={isLoading}
               onClick={() => onSaveInvestigation()}
             >
               儲存調查
-            </button>
+            </Button>
           )}
         </div>
 
