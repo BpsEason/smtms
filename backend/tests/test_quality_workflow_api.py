@@ -1152,7 +1152,10 @@ def test_delete_supplier_lot_with_associated_receipts_rejected(quality_environme
     # 嘗試刪除，應該被拒絕
     delete_response = client.delete(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
     assert delete_response.status_code == 409
-    assert "Cannot delete supplier lot that has associated receipts or internal lots" in delete_response.json()["detail"]
+    assert (
+        "Cannot delete supplier lot that has associated receipts or internal lots"
+        in delete_response.json()["detail"]
+    )
     
     # 驗證批次仍然存在
     get_response = client.get(f"/api/v1/supplier-lots/{lot_id}", headers=headers)
