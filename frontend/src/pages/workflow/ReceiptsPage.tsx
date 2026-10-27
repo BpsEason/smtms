@@ -129,19 +129,21 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         page: debouncedPage,
         page_size: 50,
       });
-      
-      // 更新選中的ID
-      setSelectedId((current) =>
-        current !== null && response.items.some((item) => item.id === current)
-          ? current
-          : (response.items[0]?.id ?? null),
-      );
-      
       return response;
     },
     retry: 1,
     staleTime: 30 * 1000, // 30秒內不重複請求
   });
+
+  // 每當receipts更新時（不論來自快取或新請求），更新選中的ID
+  useEffect(() => {
+    if (!receipts?.items.length) return;
+    setSelectedId((current) =>
+      current !== null && receipts.items.some((item) => item.id === current)
+        ? current
+        : (receipts.items[0]?.id ?? null),
+    );
+  }, [receipts]);
 
   const error = queryError ? getErrorMessage(queryError) : "";
   

@@ -1,8 +1,30 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../src/App";
 import { buildTraceabilityPageCsv } from "../src/lib/traceabilityCsv";
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 0,
+        cacheTime: 0,
+      },
+    },
+  });
+}
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>
+  );
+}
 
 const fetchMock = vi.fn();
 const receipt = {
@@ -87,7 +109,11 @@ function response(body: unknown, status = 200): Response {
 function page<T>(items: T[], total = items.length) {
   return { items, total, page: 1, page_size: 100 };
 }
-function installApiMock(withWorkflowData = false, withQualityPermissions = false, withNonconformancePermissions = false) {
+function installApiMock(
+  withWorkflowData = false,
+  withQualityPermissions = false,
+  withNonconformancePermissions = false,
+) {
   let savedReceipt: typeof receipt | null = null;
   let savedLot: typeof internalLot | null = null;
   let savedIqc: Record<string, unknown> | null = null;
@@ -212,60 +238,100 @@ function installSignoffMock() {
     internal_lot_id: 31,
     internal_lot_no: "SEED-ILOT-002-1",
     inspector_user_id: 7,
-    sample_qty: '1.0000',
-    inspection_result: 'passed',
-    inspection_date: '2026-10-19',
-    release_status: 'released',
+    sample_qty: "1.0000",
+    inspection_result: "passed",
+    inspection_date: "2026-10-19",
+    release_status: "released",
     remarks: null as string | null,
-    review_status: 'pending',
+    review_status: "pending",
     reviewed_by_user_id: null as number | null,
     reviewed_at: null as string | null,
     review_decision_note: null as string | null,
-    created_at: '',
-  }
+    created_at: "",
+  };
   const secondRecord = {
     ...record,
     id: 42,
     internal_lot_id: 32,
-    internal_lot_no: 'SEED-ILOT-003-1',
-    sample_qty: '2.0000',
-    inspection_result: 'failed',
-    release_status: 'rejected',
-  }
-  const reviews: Array<Record<string, unknown>> = []
-  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input)
-    const method = init?.method ?? 'GET'
-    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
-    if (url.endsWith('/api/v1/auth/login')) return response({ access_token: 'demo-token', token_type: 'bearer' })
-    if (url.endsWith('/api/v1/auth/me')) return response({ id: 7, username: 'seed_qa_1', email: null, is_active: true, roles: ['qa'], permissions: ['quality:review', 'quality:approve', 'quality:return'] })
-    if (url.includes('/api/v1/internal-lots')) return response(page([internalLot]))
-    if (url.includes('/api/v1/iqc/41/reviews/approve') && method === 'POST') {
-      record.review_status = 'approved'
-      record.reviewed_by_user_id = 7
-      record.reviewed_at = '2026-10-20T02:00:00Z'
-      record.review_decision_note = typeof body.decision_note === 'string' ? body.decision_note : null
-      const review = { id: reviews.length + 1, iqc_record_id: 41, reviewed_by_user_id: 7, reviewed_by_username: 'seed_qa_1', review_status: 'approved', decision_note: record.review_decision_note, reason: null, reviewed_at: record.reviewed_at, created_at: '' }
-      reviews.unshift(review)
-      return response(review)
-    }
-    if (url.includes('/api/v1/iqc/41/reviews/return') && method === 'POST') {
-      record.review_status = 'returned'
-      record.reviewed_by_user_id = 7
-      record.reviewed_at = '2026-10-20T02:10:00Z'
-      record.review_decision_note = typeof body.reason === 'string' ? body.reason : null
-      const review = { id: reviews.length + 1, iqc_record_id: 41, reviewed_by_user_id: 7, reviewed_by_username: 'seed_qa_1', review_status: 'returned', decision_note: typeof body.decision_note === 'string' ? body.decision_note : null, reason: typeof body.reason === 'string' ? body.reason : null, reviewed_at: record.reviewed_at, created_at: '' }
-      reviews.unshift(review)
-      return response(review)
-    }
-    if (url.includes('/api/v1/iqc/41/reviews')) return response(page(reviews))
-    if (url.includes('/api/v1/iqc')) {
-      const filter = new URL(url).searchParams.get('review_status')
-      const items = [record, secondRecord].filter((item) => !filter || filter === item.review_status)
-      return response(page(items))
-    }
-    return response(page([]))
-  })
+    internal_lot_no: "SEED-ILOT-003-1",
+    sample_qty: "2.0000",
+    inspection_result: "failed",
+    release_status: "rejected",
+  };
+  const reviews: Array<Record<string, unknown>> = [];
+  fetchMock.mockImplementation(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const body = init?.body
+        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+        : {};
+      if (url.endsWith("/api/v1/auth/login"))
+        return response({ access_token: "demo-token", token_type: "bearer" });
+      if (url.endsWith("/api/v1/auth/me"))
+        return response({
+          id: 7,
+          username: "seed_qa_1",
+          email: null,
+          is_active: true,
+          roles: ["qa"],
+          permissions: ["quality:review", "quality:approve", "quality:return"],
+        });
+      if (url.includes("/api/v1/internal-lots"))
+        return response(page([internalLot]));
+      if (url.includes("/api/v1/iqc/41/reviews/approve") && method === "POST") {
+        record.review_status = "approved";
+        record.reviewed_by_user_id = 7;
+        record.reviewed_at = "2026-10-20T02:00:00Z";
+        record.review_decision_note =
+          typeof body.decision_note === "string" ? body.decision_note : null;
+        const review = {
+          id: reviews.length + 1,
+          iqc_record_id: 41,
+          reviewed_by_user_id: 7,
+          reviewed_by_username: "seed_qa_1",
+          review_status: "approved",
+          decision_note: record.review_decision_note,
+          reason: null,
+          reviewed_at: record.reviewed_at,
+          created_at: "",
+        };
+        reviews.unshift(review);
+        return response(review);
+      }
+      if (url.includes("/api/v1/iqc/41/reviews/return") && method === "POST") {
+        record.review_status = "returned";
+        record.reviewed_by_user_id = 7;
+        record.reviewed_at = "2026-10-20T02:10:00Z";
+        record.review_decision_note =
+          typeof body.reason === "string" ? body.reason : null;
+        const review = {
+          id: reviews.length + 1,
+          iqc_record_id: 41,
+          reviewed_by_user_id: 7,
+          reviewed_by_username: "seed_qa_1",
+          review_status: "returned",
+          decision_note:
+            typeof body.decision_note === "string" ? body.decision_note : null,
+          reason: typeof body.reason === "string" ? body.reason : null,
+          reviewed_at: record.reviewed_at,
+          created_at: "",
+        };
+        reviews.unshift(review);
+        return response(review);
+      }
+      if (url.includes("/api/v1/iqc/41/reviews"))
+        return response(page(reviews));
+      if (url.includes("/api/v1/iqc")) {
+        const filter = new URL(url).searchParams.get("review_status");
+        const items = [record, secondRecord].filter(
+          (item) => !filter || filter === item.review_status,
+        );
+        return response(page(items));
+      }
+      return response(page([]));
+    },
+  );
 }
 
 async function signIn() {
@@ -277,12 +343,16 @@ async function signIn() {
 describe("SMTMS application", () => {
   it("shows the nonconformance menu and opens its page for a reader", async () => {
     installApiMock(false, false, true);
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
 
-    await userEvent.click(await screen.findByRole("link", { name: "品質異常" }));
+    await userEvent.click(
+      await screen.findByRole("link", { name: "品質異常" }),
+    );
 
-    expect(await screen.findByRole("heading", { name: "品質異常案件" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "品質異常案件" }),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/nonconformances"),
       expect.anything(),
@@ -293,10 +363,16 @@ describe("SMTMS application", () => {
     installApiMock();
     window.localStorage.setItem("smtms_token", "demo-token");
     window.history.replaceState({}, "", "/nonconformances");
-    render(<App />);
-    expect(await screen.findByRole("heading", { name: "需要存取權限" })).toBeInTheDocument();
-    expect(await screen.findByText(/所需權限：nonconformance:read/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "品質異常" })).not.toBeInTheDocument();
+    renderWithProviders(<App />);
+    expect(
+      await screen.findByRole("heading", { name: "需要存取權限" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/所需權限：nonconformance:read/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "品質異常" }),
+    ).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/nonconformances"),
       expect.anything(),
@@ -305,7 +381,7 @@ describe("SMTMS application", () => {
 
   it("keeps sign-off controls out of IQC for QA users", async () => {
     installApiMock(false, true);
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
 
     expect(
@@ -319,8 +395,12 @@ describe("SMTMS application", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("品保審核簽核")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("選擇簽核目標")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "核准" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "退回" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "核准" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "退回" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("審核歷程")).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([input]) =>
@@ -331,56 +411,79 @@ describe("SMTMS application", () => {
 
   it("lets a quality-only user enter sign-off from navigation and approve with visible history", async () => {
     installSignoffMock();
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
-    await userEvent.click(await screen.findByRole("link", { name: "品保簽核" }));
-    expect(await screen.findByRole("heading", { name: "品保簽核" })).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("link", { name: "品保簽核" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "品保簽核" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("IQC-41")).toBeInTheDocument();
     expect(screen.getAllByText("SEED-ILOT-002-1").length).toBeGreaterThan(0);
     expect(screen.getByText("簽核歷程")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "核准" }));
-    await userEvent.click(await screen.findByRole("button", { name: "確認核准" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "確認核准" }),
+    );
     expect(await screen.findByText(/IQC-41 已核准/)).toBeInTheDocument();
     expect(await screen.findByText("seed_qa_1")).toBeInTheDocument();
   });
 
   it("shows the selected IQC details left of the list and updates them when another row is selected", async () => {
     installSignoffMock();
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
-    await userEvent.click(await screen.findByRole("link", { name: "品保簽核" }));
+    await userEvent.click(
+      await screen.findByRole("link", { name: "品保簽核" }),
+    );
 
-    const detailHeading = await screen.findByRole("heading", { name: /檢驗內容與簽核　IQC-41/ });
+    const detailHeading = await screen.findByRole("heading", {
+      name: /檢驗內容與簽核　IQC-41/,
+    });
     const listHeading = screen.getByRole("heading", { name: "待簽核清單" });
-    expect(detailHeading.compareDocumentPosition(listHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      detailHeading.compareDocumentPosition(listHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     await userEvent.click(screen.getByText("IQC-42"));
-    expect(await screen.findByRole("heading", { name: /檢驗內容與簽核　IQC-42/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /檢驗內容與簽核　IQC-42/ }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("SEED-ILOT-003-1")).toHaveLength(2);
   });
 
   it("requires a return reason and shows the returned review history", async () => {
     installSignoffMock();
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
-    await userEvent.click(await screen.findByRole("link", { name: "品保簽核" }));
+    await userEvent.click(
+      await screen.findByRole("link", { name: "品保簽核" }),
+    );
     await screen.findByText("IQC-41");
     await userEvent.click(screen.getByRole("button", { name: "退回" }));
-    expect(screen.getAllByText("退回時必須填寫退回理由。").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("退回時必須填寫退回理由。").length,
+    ).toBeGreaterThan(0);
     await userEvent.type(
       screen.getByRole("textbox", { name: /退回理由（退回時必填）/ }),
       "請補交檢驗報告",
     );
     await userEvent.click(screen.getByRole("button", { name: "退回" }));
-    await userEvent.click(await screen.findByRole("button", { name: "確認退回" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "確認退回" }),
+    );
     expect(await screen.findByText(/IQC-41 已退回/)).toBeInTheDocument();
-    expect(await screen.findByText(/退回理由：請補交檢驗報告/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/退回理由：請補交檢驗報告/),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("已退回").length).toBeGreaterThan(0);
   });
 
   it("redirects unauthenticated users and logs in with a valid token", async () => {
     installApiMock();
-    render(<App />);
+    renderWithProviders(<App />);
     expect(
       screen.getByRole("heading", { name: "登入 SMTMS" }),
     ).toBeInTheDocument();
@@ -393,7 +496,7 @@ describe("SMTMS application", () => {
 
   it("completes receipt creation, internal lot split, and pending IQC with backend-confirmed statuses", async () => {
     installApiMock(true);
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
     await screen.findByRole("heading", { name: "儀表板" });
     await userEvent.click(screen.getByRole("link", { name: "收料紀錄" }));
@@ -424,7 +527,9 @@ describe("SMTMS application", () => {
     ).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("收料單號"), "RCV-TEST-21");
     await userEvent.type(screen.getByLabelText("收料數量"), "12");
-    await userEvent.click(screen.getByRole("button", { name: "確認建立收料單" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "確認建立收料單" }),
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: "建立收料單" }),
     );
@@ -515,7 +620,7 @@ describe("SMTMS application", () => {
       return response(page([]));
     });
 
-    render(<App />);
+    renderWithProviders(<App />);
     await signIn();
     await userEvent.click(
       await screen.findByRole("link", { name: "全鏈路追溯" }),
