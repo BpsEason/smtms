@@ -22,3 +22,31 @@
 - 產品序號追溯鏈必須符合現有資料關聯，不得破壞追溯性
 - JWT、RBAC權限系統與Audit Log的實作必須遵循現有架構
 - 環境依賴：外部MySQL、Redis，Docker僅包含Redis、後端、前端及Nginx
+
+## TanStack Query (React Query) 使用規範
+前端列表頁面使用TanStack Query管理資料獲取時，必須遵循以下規範：
+
+### 1. Query Key 設計原則
+- Query Key必須包含所有影響API返回結果的參數：搜尋關鍵字、篩選條件、分頁頁碼、日期範圍等
+- 範例：`['receipts', debouncedQuery, debouncedStatus, debouncedDateFrom, debouncedDateTo, debouncedPage]`
+- 每當任何參數變化時，TanStack Query會自動觸發重新請求，不需要手動調用refetch
+
+### 2. 輸入防抖(Debounce)處理
+- 僅對用戶連續輸入的搜尋框使用250ms防抖
+- 將防抖應用於狀態更新，而非直接調用refetch：創建debounced狀態，將其放入Query Key
+- 避免在useEffect中手動調用refetch，這會導致重複請求
+
+### 3. 快取設定標準
+- `staleTime: 30 * 1000`（30秒）：列表資料30秒內不重複請求，平衡即時性與效能
+- `retry: 1`：API請求失敗僅重試一次，避免無限重試
+- 快取失效處理：建立/更新/刪除資料後，通過`await refetch()`手動觸發重新獲取，此時會保留當前所有篩選條件
+
+### 4. 錯誤處理
+- 統一使用Query返回的`queryError`，避免與本地setError產生覆蓋或衝突
+- 手動重試按鈕只調用一次`refetch()`，不會重複觸發不必要請求
+- 錯誤訊息通過`getErrorMessage()`統一處理，保持錯誤顯示一致性
+
+### 5. 常見錯誤避免
+- ❌ 禁止同時依賴Query Key自動刷新和useEffect手動refetch，會導致重複API請求
+- ❌ 禁止將未防抖的用戶輸入直接放入Query Key，會造成頻繁請求
+- ✅ 正確模式：用戶輸入→防抖更新debounced狀態→Query Key變化→自動重新請求

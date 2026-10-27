@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import {
   allSuppliers,
@@ -31,7 +32,6 @@ import type {
   ReceiptForm,
   SplitForm,
   UserProfile,
-  PaginatedResponse,
   Receipt,
   ReceiptTrace,
   Supplier,
@@ -41,9 +41,6 @@ import type {
 import { Pagination, Detail } from "./components/SharedComponents";
 
 export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
-  const [receipts, setReceipts] = useState<PaginatedResponse<Receipt> | null>(
-    null,
-  );
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [supplierLots, setSupplierLots] = useState<SupplierLot[]>([]);
@@ -60,10 +57,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [trace, setTrace] = useState<ReceiptTrace | null>(null);
   const [_traceError, _setTraceError] = useState("");
   const [_selectedLot, _setSelectedLot] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [resourceLoading, setResourceLoading] = useState(true);
   const [resourceError, setResourceError] = useState("");
-  const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [splitError, setSplitError] = useState("");
   const [receiptForm, setReceiptForm] = useState<ReceiptForm>({
@@ -98,41 +93,57 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     [supplierLots, receiptForm.supplierId, receiptForm.materialId],
   );
 
-  const loadReceipts = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
+  // 創建防抖後的搜尋參數狀態
+  const [debouncedQuery, setDebouncedQuery] = useState(receiptQuery);
+  const [debouncedStatus, setDebouncedStatus] = useState(receiptStatus);
+  const [debouncedDateFrom, setDebouncedDateFrom] = useState(dateFrom);
+  const [debouncedDateTo, setDebouncedDateTo] = useState(dateTo);
+  const [debouncedPage, setDebouncedPage] = useState(receiptPage);
+
+  // 延遲更新搜尋參數以避免過多請求（僅搜尋框輸入時使用250ms防抖）
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(receiptQuery);
+      setDebouncedStatus(receiptStatus);
+      setDebouncedDateFrom(dateFrom);
+      setDebouncedDateTo(dateTo);
+      setDebouncedPage(receiptPage);
+    }, receiptQuery ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [receiptQuery, receiptStatus, dateFrom, dateTo, receiptPage]);
+
+  // 使用 TanStack Query 管理收料紀錄資料載入
+  const {
+    data: receipts,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ['receipts', debouncedQuery, debouncedStatus, debouncedDateFrom, debouncedDateTo, debouncedPage],
+    queryFn: async () => {
       const response = await api.listReceipts({
-        keyword: receiptQuery || undefined,
-        status: receiptStatus || undefined,
-        date_from: dateFrom ? new Date(`${dateFrom}T00:00:00`).toISOString() : undefined,
-        date_to: dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined,
-        page: receiptPage,
+        keyword: debouncedQuery || undefined,
+        status: debouncedStatus || undefined,
+        date_from: debouncedDateFrom ? new Date(`${debouncedDateFrom}T00:00:00`).toISOString() : undefined,
+        date_to: debouncedDateTo ? new Date(`${debouncedDateTo}T23:59:59.999`).toISOString() : undefined,
+        page: debouncedPage,
         page_size: 50,
       });
-      setReceipts(response);
+      
+      // 更新選中的ID
       setSelectedId((current) =>
         current !== null && response.items.some((item) => item.id === current)
           ? current
           : (response.items[0]?.id ?? null),
       );
-    } catch (err) {
-      setReceipts(null);
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [receiptQuery, receiptStatus, dateFrom, dateTo, receiptPage]);
+      
+      return response;
+    },
+    retry: 1,
+    staleTime: 30 * 1000, // 30秒內不重複請求
+  });
 
-  useEffect(() => {
-    const timer = window.setTimeout(
-      () => {
-        void loadReceipts();
-      },
-      receiptQuery ? 250 : 0,
-    );
-    return () => window.clearTimeout(timer);
-  }, [loadReceipts, receiptQuery]);
+  const error = queryError ? getErrorMessage(queryError) : "";
   
   useEffect(() => {
     let active = true;
@@ -183,7 +194,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           if (active) setSelectedReceipt(receipt);
         })
         .catch((err) => {
-          if (active) setError(getErrorMessage(err));
+          if (active) console.error(getErrorMessage(err));
         });
     }
     return () => {
@@ -192,7 +203,6 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   }, [selectedId, canTrace]);
 
   const createReceipt = async () => {
-    setError("");
     setSuccess("");
     if (!receiptFormRef.current?.reportValidity()) return;
     try {
@@ -221,15 +231,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         receivedAt: localDateTimeNow(),
         notes: "",
       });
-      await loadReceipts();
+      await refetch();
     } catch (err) {
-      setError(getErrorMessage(err));
+      console.error(getErrorMessage(err));
       throw err;
     }
   };
 
   const createSupplierLot = async () => {
-    setError("");
     setSuccess("");
     if (!lotFormRef.current?.reportValidity()) return;
     const form = new FormData(lotFormRef.current);
@@ -267,7 +276,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       );
       setShowLotForm(false);
     } catch (err) {
-      setError(getErrorMessage(err));
+      console.error(getErrorMessage(err));
       throw err;
     } finally {
       setLotSaving(false);
@@ -292,7 +301,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         `內部批號 ${created.internal_lot_no} 已建立。後端狀態：${statusLabel(created.lot_status)}。`,
       );
       setSplitForm({ lotNo: "", quantity: "" });
-      await loadReceipts();
+      await refetch();
       if (canTrace) {
         const currentTrace = await api.getReceiptTrace(selectedReceipt.id);
         setTrace(currentTrace);
@@ -317,7 +326,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       />
       {error && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void loadReceipts()} />
+          <ErrorState message={error} onRetry={() => void refetch()} />
         </div>
       )}
       {success && (
@@ -649,7 +658,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           {loading ? (
             <LoadingState label="正在載入收料紀錄..." />
           ) : error ? (
-            <ErrorState message={error} onRetry={() => void loadReceipts()} />
+            <ErrorState message={error} onRetry={() => void refetch()} />
           ) : !receipts?.items.length ? (
             <EmptyState title="目前沒有收料紀錄" />
           ) : (

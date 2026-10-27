@@ -6,9 +6,10 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, ApiError } from "../api/client";
-import { allMaterials } from "../lib/data";
+import { allMaterials, getErrorMessage } from "../lib/data";
 import { Button } from "@/components/shadcn/button";
 import {
   buttonClass,
@@ -745,44 +746,49 @@ function csvCell(value: string) {
 }
 
 function MaterialsPage({ profile }: { profile: UserProfile | null }) {
-  const [data, setData] = useState<PaginatedResponse<Material> | null>(null);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [saving, setSaving] = useState(false);
   const canWrite = Boolean(profile?.permissions.includes("materials:write"));
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setData(
-        await api.listMaterials({
-          keyword: query || undefined,
-          status: status || undefined,
-          page,
-          page_size: 20,
-        }),
-      );
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [query, status, page]);
+  
+  // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  
   useEffect(() => {
-    const timer = window.setTimeout(
-      () => {
-        void load();
-      },
-      query ? 250 : 0,
-    );
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, query ? 250 : 0);
     return () => window.clearTimeout(timer);
-  }, [load, query]);
+  }, [query]);
+
+  // 使用 TanStack Query 管理物料列表資料載入
+  const {
+    data,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ['materials', debouncedQuery, status, page],
+    queryFn: async () => {
+      const response = await api.listMaterials({
+        keyword: debouncedQuery || undefined,
+        status: status || undefined,
+        page,
+        page_size: 20,
+      });
+      return response;
+    },
+    retry: 1,
+    staleTime: 30 * 1000, // 30秒內不重複請求
+  });
+
+  const displayError = queryError ? getErrorMessage(queryError) : error;
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -808,9 +814,10 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
       setShowForm(false);
       setEditingMaterial(null);
       setPage(1);
-      await load();
+      // 使所有相關查詢快取失效，確保列表資料最新
+      await queryClient.invalidateQueries({ queryKey: ['materials'] });
     } catch (err) {
-      setError(message(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -891,9 +898,9 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
           {success}
         </p>
       )}
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void load()} />
+          <ErrorState message={displayError} onRetry={() => void refetch()} />
         </div>
       )}
       <Panel

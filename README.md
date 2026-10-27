@@ -145,19 +145,72 @@ Vite 開發伺服器預設在 `http://localhost:5173/`。前端 API Base URL 由
 
 ## 驗證與品質檢查
 
-以下是專案設定及 CI 工作流程實際執行的檢查指令：
+### 程式碼格式化與品質檢查
+本專案後端採用 **Ruff** 作為統一的程式碼格式化、Import 排序與 Lint 檢查工具，取代傳統的 black、flake8、isort 等多工具組合，提供快速且一致的程式碼品質控管。
+
+#### VS Code 自動化設定
+需先安裝並啟用 VS Code 的 [Ruff 擴充套件](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)，本機 `.vscode/settings.json` 已預設下列自動化行為，存檔時會自動執行：
+1. **自動格式化**：套用 Ruff 的格式化規則（對應 `editor.formatOnSave`）
+2. **Import 排序**：自動整理與排序 Python 匯入的模組（對應 `source.organizeImports`）
+3. **自動修正**：修復所有 Ruff 支援自動修正的 Lint 問題（對應 `source.fixAll`）
+
+#### 無法自動修正的問題
+下列類型的問題無法由 Ruff 自動修正，仍需人工檢查與處理：
+- 型別錯誤（需透過 mypy 檢查）
+- 邏輯錯誤與業務規則違反
+- 複雜的程式碼結構問題
+- 部分 Lint 規則無法自動修復的警告
+- 資料庫關聯性與業務流程的一致性問題
+
+#### 手動執行指令（需在 backend 目錄下執行）
+```powershell
+# 僅檢查程式碼風格與 Lint 問題，不進行修正
+uv run ruff check .
+
+# 自動修正所有可修復的 Lint 問題
+uv run ruff check --fix .
+
+# 執行程式碼格式化
+uv run ruff format .
+
+# 合併執行：先修正 Lint 問題再格式化
+uv run ruff check --fix . ; uv run ruff format .
+```
+
+#### Ruff 規則設定（backend/pyproject.toml）
+目前專案的 Ruff 設定完全對應 `backend/pyproject.toml` 中的實際配置：
+- **基礎設定**：
+  - 行寬：`line-length = 100`
+  - 檢查來源：僅針對 `app/` 與 `tests/` 目錄
+  - 排除目錄：`.venv`、`__pycache__`、`.pytest_cache`、`.ruff_cache`
+- **啟用的 Lint 規則**：
+  - `E`（pycodestyle 錯誤）
+  - `F`（Pyflakes 錯誤）
+  - `I`（Import 排序）
+  - `W`（pycodestyle 警告）
+  - `C4`（複雜度檢查）
+  - `RUF`（Ruff 自訂規則）
+- **忽略的規則**：
+  - `RUF012`（忽略非同步類別屬性相關警告）
+- **格式化設定**：
+  - 引號樣式：雙引號（`quote-style = "double"`）
+  - 縮排樣式：空格（`indent-style = "space"`）
+  - 換行符號：LF（`line-ending = "lf"`）
+
+### 完整驗證指令
+以下是專案設定及 CI 工作流程實際執行的完整檢查指令，清楚區分不同層級的驗證：
 
 ```powershell
 # 後端（backend 目錄；測試需可用的 MySQL、Redis 與測試環境設定）
-uv run ruff check .          # 程式碼風格檢查
-uv run mypy app/             # 型別檢查
-uv run pytest -q             # 執行測試
+uv run ruff check .          # 程式碼風格檢查（Lint）
+uv run mypy app/             # 靜態型別檢查
+uv run pytest -q             # 功能測試驗證
 
 # 前端（frontend 目錄）
 npm run lint                 # oxlint 程式碼檢查
 npx tsc --noEmit             # TypeScript 型別檢查
 npm test                     # Vitest 單元測試
-npm run build                # 生產建置
+npm run build                # 生產建置驗證
 ```
 
 CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。完整後端環境設定及 Seeder 限制見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)。正式規格入口為 [`docs/01_SRS.md`](docs/01_SRS.md)，並包括[領域規則](docs/02_DOMAIN_RULES.md)、[API 契約](docs/04_API_CONTRACT.md)、[資料庫結構](docs/05_DATABASE_SCHEMA.md)、[目前實作狀態](docs/06_CURRENT_STATE.md)、[驗收標準](docs/07_ACCEPTANCE.md)及[開發路線圖](docs/08_ROADMAP.md)。

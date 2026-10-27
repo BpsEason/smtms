@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { allInternalLots, getErrorMessage, localDateTimeNow } from "../../lib/data";
@@ -25,24 +26,19 @@ import { statusLabel } from "../../lib/status";
 import type {
   IQCForm,
   InternalLot,
-  IQCRecord,
-  PaginatedResponse,
   UserProfile,
 } from "./types";
 import { Pagination } from "./components/SharedComponents";
 
 export function IQCPage({ profile }: { profile: UserProfile | null }) {
-  const [records, setRecords] = useState<PaginatedResponse<IQCRecord> | null>(
-    null,
-  );
+  const queryClient = useQueryClient();
+  const [lots, setLots] = useState<InternalLot[]>([]);
   const [query, setQuery] = useState("");
   const [resultFilter, setResultFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [lots, setLots] = useState<InternalLot[]>([]);
-  const [loading, setLoading] = useState(true);
   const [lotsLoading, setLotsLoading] = useState(true);
-  const [error, setError] = useState("");
   const [lotError, setLotError] = useState("");
+  const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [form, setForm] = useState<IQCForm>({
     lotId: "",
@@ -62,35 +58,39 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         : "hold";
   const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
 
-  const loadRecords = useCallback(async () => {
-    setLoading(true);
-    try {
-      setRecords(
-        await api.listIQCRecords({
-          keyword: query || undefined,
-          result: resultFilter || undefined,
-          page,
-          page_size: 50,
-        }),
-      );
-      setError("");
-    } catch (err) {
-      setRecords(null);
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [query, resultFilter, page]);
+  // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
   
   useEffect(() => {
-    const timer = window.setTimeout(
-      () => {
-        void loadRecords();
-      },
-      query ? 250 : 0,
-    );
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 250);
     return () => window.clearTimeout(timer);
-  }, [loadRecords, query]);
+  }, [query]);
+
+  // 使用 TanStack Query 管理 IQC 檢驗紀錄資料載入
+  const {
+    data: records,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ['iqc-records', debouncedQuery, resultFilter, page],
+    queryFn: async () => {
+      const response = await api.listIQCRecords({
+        keyword: debouncedQuery || undefined,
+        result: resultFilter || undefined,
+        page: page,
+        page_size: 50,
+      });
+      return response;
+    },
+    retry: 1,
+    staleTime: 30 * 1000, // 30秒內不重複請求
+  });
+
+  // 合併查詢錯誤和其他操作錯誤
+  const displayError = queryError ? getErrorMessage(queryError) : error;
   
   useEffect(() => {
     let active = true;
@@ -132,7 +132,8 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         inspectionDate: localDateTimeNow(),
         remarks: "",
       });
-      await loadRecords();
+      // 使所有相關查詢緩存失效，確保列表資料最新
+      await queryClient.invalidateQueries({ queryKey: ['iqc-records'] });
       if (created.internal_lot_id !== null) {
         try {
           const actualLot = await api.getInternalLot(created.internal_lot_id);
@@ -159,9 +160,9 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         title="進料檢驗（IQC）"
         description="針對既有內部批號記錄檢驗結果；批號狀態由後端依驗證通過的檢驗結果與放行狀態更新。"
       />
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void loadRecords()} />
+          <ErrorState message={displayError} onRetry={() => void refetch()} />
         </div>
       )}
       {success && (
@@ -408,7 +409,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 })}
               </TableBody>
             </DataTable>
-          ) : error && !records ? null : (
+          ) : displayError && !records ? null : (
             <EmptyState
               title="找不到符合的 IQC 紀錄"
               description={
@@ -423,7 +424,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
             total={records?.total ?? 0}
             pageSize={records?.page_size ?? 50}
             onChange={(next) => {
-              setLoading(true);
               setPage(next);
             }}
           />
