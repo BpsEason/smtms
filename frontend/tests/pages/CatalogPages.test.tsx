@@ -318,10 +318,11 @@ describe("material form validation", () => {
     
     await userEvent.click(screen.getByRole("button", { name: "新增物料" }));
     
-    const statusSelect = screen.getByLabelText("物料狀態");
+    // 等待Modal內的表單元素渲染完成
+    const statusSelect = await screen.findByLabelText("物料狀態");
     expect(statusSelect).toHaveValue("active");
-    expect(screen.getByLabelText("物料代碼")).toHaveValue("");
-    expect(screen.getByLabelText("物料名稱")).toHaveValue("");
+    expect(await screen.findByLabelText("物料代碼")).toHaveValue("");
+    expect(await screen.findByLabelText("物料名稱")).toHaveValue("");
   });
 
   it("loads correct data in edit mode", async () => {
@@ -331,11 +332,12 @@ describe("material form validation", () => {
     await screen.findByText("Alloy Sheet");
     await userEvent.click(screen.getByRole("button", { name: "編輯資料" }));
     
-    expect(screen.getByLabelText("物料代碼")).toHaveValue("MAT-08");
-    expect(screen.getByLabelText("物料名稱")).toHaveValue("Alloy Sheet");
-    expect(screen.getByLabelText("物料類別")).toHaveValue("raw");
-    expect(screen.getByLabelText("計量單位")).toHaveValue("kg");
-    expect(screen.getByLabelText("物料狀態")).toHaveValue("active");
+    // 等待Modal內的表單元素渲染完成
+    expect(await screen.findByLabelText("物料代碼")).toHaveValue("MAT-08");
+    expect(await screen.findByLabelText("物料名稱")).toHaveValue("Alloy Sheet");
+    expect(await screen.findByLabelText("物料類別")).toHaveValue("raw");
+    expect(await screen.findByLabelText("計量單位")).toHaveValue("kg");
+    expect(await screen.findByLabelText("物料狀態")).toHaveValue("active");
   });
 
   it("does not retain previous data when switching between different edit entries", async () => {

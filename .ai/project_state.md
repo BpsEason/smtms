@@ -42,6 +42,23 @@
 | D5 | Nginx /health/尾斜線路由問題 | 低 | 待修復
 | D6 | README與docker-compose.yml連接埠不一致 | 低 | ✅ 已修復
 | D7 | 前端Dockerfile執行開發模式 | 中 | ✅ 文件已更新
+| D8 | 前端資料獲取模式不統一 | 高 | 權限管理頁面使用手動useState+useEffect，部分頁面未使用TanStack Query
+| D9 | 前端表單處理模式不統一 | 中 | 部分頁面使用手動DOM表單處理，未統一採用react-hook-form + Zod
+| D10 | 前端類型定義重複與分散 | 中 | 多個頁面本地重複定義相同領域類型，未集中管理
+| D11 | 後端輔助函數命名風格略有差異 | 低 | 各路由檔案的內部輔助函數命名不一致，不影響功能
+
+## 待改進計劃
+### 立即執行（本週）
+- [x] 完成開發模式盤點報告
+- [x] 更新.ai/instructions.md，加入新的開發規範
+- [ ] 重構RolesPermissionsPage.tsx改用TanStack Query
+- [ ] 統一管理頁面表單處理，使用react-hook-form
+
+### 後續規劃（未來一個月）
+- [ ] 檢查所有頁面，統一表單處理模式
+- [ ] 清理各頁面本地types.ts，移除重複類型定義
+- [ ] 為後端所有路由新增統一的輔助函數命名
+- [ ] 撰寫團隊開發指南，記錄所有統一規範
 
 ## 環境限制
 1. MySQL必須外部提供，docker-compose.yml不包含MySQL

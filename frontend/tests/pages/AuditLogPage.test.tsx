@@ -85,9 +85,10 @@ describe("AuditLogPage", () => {
       expect.anything(),
     );
     await user.click(screen.getByRole("button", { name: "查看紀錄 101" }));
-    expect(screen.getByRole("region", { name: "稽核紀錄明細" })).toHaveTextContent('"active"');
-    expect(screen.getByRole("region", { name: "稽核紀錄明細" })).toHaveTextContent('"inactive"');
-    expect(screen.getByRole("region", { name: "稽核紀錄明細" })).toHaveTextContent("Request ID：req-abc");
+    expect(screen.getByRole("dialog", { name: "稽核紀錄明細" })).toHaveTextContent('"active"');
+    expect(screen.getByRole("dialog", { name: "稽核紀錄明細" })).toHaveTextContent('"inactive"');
+    expect(screen.getByRole("dialog", { name: "稽核紀錄明細" })).toHaveTextContent("Request ID");
+    expect(screen.getByRole("dialog", { name: "稽核紀錄明細" })).toHaveTextContent("req-abc");
   });
 
   it("exports the active filters without pagination", async () => {

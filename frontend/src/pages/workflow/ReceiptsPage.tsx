@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../../api/client";
 import {
   allSuppliers,
@@ -13,12 +11,9 @@ import {
 } from "../../lib/data";
 import { Button } from "@/components/shadcn/button";
 import {
-  ConfirmDialog,
   DataTable,
   EmptyState,
   ErrorState,
-  FormField,
-  inputClass,
   LoadingState,
   PageHeader,
   Panel,
@@ -39,40 +34,26 @@ import type {
   SupplierLot,
   Material,
 } from "./types";
+import { Pagination } from "./components/SharedComponents";
+import { CreateReceiptDialog } from "./receipts/CreateReceiptDialog";
+import { ReceiptDetailDialog } from "./receipts/ReceiptDetailDialog";
+import { ReceiptFilters } from "./receipts/ReceiptFilters";
 
-// Zod 驗證 schema - 新增收料表單
-const receiptSchema = z.object({
-  supplierId: z.string().min(1, "請選擇供應商"),
-  materialId: z.string().min(1, "請選擇物料"),
-  supplierLotId: z.string().min(1, "請選擇供應商批號"),
-  receiptNo: z.string().min(1, "收料單號為必填").max(100, "收料單號最多100字元"),
-  quantity: z.string().refine(
-    (val) => {
-      const num = Number(val);
-      return !isNaN(num) && num > 0 && num >= 0.0001;
-    },
-    "收料數量必須大於0，最小單位為0.0001"
-  ),
-  receivedAt: z.string().min(1, "收料日期為必填"),
-  notes: z.string().max(500, "備註最多500字元").optional(),
-});
+// 表單型別定義由子元件維護，此處僅聲明所需的回呼型別
+type ReceiptFormData = {
+  supplierId: string;
+  materialId: string;
+  supplierLotId: string;
+  receiptNo: string;
+  quantity: string;
+  receivedAt: string;
+  notes?: string;
+};
 
-type ReceiptFormData = z.infer<typeof receiptSchema>;
-
-// Zod 驗證 schema - 拆分內部批號表單
-const splitSchema = (maxQuantity: number) => z.object({
-  lotNo: z.string().min(1, "內部批號為必填").max(100, "內部批號最多100字元"),
-  quantity: z.string().refine(
-    (val) => {
-      const num = Number(val);
-      return !isNaN(num) && num > 0 && num >= 0.0001 && num <= maxQuantity;
-    },
-    `拆分數量必須大於0，最小單位為0.0001，且不得超過剩餘數量 ${maxQuantity}`
-  ),
-});
-
-type SplitFormData = z.infer<ReturnType<typeof splitSchema>>;
-import { Pagination, Detail } from "./components/SharedComponents";
+type SplitFormData = {
+  lotNo: string;
+  quantity: string;
+};
 
 export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -89,24 +70,20 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
   const [trace, setTrace] = useState<ReceiptTrace | null>(null);
-  const [_traceError, _setTraceError] = useState("");
-  const [_selectedLot, _setSelectedLot] = useState<any>(null);
   const [resourceLoading, setResourceLoading] = useState(true);
   const [resourceError, setResourceError] = useState("");
   const [success, setSuccess] = useState("");
   const [splitError, setSplitError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSplitSubmitting, setIsSplitSubmitting] = useState(false);
   const lotFormRef = useRef<HTMLFormElement>(null);
-  
-  // React Hook Form - 新增收料表單
+
+  // React Hook Form - 新增收料表單（僅保留必要的watch用於計算eligibleLots）
   const {
-    register,
-    handleSubmit,
     reset,
     setValue,
     watch,
-    formState: { errors, isSubmitting },
   } = useForm<ReceiptFormData>({
-    resolver: zodResolver(receiptSchema),
     defaultValues: {
       supplierId: "",
       materialId: "",
@@ -117,31 +94,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       notes: "",
     },
   });
-  
-  // React Hook Form - 拆分內部批號表單
-  const maxRemainingQuantity = selectedReceipt ? Number(selectedReceipt.qty_remaining) : 0;
-  const {
-    register: registerSplit,
-    handleSubmit: handleSubmitSplit,
-    reset: resetSplit,
-    formState: { errors: splitErrors, isSubmitting: isSplitSubmitting },
-    trigger: triggerSplit,
-  } = useForm<SplitFormData>({
-    resolver: zodResolver(splitSchema(maxRemainingQuantity)),
-    defaultValues: {
-      lotNo: "",
-      quantity: "",
-    },
-  });
-  
-  // 當切換不同的收料單時，重新觸發驗證以更新最大數量限制
-  useEffect(() => {
-    if (selectedReceipt) {
-      triggerSplit();
-    }
-  }, [selectedReceipt, triggerSplit]);
-  
-  // 監聽表單值變化，用於計算eligibleLots
+
+  // 監聽表單值變化，用於計算 eligibleLots
   const supplierId = watch("supplierId");
   const materialId = watch("materialId");
   const canWrite = Boolean(profile?.permissions.includes("receipts:write"));
@@ -172,13 +126,16 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
 
   // 延遲更新搜尋參數以避免過多請求（僅搜尋框輸入時使用250ms防抖）
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedQuery(receiptQuery);
-      setDebouncedStatus(receiptStatus);
-      setDebouncedDateFrom(dateFrom);
-      setDebouncedDateTo(dateTo);
-      setDebouncedPage(receiptPage);
-    }, receiptQuery ? 250 : 0);
+    const timer = window.setTimeout(
+      () => {
+        setDebouncedQuery(receiptQuery);
+        setDebouncedStatus(receiptStatus);
+        setDebouncedDateFrom(dateFrom);
+        setDebouncedDateTo(dateTo);
+        setDebouncedPage(receiptPage);
+      },
+      receiptQuery ? 250 : 0,
+    );
     return () => window.clearTimeout(timer);
   }, [receiptQuery, receiptStatus, dateFrom, dateTo, receiptPage]);
 
@@ -189,34 +146,50 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     error: queryError,
     refetch,
   } = useQuery({
-    queryKey: ['receipts', debouncedQuery, debouncedStatus, debouncedDateFrom, debouncedDateTo, debouncedPage],
+    queryKey: [
+      "receipts",
+      debouncedQuery,
+      debouncedStatus,
+      debouncedDateFrom,
+      debouncedDateTo,
+      debouncedPage,
+    ],
     queryFn: async () => {
       const response = await api.listReceipts({
         keyword: debouncedQuery || undefined,
         status: debouncedStatus || undefined,
-        date_from: debouncedDateFrom ? new Date(`${debouncedDateFrom}T00:00:00`).toISOString() : undefined,
-        date_to: debouncedDateTo ? new Date(`${debouncedDateTo}T23:59:59.999`).toISOString() : undefined,
+        date_from: debouncedDateFrom
+          ? new Date(`${debouncedDateFrom}T00:00:00`).toISOString()
+          : undefined,
+        date_to: debouncedDateTo
+          ? new Date(`${debouncedDateTo}T23:59:59.999`).toISOString()
+          : undefined,
         page: debouncedPage,
         page_size: 50,
       });
       return response;
     },
     retry: 1,
-    staleTime: 30 * 1000, // 30秒內不重複請求
+    staleTime: 30 * 1000,
   });
 
-  // 每當receipts更新時（不論來自快取或新請求），更新選中的ID
+  // 每當 receipts 更新時，檢查當前選中的 ID 是否仍然存在，如果不存在則清除
   useEffect(() => {
-    if (!receipts?.items.length) return;
+    if (!receipts?.items.length) {
+      setSelectedId(null);
+      return;
+    }
+    // 如果當前選取的項目已不在列表中，則清除選取
     setSelectedId((current) =>
       current !== null && receipts.items.some((item) => item.id === current)
         ? current
-        : (receipts.items[0]?.id ?? null),
+        : null,
     );
   }, [receipts]);
 
   const error = queryError ? getErrorMessage(queryError) : "";
-  
+
+  // 載入供應商、物料、批號選項
   useEffect(() => {
     let active = true;
     Promise.all([allSuppliers(), allMaterials(), allSupplierLots()])
@@ -241,8 +214,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     };
   }, []);
 
+  // 載入選中的收料詳情與追溯
   useEffect(() => {
-    if (selectedId === null) return;
+    if (selectedId === null) {
+      setSelectedReceipt(null);
+      setTrace(null);
+      return;
+    }
+
     let active = true;
     if (canTrace) {
       api
@@ -256,7 +235,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         .catch((err) => {
           if (active) {
             setTrace(null);
-            _setTraceError(getErrorMessage(err));
+            setSelectedReceipt(null);
+            console.error(getErrorMessage(err));
           }
         });
     } else {
@@ -266,7 +246,10 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           if (active) setSelectedReceipt(receipt);
         })
         .catch((err) => {
-          if (active) console.error(getErrorMessage(err));
+          if (active) {
+            setSelectedReceipt(null);
+            console.error(getErrorMessage(err));
+          }
         });
     }
     return () => {
@@ -276,6 +259,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
 
   const createReceipt = async (data: ReceiptFormData) => {
     setSuccess("");
+    setIsSubmitting(true);
     try {
       const created = await api.createReceipt({
         supplier_id: Number(data.supplierId),
@@ -290,10 +274,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         `收料單 ${created.receipt_no} 已建立，狀態：${statusLabel(created.status)}。`,
       );
       setTrace(null);
-      _setTraceError("");
       setSelectedReceipt(created);
       setSelectedId(created.id);
-      // 使用react-hook-form的reset方法重設表單
       reset({
         supplierId: "",
         materialId: "",
@@ -307,6 +289,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     } catch (err) {
       console.error(getErrorMessage(err));
       throw err;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -337,7 +321,6 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           ? items.map((item) => (item.id === created.id ? created : item))
           : [...items, created],
       );
-      // 使用react-hook-form的setValue方法設定表單值
       setValue("supplierId", String(created.supplier_id));
       setValue("materialId", String(created.material_id));
       setValue("supplierLotId", String(created.id));
@@ -356,17 +339,16 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const splitReceipt = async (data: SplitFormData) => {
     setSplitError("");
     setSuccess("");
+    setIsSplitSubmitting(true);
     if (!selectedReceipt) return;
     try {
       const created = await api.splitReceipt(selectedReceipt.id, {
         internal_lot_no: data.lotNo.trim(),
         qty: data.quantity,
       });
-      _setSelectedLot(created);
       setSuccess(
         `內部批號 ${created.internal_lot_no} 已建立。後端狀態：${statusLabel(created.lot_status)}。`,
       );
-      resetSplit({ lotNo: "", quantity: "" });
       await refetch();
       if (canTrace) {
         const currentTrace = await api.getReceiptTrace(selectedReceipt.id);
@@ -379,7 +361,16 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     } catch (err) {
       setSplitError(getErrorMessage(err));
       throw err;
+    } finally {
+      setIsSplitSubmitting(false);
     }
+  };
+
+  const closeDetail = () => {
+    setSelectedId(null);
+    setSelectedReceipt(null);
+    setTrace(null);
+    setSplitError("");
   };
 
   return (
@@ -388,8 +379,47 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         eyebrow="進料管理"
         title="收料紀錄"
         description="檢視收料日期、供應商批號與 IQC 進度；收料登錄依既有供應商批號進行。"
-        action={canWrite ? <Button variant="default" onClick={() => setShowReceiptForm((value) => !value)}>{showReceiptForm ? "關閉新增表單" : "新增收料紀錄"}</Button> : undefined}
+        action={
+          canWrite ? (
+            <>
+            <Button variant="default" onClick={() => setShowReceiptForm(true)}>
+              新增收料
+            </Button>
+            <CreateReceiptDialog
+              open={showReceiptForm}
+              onOpenChange={setShowReceiptForm}
+              suppliers={suppliers}
+              materials={materials}
+              canCreateSupplierLots={canCreateSupplierLots}
+              eligibleLots={eligibleLots}
+              resourceLoading={resourceLoading}
+              resourceError={resourceError}
+              isSubmitting={isSubmitting}
+              lotSaving={lotSaving}
+              showLotForm={showLotForm}
+              onShowLotFormChange={setShowLotForm}
+              onSupplierIdChange={(id) => setValue("supplierId", id)}
+              onMaterialIdChange={(id) => setValue("materialId", id)}
+              onSupplierLotIdChange={(id) => setValue("supplierLotId", id)}
+              onCreateSupplierLot={createSupplierLot}
+              onSubmit={createReceipt}
+              onReset={() => {
+                reset({
+                  supplierId: "",
+                  materialId: "",
+                  supplierLotId: "",
+                  receiptNo: "",
+                  quantity: "",
+                  receivedAt: localDateTimeNow(),
+                  notes: "",
+                });
+              }}
+            />
+          </>
+          ) : undefined
+        }
       />
+
       {error && (
         <div className="mb-4">
           <ErrorState message={error} onRetry={() => void refetch()} />
@@ -400,294 +430,19 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           <SuccessMessage>{success}</SuccessMessage>
         </div>
       )}
-      <div className="space-y-5">
-        {canWrite && showReceiptForm && (
-          <Panel
-            title="收料作業"
-            description="依序確認供應商、物料、供應商批號，再登錄收料數量。若供應商批號尚未建檔，可先在此登錄。"
-          >
-            {resourceLoading ? (
-              <LoadingState label="正在載入供應商與物料選項…" />
-            ) : (
-              <div className="space-y-4">
-                {resourceError && <ErrorState message={resourceError} />}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    步驟一：登錄供應商批號
-                  </h3>
-                  {canCreateSupplierLots && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={!suppliers.length || !materials.length}
-                      onClick={() => setShowLotForm((open) => !open)}
-                    >
-                      {showLotForm ? "關閉批號登錄" : "新增供應商批號"}
-                    </Button>
-                  )}
-                </div>
-                {showLotForm && canCreateSupplierLots && (
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                    <form
-                      ref={lotFormRef}
-                      onSubmit={(event) => event.preventDefault()}
-                      className="grid gap-3 sm:grid-cols-2"
-                    >
-                      <FormField label="供應商">
-                        <select
-                          className={inputClass}
-                          name="supplier_id"
-                          required
-                          defaultValue={supplierId}
-                        >
-                          <option value="">選擇供應商</option>
-                          {suppliers.map((supplier) => (
-                            <option key={supplier.id} value={supplier.id}>
-                              {supplier.supplier_code} ·{" "}
-                              {supplier.supplier_name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="物料">
-                        <select
-                          className={inputClass}
-                          name="material_id"
-                          required
-                          defaultValue={materialId}
-                        >
-                          <option value="">選擇物料</option>
-                          {materials.map((material) => (
-                            <option key={material.id} value={material.id}>
-                              {material.material_code} ·{" "}
-                              {material.material_name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="供應商批號（新建）">
-                        <input
-                          className={inputClass}
-                          name="supplier_lot_no"
-                          required
-                          maxLength={120}
-                        />
-                      </FormField>
-                      <FormField
-                        label="批號申報數量"
-                        hint="申報批號總量；收料單登錄本次實際到貨數量。"
-                      >
-                        <input
-                          className={inputClass}
-                          type="number"
-                          name="qty_received"
-                          min="0.0001"
-                          step="0.0001"
-                          required
-                        />
-                      </FormField>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="製造日期">
-                      <input
-                        className={inputClass}
-                        type="date"
-                        name="manufacturing_date"
-                      />
-                    </FormField>
-                    <FormField label="有效期限">
-                      <input
-                        className={inputClass}
-                        type="date"
-                        name="expiry_date"
-                      />
-                    </FormField>
-                  </div>
-                      <p className="text-xs text-slate-600 sm:col-span-2">
-                        僅能為已建立供應商－物料關聯的組合建立批號。若關聯不存在，請先到「供應商」頁面選擇「連結物料」。
-                      </p>
-                      <div className="flex gap-2 sm:col-span-2">
-                        <ConfirmDialog
-                          trigger={
-                            <Button
-                              type="button"
-                              disabled={lotSaving}
-                              onClick={(event) => {
-                                if (!lotFormRef.current?.reportValidity())
-                                  event.preventDefault();
-                              }}
-                            >
-                              {lotSaving ? "建立中…" : "確認批號資料"}
-                            </Button>
-                          }
-                          title="建立供應商批號？"
-                          description="批號將與所選供應商及物料關聯，建立後可用於收料登錄。後端會檢查供應關係及批號唯一性。"
-                          confirmLabel="建立批號"
-                          onConfirm={createSupplierLot}
-                        />
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          disabled={lotSaving}
-                          onClick={() => setShowLotForm(false)}
-                        >
-                          取消
-                        </Button>
-                      </div>
-                    </form>
-                  </div>
-                )}
-                <h3 className="border-t border-slate-200 pt-4 text-sm font-semibold text-slate-900">
-                  步驟二：登錄收料
-                </h3>
-                <form
-                  onSubmit={handleSubmit(createReceipt)}
-                  className="space-y-4"
-                  noValidate
-                >
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="供應商" error={errors.supplierId?.message}>
-                      <select
-                        className={inputClass}
-                        {...register("supplierId", {
-                          onChange: () => {
-                            setValue("supplierLotId", "");
-                          }
-                        })}
-                      >
-                        <option value="">請選擇供應商</option>
-                        {suppliers.map((supplier) => (
-                          <option key={supplier.id} value={supplier.id}>
-                            {supplier.supplier_code} · {supplier.supplier_name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                    <FormField label="物料" error={errors.materialId?.message}>
-                      <select
-                        className={inputClass}
-                        {...register("materialId", {
-                          onChange: () => {
-                            setValue("supplierLotId", "");
-                          }
-                        })}
-                      >
-                        <option value="">請選擇物料</option>
-                        {materials.map((material) => (
-                          <option key={material.id} value={material.id}>
-                            {material.material_code} · {material.material_name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
-                  <FormField
-                    label="供應商批號"
-                    hint="僅列出符合所選供應商與物料的批號。"
-                    error={errors.supplierLotId?.message}
-                  >
-                    <select
-                      className={inputClass}
-                      disabled={
-                        !supplierId || !materialId
-                      }
-                      {...register("supplierLotId")}
-                    >
-                      <option value="">請選擇供應商批號</option>
-                      {eligibleLots.map((lot) => (
-                        <option key={lot.id} value={lot.id}>
-                          {lot.supplier_lot_no} · {lot.qty_received} {lot.uom} ·{" "}
-                          {lot.qc_status}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="收料單號" error={errors.receiptNo?.message}>
-                      <input
-                        className={inputClass}
-                        maxLength={100}
-                        {...register("receiptNo")}
-                      />
-                    </FormField>
-                    <FormField label="收料數量" error={errors.quantity?.message}>
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min="0.0001"
-                        step="0.0001"
-                        {...register("quantity")}
-                      />
-                    </FormField>
-                    <FormField label="收料日期" error={errors.receivedAt?.message}>
-                      <input
-                        className={inputClass}
-                        type="datetime-local"
-                        {...register("receivedAt")}
-                      />
-                    </FormField>
-                    <FormField label="備註" error={errors.notes?.message}>
-                      <input
-                        className={inputClass}
-                        maxLength={500}
-                        {...register("notes")}
-                      />
-                    </FormField>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="submit"
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? "建立中…" : "建立收料單"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setShowReceiptForm(false)}
-                    >
-                      取消
-                    </Button>
-                  </div>
-                </form>
-              </div>
-            )}
-          </Panel>
-        )}
 
+      <div className="space-y-5">
         <Panel title="收料列表">
-          <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="sm:col-span-1 md:col-span-2">
-              <input
-                className={inputClass}
-                placeholder="搜尋收料單號、供應商或物料..."
-                value={receiptQuery}
-                onChange={(e) => setReceiptQuery(e.target.value)}
-              />
-            </div>
-            <select
-              className={`${inputClass} min-w-[140px]`}
-              value={receiptStatus}
-              onChange={(e) => setReceiptStatus(e.target.value)}
-            >
-              <option value="">全部狀態</option>
-              <option value="pending">待處理</option>
-              <option value="processing">處理中</option>
-              <option value="completed">已完成</option>
-              <option value="cancelled">已取消</option>
-            </select>
-            <input
-              type="date"
-              className={`${inputClass} min-w-[150px]`}
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-            <input
-              type="date"
-              className={`${inputClass} min-w-[150px]`}
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
-          </div>
+          <ReceiptFilters
+            receiptQuery={receiptQuery}
+            receiptStatus={receiptStatus}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onQueryChange={setReceiptQuery}
+            onStatusChange={setReceiptStatus}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+          />
 
           {loading ? (
             <LoadingState label="正在載入收料紀錄..." />
@@ -711,10 +466,11 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                 </TableHead>
                 <TableBody>
                   {receipts.items.map((receipt) => (
-                    <TableRow 
+                    <TableRow
                       key={receipt.id}
-                      className={selectedId === receipt.id ? "bg-slate-100" : ""}
-                      onClick={() => setSelectedId(receipt.id)}
+                      className={
+                        selectedId === receipt.id ? "bg-slate-100" : ""
+                      }
                     >
                       <Td className="font-medium">{receipt.receipt_no}</Td>
                       <Td>{receipt.supplier_name}</Td>
@@ -723,7 +479,9 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                       <Td>
                         <StatusBadge value={receipt.status} />
                       </Td>
-                      <Td>{new Date(receipt.received_at).toLocaleDateString()}</Td>
+                      <Td>
+                        {new Date(receipt.received_at).toLocaleDateString()}
+                      </Td>
                       <Td>
                         <button
                           className="text-sm text-blue-600 hover:underline"
@@ -748,125 +506,22 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
             </>
           )}
         </Panel>
-
-        {selectedReceipt && (
-          <Panel title="收料詳情">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              <Detail label="收料單號" value={selectedReceipt.receipt_no} />
-              <Detail label="供應商ID" value={String(selectedReceipt.supplier_id)} />
-              <Detail label="物料ID" value={String(selectedReceipt.material_id)} />
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">狀態</p>
-                <p className="mt-1">
-                  <StatusBadge value={selectedReceipt.status} />
-                </p>
-              </div>
-              <Detail label="收料數量" value={String(selectedReceipt.qty_received)} />
-              <Detail label="剩餘數量" value={String(selectedReceipt.qty_remaining)} />
-              <Detail label="收料日期" value={new Date(selectedReceipt.received_at).toLocaleString()} />
-              <Detail label="備註" value={selectedReceipt.notes || "-"} />
-            </div>
-
-            {canWrite && Number(selectedReceipt.qty_remaining) > 0 && (
-              <div className="mt-6 border-t border-slate-200 pt-6">
-                <h4 className="text-sm font-semibold text-slate-900 mb-4">拆分內部批號</h4>
-                {splitError && <ErrorState message={splitError} />}
-                <form
-                  onSubmit={handleSubmitSplit(splitReceipt)}
-                  className="grid gap-4 sm:grid-cols-3"
-                  noValidate
-                >
-                  <FormField label="內部批號" htmlFor="internal-lot-no" error={splitErrors.lotNo?.message}>
-                    <input
-                      id="internal-lot-no"
-                      aria-label="內部批號"
-                      className={inputClass}
-                      maxLength={100}
-                      {...registerSplit("lotNo")}
-                    />
-                  </FormField>
-                  <FormField label="拆分數量" htmlFor="split-quantity" error={splitErrors.quantity?.message}>
-                    <input
-                      id="split-quantity"
-                      aria-label="拆分數量"
-                      className={inputClass}
-                      type="number"
-                      min="0.0001"
-                      step="0.0001"
-                      max={Number(selectedReceipt.qty_remaining)}
-                      {...registerSplit("quantity")}
-                    />
-                  </FormField>
-                  <div className="flex items-end">
-                    <ConfirmDialog
-                      trigger={
-                        <Button type="button" disabled={isSplitSubmitting}>
-                          {isSplitSubmitting ? "拆分中…" : "拆分批號"}
-                        </Button>
-                      }
-                      title="建立內部批號？"
-                      description="將從此收料單拆分出一個新的內部批號，剩餘數量將自動更新。"
-                      confirmLabel="確認拆分"
-                      onConfirm={handleSubmitSplit(splitReceipt)}
-                    />
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {trace && (
-              <div className="mt-6 border-t border-slate-200 pt-6">
-                <h4 className="text-sm font-semibold text-slate-900 mb-4">來源與品質追溯</h4>
-                <div className="mb-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">供應商批號</p>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                    {trace.supplier_lot.supplier_lot_no}
-                  </span>
-                </div>
-                {trace.internal_lots && trace.internal_lots.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">已拆分內部批號</p>
-                    <div className="space-y-3">
-                      {trace.internal_lots.map((lot) => (
-                        <div key={lot.internal_lot.id}>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {lot.internal_lot.internal_lot_no} ({lot.internal_lot.qty_on_hand})
-                            </span>
-                            <StatusBadge
-                              value={lot.internal_lot.lot_status}
-                              label={statusLabel(lot.internal_lot.lot_status)}
-                            />
-                          </div>
-                          {lot.iqc_records.length > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {lot.iqc_records.map((record) => (
-                                <p key={record.id} className="text-xs text-slate-600">
-                                  IQC-{record.id} · {statusLabel(record.release_status)}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {trace.receipt_iqc_records && trace.receipt_iqc_records.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">IQC 檢驗記錄</p>
-                    {trace.receipt_iqc_records.map((record) => (
-                      <p key={record.id} className="text-sm text-slate-900">
-                        檢驗結果：<StatusBadge value={record.inspection_result} />
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </Panel>
-        )}
       </div>
+
+      {/* 收料詳情 Dialog - 放在列表之後，使用 Portal 確保正確浮層 */}
+      <ReceiptDetailDialog
+        open={selectedId !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDetail();
+        }}
+        selectedReceipt={selectedReceipt}
+        trace={trace}
+        canWrite={canWrite}
+        splitError={splitError}
+        isSplitSubmitting={isSplitSubmitting}
+        onSplitSubmit={splitReceipt}
+        onClose={closeDetail}
+      />
     </section>
   );
 }
