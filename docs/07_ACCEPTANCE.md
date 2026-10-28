@@ -1,8 +1,8 @@
 # SMTMS - Acceptance Criteria (驗收標準)
 
 ## 文件資訊
-- 版本：1.0.0
-- 最後更新：2026-10-21
+- 版本：1.0.1
+- 最後更新：2026-10-28
 - 相關文件：[目前實作狀態](./06_CURRENT_STATE.md), [API契約](./04_API_CONTRACT.md)
 
 ---

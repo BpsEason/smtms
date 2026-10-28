@@ -1,8 +1,8 @@
 # SMTMS - Current State (目前實作狀態)
 
 ## 文件資訊
-- 版本：1.0.1
-- 最後更新：2026-10-26
+- 版本：1.0.2
+- 最後更新：2026-10-28
 - 相關文件：[驗收標準](./07_ACCEPTANCE.md), [開發路線圖](./08_ROADMAP.md)
 
 ---
@@ -72,16 +72,19 @@
 - **問題**：Nginx代理至`/api/v1/health/`，後端無此路由，依賴FastAPI自動重導
 - **影響檔案**：`docker/nginx/default.conf`
 - **嚴重性**：低（功能正常但依賴重導）
+- **狀態**：待修復 - 本次文件更新僅標記問題，需修改Nginx配置檔移除尾斜線
 
 ### D6: README與docker-compose.yml連接埠不一致
 - **問題**：README記載Nginx對外連接埠80，實際Compose映射為8087
 - **影響檔案**：根目錄`README.md`、`docker-compose.yml`
 - **嚴重性**：低（僅文件問題）
+- **狀態**：已修復 ✓ - README.md已更新為正確的8087埠口描述
 
 ### D7: 前端Dockerfile執行開發模式
 - **問題**：前端容器`CMD`執行`npm run dev`，非生產環境的靜態檔案服務
-- **影響檔案**：`frontend/Dockerfile`
+- **影響檔案**：`frontend/Dockerfile`、`frontend/README.md`
 - **嚴重性**：中（不適合生產部署）
+- **狀態**：文件已更新 ✓ - frontend/README.md已補充生產環境部署注意事項，說明目前Dockerfile僅供開發演示使用
 
 ### D8: 殘留無原始檔的pyc快取
 - **問題**：`app/services/__pycache__/auth_service.cpython-313.pyc`存在，但無對應.py原始檔

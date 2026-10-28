@@ -6,6 +6,30 @@ SMTMS（Supplier Material Traceability Management System）是供應商、物料
 
 ## 技術與依賴
 
+### 前端技術選型
+
+| 類別 | 技術選擇 | 狀態 | 採用原則 |
+|---|---|---|---|
+| 建置工具 | Vite | ✅ 已採用 | 適合一般 React SPA；需要 SSR 或完整框架能力時再評估其他方案 |
+| 語言 | TypeScript | ✅ 已採用 | 優先使用明確型別，降低 API 整合及重構風險 |
+| 元件寫法 | Function Component + Hooks | ✅ 已採用 | 新增元件優先採用函式元件與 Hooks |
+| 路由 | React Router | ✅ 已採用 | 沿用現有路由架構，不任意更換路由方案 |
+| 樣式 | Tailwind CSS | ✅ 已採用 | 沿用現有樣式系統與共用 UI 元件 |
+| Server State | TanStack Query | ✅ 已採用 | 用於伺服器資料的快取、重新查詢及同步；依實際需求採用 |
+| 表單 | React Hook Form + Zod | ✅ 已採用 | 適合具有多欄位、驗證規則或複雜互動的表單 |
+| Client State | React 內建狀態 | ✅ 已採用 | 先區分元件狀態、伺服器狀態及全域 UI 狀態，必要時再評估 Zustand |
+| 複雜全域狀態 | Redux Toolkit | 💡 視需求評估 | 不預設採用，也不將其視為過時技術，僅在需要處理複雜全域狀態時評估 |
+
+### 開發原則
+
+- 優先沿用現有技術堆疊及程式碼模式
+- 避免為簡單功能引入不必要的抽象或依賴
+- Server State 與 Client State 應分開考量，避免重複維護同一份伺服器資料
+- 表單驗證與 API 契約應保持一致；前端驗證不能取代後端驗證
+- 新增或更換技術前，應說明它解決的問題、維護成本及替代方案
+
+### 目前已安裝的核心依賴
+
 - React 19、TypeScript、Vite 8、React Router 7。
 - Tailwind CSS 4，透過 `@tailwindcss/vite` 整合 Vite。
 - 共用 UI 元件以 Tailwind 樣式實作；Radix Dialog 提供操作確認對話框，Lucide React 提供圖示。**目前沒有安裝 shadcn/ui CLI 或官方元件套件**，因此本專案不將 shadcn/ui 列為已整合依賴。
@@ -128,6 +152,16 @@ npm run build
 - `npm run lint` 執行 Oxlint。
 - `npm run build` 先執行 TypeScript project build，再產生 Vite 正式建置檔至 `frontend/dist/`。
 - `npm run preview` 可在本機預覽已建置的前端。
+
+## Docker 容器部署注意事項
+
+目前專案提供的 `frontend/Dockerfile` 用於開發環境演示，執行 `npm run dev` 啟動Vite開發伺服器。若要部署至生產環境，需：
+
+1. 先在本機執行 `npm run build` 產生靜態檔案
+2. 修改Dockerfile使用nginx等靜態檔案伺服器服務`dist/`目錄內容
+3. 正確設定`VITE_API_BASE_URL`環境變數指向生產環境後端位址
+
+本專案的Docker Compose配置僅供本機演示使用，不適合直接用於生產環境部署。
 
 ## 連接本機 FastAPI 後端
 

@@ -1,8 +1,8 @@
 # SMTMS - Database Schema (資料庫結構)
 
 ## 文件資訊
-- 版本：1.0.0
-- 最後更新：2026-10-20
+- 版本：1.0.1
+- 最後更新：2026-10-28
 - 資料庫：MySQL 8.x
 - 相關文件：[API契約](./04_API_CONTRACT.md), [領域規則](./02_DOMAIN_RULES.md)
 

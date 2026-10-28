@@ -39,9 +39,9 @@
 | D2 | IQC建立非原子交易，可能導致資料不一致 | 中 |
 | D3 | 單一請求內重複批號未前置攔截 | 中 |
 | D4 | IQC更新未驗證新關聯一致性 | 中 |
-| D5 | Nginx /health/尾斜線路由問題 | 低 |
-| D6 | README與docker-compose.yml連接埠不一致 | 低 |
-| D7 | 前端Dockerfile執行開發模式 | 中 |
+| D5 | Nginx /health/尾斜線路由問題 | 低 | 待修復
+| D6 | README與docker-compose.yml連接埠不一致 | 低 | ✅ 已修復
+| D7 | 前端Dockerfile執行開發模式 | 中 | ✅ 文件已更新
 
 ## 環境限制
 1. MySQL必須外部提供，docker-compose.yml不包含MySQL

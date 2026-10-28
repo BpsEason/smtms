@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
@@ -60,7 +60,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [updatedLot, setUpdatedLot] = useState<InternalLot | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
   
   // 使用 react-hook-form 管理 IQC 表單
   const {
@@ -221,7 +220,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
               />
             ) : (
               <form
-                ref={formRef}
                 onSubmit={handleSubmit(onSubmit)}
                 className="space-y-4"
                 noValidate
@@ -239,11 +237,10 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                   <select
                     id="internal-lot-select"
                     className={inputClass}
-                    {...register("lotId")}
-                    onChange={(event) => {
-                      register("lotId").onChange(event);
-                      setUpdatedLot(null);
-                    }}
+                    aria-label="內部批號"
+                    {...register("lotId", {
+                      onChange: () => setUpdatedLot(null),
+                    })}
                   >
                     <option value="">請選擇內部批號</option>
                     {lots.map((lot) => (
@@ -304,7 +301,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 <ConfirmDialog
                   trigger={
                     <Button
-                      type="submit"
+                      type="button"
                       variant="default"
                       disabled={!selectedLot}
                     >
