@@ -9,6 +9,7 @@ import {
   TableRow,
   inputClass,
   EmptyState,
+  LoadingState,
 } from "../../components/ui";
 import type { NonconformanceListProps } from "./types";
 import { SOURCE_OPTIONS, STATUS_OPTIONS } from "./constants";
@@ -17,6 +18,7 @@ export function NonconformanceList({
   nonconformanceList,
   filters,
   errorMessage,
+  isListLoading,
   onUpdateFilters,
   onSelectItem,
 }: NonconformanceListProps) {
@@ -115,7 +117,11 @@ export function NonconformanceList({
         </TableBody>
       </DataTable>
 
-      {!nonconformanceList.length && !errorMessage && (
+      {isListLoading && (
+        <LoadingState label="案件清單載入中…" />
+      )}
+      
+      {!isListLoading && !nonconformanceList.length && !errorMessage && (
         <EmptyState
           title="目前沒有符合條件的案件。"
         />

@@ -1,5 +1,14 @@
 import type { Nonconformance } from "../../types";
-import type { FormEvent } from "react";
+import type { FormEventHandler } from "react";
+import type {
+  UseFormRegister,
+  FieldErrors,
+  UseFormGetValues,
+} from "react-hook-form";
+import type {
+  DispositionFormData,
+  NonconformanceEditFormData,
+} from "./NonconformancePage";
 
 // 表單類型定義
 export type CreateForm = {
@@ -39,24 +48,12 @@ export type Filters = {
   lot_no: string;
 };
 
-// 新增案件表單子元件屬性
-export type NonconformanceCreateFormProps = {
-  isOpen: boolean;
-  isLoading: boolean;
-  createForm: CreateForm;
-  onUpdateCreateForm: <K extends keyof CreateForm>(
-    field: K,
-    value: CreateForm[K],
-  ) => void;
-  onSubmit: (event: FormEvent) => void;
-  onClose: () => void;
-};
-
 // 案件列表子元件屬性
 export type NonconformanceListProps = {
   nonconformanceList: Nonconformance[];
   filters: Filters;
   errorMessage: string;
+  isListLoading: boolean;
   onUpdateFilters: <K extends keyof Filters>(
     field: K,
     value: Filters[K],
@@ -70,21 +67,14 @@ export type NonconformanceDetailProps = {
   isLoading: boolean;
   canEditSelected: boolean;
   canModify: boolean;
-  editForm: EditFields;
-  investigationContent: string;
-  dispositionForm: DispositionForm;
-  onUpdateEditForm: <K extends keyof EditFields>(
-    field: K,
-    value: EditFields[K],
-  ) => void;
-  onUpdateInvestigationContent: (content: string) => void;
-  onUpdateDispositionForm: <K extends keyof DispositionForm>(
-    field: K,
-    value: DispositionForm[K],
-  ) => void;
-  onSaveInvestigation: () => void;
+  registerEdit: UseFormRegister<NonconformanceEditFormData>;
+  editErrors: FieldErrors<NonconformanceEditFormData>;
+  getEditValues: UseFormGetValues<NonconformanceEditFormData>;
+  registerDisposition: UseFormRegister<DispositionFormData>;
+  dispositionErrors: FieldErrors<DispositionFormData>;
+  onSaveInvestigation: FormEventHandler<HTMLFormElement>;
   onStatusTransition: (newStatus: string) => void;
-  onAddDisposition: (event: FormEvent) => void;
+  onAddDisposition: FormEventHandler<HTMLFormElement>;
   onUploadAttachment: (file?: File) => void;
   onDownloadAttachment: (attachmentId: number, filename: string) => void;
   onRemoveAttachment: (attachmentId: number) => void;

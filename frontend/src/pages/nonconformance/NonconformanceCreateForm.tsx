@@ -4,14 +4,25 @@ import {
   inputClass,
 } from "../../components/ui";
 import { Button } from "@/components/shadcn/button";
-import type { NonconformanceCreateFormProps } from "./types";
+import type { UseFormRegister, FieldErrors } from "react-hook-form";
+import type { NonconformanceCreateFormData } from "./NonconformancePage";
 import { SOURCE_OPTIONS, SEVERITY_OPTIONS } from "./constants";
+import type { FormEventHandler } from "react";
+
+type NonconformanceCreateFormProps = {
+  isOpen: boolean;
+  isLoading: boolean;
+  register: UseFormRegister<NonconformanceCreateFormData>;
+  errors: FieldErrors<NonconformanceCreateFormData>;
+  onSubmit: FormEventHandler<HTMLFormElement>;
+  onClose: () => void;
+};
 
 export function NonconformanceCreateForm({
   isOpen,
   isLoading,
-  createForm,
-  onUpdateCreateForm,
+  register,
+  errors,
   onSubmit,
   onClose,
 }: NonconformanceCreateFormProps) {
@@ -19,30 +30,27 @@ export function NonconformanceCreateForm({
 
   return (
     <Panel title="建立品質異常案件">
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
-        <FormField label="異常編號">
+      <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit} noValidate>
+        <FormField label="異常編號" error={errors.case_no?.message}>
           <input
-            required
             className={inputClass}
-            value={createForm.case_no}
-            onChange={(e) => onUpdateCreateForm("case_no", e.target.value)}
+            maxLength={80}
+            {...register("case_no")}
           />
         </FormField>
 
-        <FormField label="標題">
+        <FormField label="標題" error={errors.title?.message}>
           <input
-            required
             className={inputClass}
-            value={createForm.title}
-            onChange={(e) => onUpdateCreateForm("title", e.target.value)}
+            maxLength={200}
+            {...register("title")}
           />
         </FormField>
 
-        <FormField label="來源">
+        <FormField label="來源" error={errors.source?.message}>
           <select
             className={inputClass}
-            value={createForm.source}
-            onChange={(e) => onUpdateCreateForm("source", e.target.value)}
+            {...register("source")}
           >
             {SOURCE_OPTIONS.map(([v, l]) => (
               <option key={v} value={v}>
@@ -52,11 +60,10 @@ export function NonconformanceCreateForm({
           </select>
         </FormField>
 
-        <FormField label="嚴重程度">
+        <FormField label="嚴重程度" error={errors.severity?.message}>
           <select
             className={inputClass}
-            value={createForm.severity}
-            onChange={(e) => onUpdateCreateForm("severity", e.target.value)}
+            {...register("severity")}
           >
             {SEVERITY_OPTIONS.map(([v, l]) => (
               <option key={v} value={v}>
@@ -66,95 +73,84 @@ export function NonconformanceCreateForm({
           </select>
         </FormField>
 
-        <FormField label="發現時間">
+        <FormField label="發現時間" error={errors.found_at?.message}>
           <input
-            required
             type="datetime-local"
             className={inputClass}
-            value={createForm.found_at}
-            onChange={(e) => onUpdateCreateForm("found_at", e.target.value)}
+            {...register("found_at")}
           />
         </FormField>
 
-        <FormField label="不良數量">
+        <FormField label="不良數量" error={errors.defect_qty?.message}>
           <input
             type="number"
             min="0"
             step="0.0001"
             className={inputClass}
-            value={createForm.defect_qty}
-            onChange={(e) => onUpdateCreateForm("defect_qty", e.target.value)}
+            {...register("defect_qty")}
           />
         </FormField>
 
-        <FormField label="供應商 ID（可選）">
+        <FormField label="供應商 ID（可選）" error={errors.supplier_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.supplier_id}
-            onChange={(e) => onUpdateCreateForm("supplier_id", e.target.value)}
+            {...register("supplier_id")}
           />
         </FormField>
 
-        <FormField label="物料 ID（可選）">
+        <FormField label="物料 ID（可選）" error={errors.material_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.material_id}
-            onChange={(e) => onUpdateCreateForm("material_id", e.target.value)}
+            {...register("material_id")}
           />
         </FormField>
 
-        <FormField label="收料紀錄 ID（可選）">
+        <FormField label="收料紀錄 ID（可選）" error={errors.receipt_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.receipt_id}
-            onChange={(e) => onUpdateCreateForm("receipt_id", e.target.value)}
+            {...register("receipt_id")}
           />
         </FormField>
 
-        <FormField label="供應商批號 ID（可選）">
+        <FormField label="供應商批號 ID（可選）" error={errors.supplier_lot_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.supplier_lot_id}
-            onChange={(e) => onUpdateCreateForm("supplier_lot_id", e.target.value)}
+            {...register("supplier_lot_id")}
           />
         </FormField>
 
-        <FormField label="內部批號 ID（可選）">
+        <FormField label="內部批號 ID（可選）" error={errors.internal_lot_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.internal_lot_id}
-            onChange={(e) => onUpdateCreateForm("internal_lot_id", e.target.value)}
+            {...register("internal_lot_id")}
           />
         </FormField>
 
-        <FormField label="IQC 紀錄 ID（可選）">
+        <FormField label="IQC 紀錄 ID（可選）" error={errors.iqc_record_id?.message}>
           <input
             type="number"
             min="1"
             className={inputClass}
-            value={createForm.iqc_record_id}
-            onChange={(e) => onUpdateCreateForm("iqc_record_id", e.target.value)}
+            {...register("iqc_record_id")}
           />
         </FormField>
 
         <div className="md:col-span-2">
-          <FormField label="異常描述">
+          <FormField label="異常描述" error={errors.description?.message}>
             <textarea
-              required
               rows={3}
               className={inputClass}
-              value={createForm.description}
-              onChange={(e) => onUpdateCreateForm("description", e.target.value)}
+              {...register("description")}
             />
           </FormField>
         </div>

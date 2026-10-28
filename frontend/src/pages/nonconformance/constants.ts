@@ -1,6 +1,6 @@
 import type { CreateForm, DispositionForm } from "./types";
 
-const nowLocal = () => {
+export const nowLocal = () => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
     .toISOString()
