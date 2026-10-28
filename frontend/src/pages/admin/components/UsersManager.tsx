@@ -1,4 +1,7 @@
 import { Search, Plus, Users } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   buttonClass,
   secondaryButtonClass,
@@ -17,6 +20,23 @@ import {
 } from "../../../components/ui";
 import type { Role, AdminUser } from "../types";
 
+const createUserSchema = z.object({
+  username: z.string()
+    .min(1, "登入帳號為必填")
+    .max(80, "登入帳號最多80字元")
+    .regex(/^[A-Za-z0-9._-]+$/, "登入帳號只能包含英數字、底線、點和減號"),
+  email: z.string()
+    .max(255, "電子郵件最多255字元")
+    .email("電子郵件格式不正確")
+    .optional()
+    .or(z.literal("")),
+  password: z.string()
+    .min(8, "密碼至少需要8個字元")
+    .max(72, "密碼最多72個字元"),
+});
+
+type CreateUserFormData = z.infer<typeof createUserSchema>;
+
 interface UsersManagerProps {
   users: AdminUser[];
   roles: Role[];
@@ -26,7 +46,7 @@ interface UsersManagerProps {
   visibleUsers: AdminUser[];
   newUserRoleIds: number[];
   busy: boolean;
-  onCreateUser: (event: React.FormEvent<HTMLFormElement>) => void;
+  onCreateUser: (data: CreateUserFormData) => void;
   onToggleCreateUser: () => void;
   onUserQueryChange: (query: string) => void;
   onNewUserRoleChange: (roleId: number, checked: boolean) => void;
@@ -50,6 +70,26 @@ export function UsersManager({
   onCancelCreateUser,
   onOpenUserRoles,
 }: UsersManagerProps) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<CreateUserFormData>({
+    resolver: zodResolver(createUserSchema),
+    defaultValues: {
+      username: "",
+      email: "",
+      password: "",
+    },
+  });
+
+  // 當關閉表單時重置表單
+  const handleCancel = () => {
+    reset();
+    onCancelCreateUser();
+  };
+
   return (
     <Panel
       title="內部使用者與角色指派"
@@ -68,38 +108,42 @@ export function UsersManager({
         <div className="mb-5 rounded-md border border-slate-200 bg-slate-50 p-4">
           <h3 className="mb-1 text-sm font-semibold text-slate-900">新增內部使用者</h3>
           <p className="mb-4 text-xs text-slate-500">設定登入帳號與初始密碼，並選擇要指派的內部角色。</p>
-          <form onSubmit={onCreateUser} className="grid gap-4 sm:grid-cols-2">
+          <form onSubmit={handleSubmit((data) => {
+            onCreateUser(data);
+            reset();
+          })} className="grid gap-4 sm:grid-cols-2">
             <FormField label="登入帳號">
               <input
-                name="username"
+                {...register("username")}
                 className={inputClass}
-                required
-                minLength={1}
-                maxLength={80}
-                pattern="[A-Za-z0-9._-]+"
                 autoComplete="off"
               />
+              {errors.username && (
+                <p className="mt-1 text-xs text-red-600">{errors.username.message}</p>
+              )}
             </FormField>
             <FormField label="電子郵件（選填）">
               <input
-                name="email"
+                {...register("email")}
                 type="email"
                 className={inputClass}
-                maxLength={255}
                 autoComplete="email"
               />
+              {errors.email && (
+                <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>
+              )}
             </FormField>
             <FormField label="初始密碼" hint="至少 8 個字元；建立後可使用此密碼登入。">
               <input
-                name="password"
+                {...register("password")}
                 type="password"
                 aria-label="初始密碼"
                 className={inputClass}
-                required
-                minLength={8}
-                maxLength={72}
                 autoComplete="new-password"
               />
+              {errors.password && (
+                <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
+              )}
             </FormField>
             <fieldset className="sm:col-span-2">
               <legend className="mb-2 text-sm font-medium text-slate-700">指派角色</legend>
@@ -132,7 +176,7 @@ export function UsersManager({
                 type="button"
                 className={secondaryButtonClass}
                 disabled={busy}
-                onClick={onCancelCreateUser}
+                onClick={handleCancel}
               >
                 取消
               </button>

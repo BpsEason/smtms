@@ -115,16 +115,14 @@ export function RolesPermissionsPage({
     }
   };
 
-  const createUser = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const createUser = async (data: { username: string; email?: string; password: string }) => {
     resetNotices();
-    const form = new FormData(event.currentTarget);
     setBusy(true);
     try {
       await api.createUser({
-        username: String(form.get("username")).trim(),
-        email: optional(form.get("email")),
-        password: String(form.get("password")),
+        username: data.username.trim(),
+        email: optional(data.email),
+        password: data.password,
         role_ids: newUserRoleIds,
       });
       setSuccess("內部使用者已建立並完成角色指派。");

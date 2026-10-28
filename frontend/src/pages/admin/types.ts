@@ -5,7 +5,9 @@ export type { AdminUser, PermissionItem, Role, UserProfile };
 export const PORTAL_PERMISSION = "suppliers:read";
 
 // 輔助函數
-export function optional(value: FormDataEntryValue | null) {
+export function optional(
+  value: FormDataEntryValue | null | string | undefined,
+) {
   const result = String(value ?? "").trim();
   return result || undefined;
 }
