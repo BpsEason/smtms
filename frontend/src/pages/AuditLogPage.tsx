@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Download, Eye } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { AuditLog } from "../types";
@@ -58,42 +59,46 @@ export function AuditLogPage() {
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
-  const [refresh, setRefresh] = useState(0);
-  const [items, setItems] = useState<AuditLog[]>([]);
   const [selected, setSelected] = useState<AuditLog | null>(null);
-  const [hasNext, setHasNext] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   const params = useMemo(() => filterParams(filters), [filters]);
-  useEffect(() => {
-    let active = true;
-    void api
-      .listAuditLogs({ ...params, page, page_size: PAGE_SIZE })
-      .then((result) => {
-        if (!active) return;
-      setItems(result.items);
-      setHasNext(result.items.length === PAGE_SIZE);
-      setSelected((current) =>
-        current ? result.items.find((item) => item.id === current.id) ?? null : null,
-      );
-      })
-      .catch((cause: unknown) => {
-        if (!active) return;
-        setError(cause instanceof ApiError ? cause.details : "稽核紀錄載入失敗，請稍後重試。");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [page, params, refresh]);
+  
+  // 使用 TanStack Query 管理稽核紀錄的讀取狀態
+  const {
+    data: result,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ['audit-logs', page, ...Object.values(params)],
+    queryFn: async () => {
+      const response = await api.listAuditLogs({ ...params, page, page_size: PAGE_SIZE });
+      return response;
+    },
+    retry: 1,
+    staleTime: 30 * 1000, // 30秒內不重複請求，沿用專案既有快取策略
+  });
+
+  const items = result?.items ?? [];
+  const hasNext = items.length === PAGE_SIZE;
+
+  // 當新資料進來時，更新選中的項目
+  if (result?.items && selected) {
+    const updatedSelected = result.items.find((item) => item.id === selected.id);
+    if (updatedSelected && updatedSelected !== selected) {
+      setSelected(updatedSelected);
+    }
+  }
+
+  // 合併查詢錯誤和其他操作錯誤
+  const displayError = queryError 
+    ? queryError instanceof ApiError ? queryError.details : "稽核紀錄載入失敗，請稍後重試。"
+    : error;
 
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
     setError("");
     setPage(1);
     setSelected(null);
@@ -101,13 +106,11 @@ export function AuditLogPage() {
   };
 
   const retryLoad = () => {
-    setLoading(true);
     setError("");
-    setRefresh((value) => value + 1);
+    void refetch();
   };
 
   const changePage = (nextPage: number) => {
-    setLoading(true);
     setError("");
     setPage(nextPage);
   };
@@ -164,12 +167,12 @@ export function AuditLogPage() {
             </FormField>
             <div className="flex gap-2 sm:col-span-2 xl:col-span-5">
               <Button type="submit">套用篩選</Button>
-              <Button variant="secondary" type="button" onClick={() => { setLoading(true); setError(""); setDraft(EMPTY_FILTERS); setFilters(EMPTY_FILTERS); setPage(1); setSelected(null); setRefresh((value) => value + 1); }}>清除</Button>
+              <Button variant="secondary" type="button" onClick={() => { setError(""); setDraft(EMPTY_FILTERS); setFilters(EMPTY_FILTERS); setPage(1); setSelected(null); }}>清除</Button>
             </div>
           </form>
         </Panel>
 
-        {error && <ErrorState message={error} onRetry={retryLoad} />}
+        {displayError && <ErrorState message={displayError} onRetry={retryLoad} />}
         <Panel title="操作紀錄" description={`第 ${page} 頁 · 每頁 ${PAGE_SIZE} 筆`}>
           {loading ? <LoadingState label="稽核紀錄載入中…" /> : items.length === 0 ? <EmptyState title="沒有符合條件的稽核紀錄" /> : (
             <>
@@ -187,9 +190,9 @@ export function AuditLogPage() {
                 ))}</TableBody>
               </DataTable>
               <div className="mt-4 flex items-center justify-between">
-                <Button variant="secondary" disabled={page <= 1 || loading} onClick={() => changePage(Math.max(1, page - 1))}>上一頁</Button>
+                <Button variant="secondary" disabled={page <= 1} onClick={() => changePage(Math.max(1, page - 1))}>上一頁</Button>
                 <span className="text-sm text-slate-500">第 {page} 頁</span>
-                <Button variant="secondary" disabled={!hasNext || loading} onClick={() => changePage(page + 1)}>下一頁</Button>
+                <Button variant="secondary" disabled={!hasNext} onClick={() => changePage(page + 1)}>下一頁</Button>
               </div>
               {selected && <section aria-label="稽核紀錄明細" className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">紀錄 #{selected.id} 明細</h3><button className="text-sm text-slate-600 underline" onClick={() => setSelected(null)}>關閉明細</button></div>

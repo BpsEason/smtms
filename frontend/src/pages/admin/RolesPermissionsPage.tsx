@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "../../api/client";
 import {
@@ -27,13 +28,9 @@ export function RolesPermissionsPage({
 }: {
   profile: UserProfile | null;
 }) {
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [permissions, setPermissions] = useState<PermissionItem[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUserRoleIds, setNewUserRoleIds] = useState<number[]>([]);
@@ -48,31 +45,35 @@ export function RolesPermissionsPage({
 
   const canManage = Boolean(profile?.permissions.includes("users:manage"));
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [roleList, permissionList, userList] = await Promise.all([
-        api.listRoles(),
-        api.listPermissions(),
-        api.listUsers(),
-      ]);
-      setRoles(roleList);
-      setPermissions(permissionList);
-      setUsers(userList);
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // 使用TanStack Query管理伺服器狀態
+  const { data: roles = [], isLoading: rolesLoading, isError: rolesError, error: rolesErr } = useQuery({
+    queryKey: ["roles"],
+    queryFn: api.listRoles,
+    staleTime: 5 * 60 * 1000, // 5分鐘內不重新獲取
+  });
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const { data: permissions = [], isLoading: permissionsLoading, isError: permissionsError, error: permissionsErr } = useQuery({
+    queryKey: ["permissions"],
+    queryFn: api.listPermissions,
+    staleTime: 10 * 60 * 1000, // 權限很少變動，10分鐘快取
+  });
+
+  const { data: users = [], isLoading: usersLoading, isError: usersError, error: usersErr } = useQuery({
+    queryKey: ["users"],
+    queryFn: api.listUsers,
+    staleTime: 2 * 60 * 1000, // 使用者資料2分鐘快取
+  });
+
+  const loading = rolesLoading || permissionsLoading || usersLoading;
+
+  // 處理查詢錯誤
+  if (rolesError && rolesErr) {
+    if (!error) setError(message(rolesErr));
+  } else if (permissionsError && permissionsErr) {
+    if (!error) setError(message(permissionsErr));
+  } else if (usersError && usersErr) {
+    if (!error) setError(message(usersErr));
+  }
 
   const resetNotices = () => {
     setError("");
@@ -95,80 +96,115 @@ export function RolesPermissionsPage({
     );
   }
 
-  const createRole = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    resetNotices();
-    const form = new FormData(event.currentTarget);
-    setBusy(true);
-    try {
-      await api.createRole({
-        name: String(form.get("name")).trim(),
-        description: optional(form.get("description")),
-      });
+  // 角色建立Mutation
+  const createRoleMutation = useMutation({
+    mutationFn: async (payload: { name: string; description?: string }) => {
+      return api.createRole(payload);
+    },
+    onSuccess: () => {
       setSuccess("角色已建立。");
       setShowCreate(false);
-      await load();
-    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
       setError(message(err));
-    } finally {
-      setBusy(false);
+    },
+  });
+
+  const createRole = async (data: { name: string; description?: string }) => {
+    resetNotices();
+    try {
+      await createRoleMutation.mutateAsync({
+        name: data.name.trim(),
+        description: optional(data.description),
+      });
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
 
+  // 使用者建立Mutation
+  const createUserMutation = useMutation({
+    mutationFn: async (payload: { username: string; email?: string; password: string; role_ids: number[] }) => {
+      return api.createUser(payload);
+    },
+    onSuccess: () => {
+      setSuccess("內部使用者已建立並完成角色指派。");
+      setShowCreateUser(false);
+      setNewUserRoleIds([]);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
   const createUser = async (data: { username: string; email?: string; password: string }) => {
     resetNotices();
-    setBusy(true);
     try {
-      await api.createUser({
+      await createUserMutation.mutateAsync({
         username: data.username.trim(),
         email: optional(data.email),
         password: data.password,
         role_ids: newUserRoleIds,
       });
-      setSuccess("內部使用者已建立並完成角色指派。");
-      setShowCreateUser(false);
-      setNewUserRoleIds([]);
-      await load();
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setBusy(false);
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
 
-  const updateRole = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!editingRole) return;
-    resetNotices();
-    const form = new FormData(event.currentTarget);
-    setBusy(true);
-    try {
-      await api.updateRole(editingRole.id, {
-        name: String(form.get("name")).trim(),
-        description:
-          form.get("description") === null
-            ? null
-            : optional(form.get("description")),
-      });
+  // 角色更新Mutation
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) => {
+      return api.updateRole(id, payload);
+    },
+    onSuccess: () => {
       setSuccess("角色資料已更新。");
       setEditingRole(null);
-      await load();
-    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
       setError(message(err));
-    } finally {
-      setBusy(false);
+    },
+  });
+
+  const updateRole = async (data: { name: string; description?: string | null }) => {
+    if (!editingRole) return;
+    resetNotices();
+    try {
+      await updateRoleMutation.mutateAsync({
+        id: editingRole.id,
+        payload: {
+          name: data.name.trim(),
+          description: data.description === null || data.description === undefined ? null : optional(data.description),
+        },
+      });
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
+
+  // 角色刪除Mutation
+  const deleteRoleMutation = useMutation({
+    mutationFn: async (roleId: number) => {
+      return api.deleteRole(roleId);
+    },
+    onSuccess: (_: unknown, roleId: number) => {
+      const role = roles.find(r => r.id === roleId);
+      setSuccess(`角色「${role?.name || '未知角色'}」已刪除。`);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err: unknown) => {
+      setError(message(err));
+    },
+  });
 
   const deleteRole = async (role: Role) => {
     resetNotices();
     try {
-      await api.deleteRole(role.id);
-      setSuccess(`角色「${role.name}」已刪除。`);
-      await load();
-    } catch (err) {
-      setError(message(err));
-      throw err;
+      await deleteRoleMutation.mutateAsync(role.id);
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
 
@@ -183,19 +219,32 @@ export function RolesPermissionsPage({
     );
   };
 
+  // 權限設定Mutation
+  const savePermissionsMutation = useMutation({
+    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) => {
+      return api.setRolePermissions(roleId, permissionIds);
+    },
+    onSuccess: (_, variables) => {
+      const role = roles.find(r => r.id === variables.roleId);
+      setSuccess(`角色「${role?.name || permissionRole?.name}」的權限已更新。`);
+      setPermissionRole(null);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
   const savePermissions = async () => {
     if (!permissionRole) return;
     resetNotices();
-    setBusy(true);
     try {
-      await api.setRolePermissions(permissionRole.id, selectedPermissionIds);
-      setSuccess(`角色「${permissionRole.name}」的權限已更新。`);
-      setPermissionRole(null);
-      await load();
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setBusy(false);
+      await savePermissionsMutation.mutateAsync({
+        roleId: permissionRole.id,
+        permissionIds: selectedPermissionIds,
+      });
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
 
@@ -209,19 +258,31 @@ export function RolesPermissionsPage({
     );
   };
 
+  // 使用者角色更新Mutation
+  const saveUserRolesMutation = useMutation({
+    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) => {
+      return api.setUserRoles(userId, roleIds);
+    },
+    onSuccess: () => {
+      setSuccess("使用者角色已更新。");
+      setRoleUserId(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
   const saveUserRoles = async () => {
     if (roleUserId === null) return;
     resetNotices();
-    setBusy(true);
     try {
-      await api.setUserRoles(roleUserId, selectedRoleIds);
-      setSuccess("使用者角色已更新。");
-      setRoleUserId(null);
-      await load();
-    } catch (err) {
-      setError(message(err));
-    } finally {
-      setBusy(false);
+      await saveUserRolesMutation.mutateAsync({
+        userId: roleUserId,
+        roleIds: selectedRoleIds,
+      });
+    } catch {
+      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
 
@@ -323,6 +384,15 @@ export function RolesPermissionsPage({
     setNewUserRoleIds([]);
   };
 
+  // 合併所有mutation的pending狀態，作為子元件的busy屬性
+  const isBusy = 
+    createRoleMutation.isPending || 
+    updateRoleMutation.isPending || 
+    deleteRoleMutation.isPending || 
+    savePermissionsMutation.isPending || 
+    createUserMutation.isPending || 
+    saveUserRolesMutation.isPending;
+
   return (
     <section>
       <PageHeader
@@ -346,14 +416,18 @@ export function RolesPermissionsPage({
       )}
       {error && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void load()} />
+          <ErrorState message={error} onRetry={() => {
+            queryClient.invalidateQueries({ queryKey: ["roles"] });
+            queryClient.invalidateQueries({ queryKey: ["permissions"] });
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+          }} />
         </div>
       )}
 
       <RoleForm
         editingRole={editingRole}
         showCreate={showCreate}
-        busy={busy}
+        busy={isBusy}
         onCreate={createRole}
         onUpdate={updateRole}
         onCancelEdit={handleCancelEdit}
@@ -363,7 +437,7 @@ export function RolesPermissionsPage({
         permissionRole={permissionRole}
         permissions={permissions}
         selectedPermissionIds={selectedPermissionIds}
-        busy={busy}
+        busy={isBusy}
         permissionsChanged={permissionsChanged}
         permissionGroups={permissionGroups}
         onPermissionChange={handlePermissionChange}
@@ -384,7 +458,7 @@ export function RolesPermissionsPage({
         selectedUser={selectedUser}
         roles={roles}
         selectedRoleIds={selectedRoleIds}
-        busy={busy}
+        busy={isBusy}
         userRolesChanged={userRolesChanged}
         onRoleChange={handleRoleChange}
         onSave={saveUserRoles}
@@ -399,7 +473,7 @@ export function RolesPermissionsPage({
         userQuery={userQuery}
         visibleUsers={visibleUsers}
         newUserRoleIds={newUserRoleIds}
-        busy={busy}
+        busy={isBusy}
         onCreateUser={createUser}
         onToggleCreateUser={handleToggleCreateUser}
         onUserQueryChange={setUserQuery}

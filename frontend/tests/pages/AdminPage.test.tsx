@@ -1,8 +1,30 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RolesPermissionsPage } from "../../src/pages/AdminPage";
 import type { UserProfile } from "../../src/types";
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 0,
+        cacheTime: 0,
+      },
+    },
+  });
+}
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>
+  );
+}
 
 const fetchMock = vi.fn();
 
@@ -115,7 +137,7 @@ function installMock(
 }
 
 async function renderPage(profile: UserProfile = managerProfile) {
-  render(<RolesPermissionsPage profile={profile} />);
+  renderWithProviders(<RolesPermissionsPage profile={profile} />);
   await screen.findByText("access-admin");
 }
 
@@ -130,7 +152,7 @@ function findCall(pathSuffix: string, method: string) {
 describe("roles and permissions admin page", () => {
   it("shows an access notice without the users:manage permission", () => {
     installMock();
-    render(
+    renderWithProviders(
       <RolesPermissionsPage
         profile={{ ...managerProfile, permissions: ["suppliers:read"] }}
       />,
@@ -279,7 +301,7 @@ describe("roles and permissions admin page", () => {
 
   it("reports a load failure when the roles request is denied", async () => {
     installMock({ roles: jsonResponse({ detail: "Forbidden" }, 403) });
-    render(<RolesPermissionsPage profile={managerProfile} />);
+    renderWithProviders(<RolesPermissionsPage profile={managerProfile} />);
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "操作失敗：Forbidden",

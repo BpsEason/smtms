@@ -1,10 +1,32 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { saveToken } from "../../src/api/client";
 import { AuditLogPage } from "../../src/pages/AuditLogPage";
 import type { AuditLog } from "../../src/types";
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 0,
+        cacheTime: 0,
+      },
+    },
+  });
+}
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>
+  );
+}
 
 const fetchMock = vi.fn();
 const entry: AuditLog = {
@@ -45,7 +67,7 @@ beforeEach(() => {
 describe("AuditLogPage", () => {
   it("filters by operator and resource type and shows before and after details", async () => {
     const user = userEvent.setup();
-    render(<MemoryRouter><AuditLogPage /></MemoryRouter>);
+    renderWithProviders(<MemoryRouter><AuditLogPage /></MemoryRouter>);
 
     expect(await screen.findByText("qa.operator")).toBeInTheDocument();
     expect(screen.getByText("materials")).toBeInTheDocument();
@@ -70,7 +92,7 @@ describe("AuditLogPage", () => {
 
   it("exports the active filters without pagination", async () => {
     const user = userEvent.setup();
-    render(<MemoryRouter><AuditLogPage /></MemoryRouter>);
+    renderWithProviders(<MemoryRouter><AuditLogPage /></MemoryRouter>);
     await screen.findByText("qa.operator");
     await user.type(screen.getByLabelText("資源類型"), "materials");
     await user.click(screen.getByRole("button", { name: "套用篩選" }));
@@ -93,7 +115,7 @@ describe("AuditLogPage", () => {
         : [{ ...entry, id: 21 }];
       return jsonResponse({ items: records, page: pageNumber, page_size: 20 });
     });
-    render(<MemoryRouter><AuditLogPage /></MemoryRouter>);
+    renderWithProviders(<MemoryRouter><AuditLogPage /></MemoryRouter>);
     expect(await screen.findByRole("button", { name: "查看紀錄 1" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "下一頁" }));
     expect(await screen.findByRole("button", { name: "查看紀錄 21" })).toBeInTheDocument();
