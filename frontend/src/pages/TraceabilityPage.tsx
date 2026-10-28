@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import { Button } from "../components/shadcn/button";
 import { api } from "../api/client";
+import { formatErrorMessage } from "../lib/error";
 import { buildTraceabilityPageCsv } from "../lib/traceabilityCsv";
 import {
   DataTable,
@@ -48,7 +49,7 @@ export function TraceabilityPage() {
     try {
       const rows = await api.searchTraceability({ [searchKey]: searchValue, page: nextPage, page_size: 20 });
       setQuery({ key: searchKey, value: searchValue }); setPage(nextPage); setResult(rows);
-    } catch (err) { setResult(null); setError(err instanceof Error ? err.message : "追溯查詢失敗。"); }
+    } catch (err) { setResult(null); setError(formatErrorMessage(err)); }
     finally { setLoading(false); }
   };
   const pages = Math.max(1, Math.ceil((result?.total ?? 0) / (result?.page_size ?? 20)));

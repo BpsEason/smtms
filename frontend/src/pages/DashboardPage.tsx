@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpRight, ClipboardCheck, PackageCheck, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client';
+import { formatErrorMessage } from '../lib/error'
 import { DataTable, EmptyState, ErrorState, LoadingState, Metric, PageHeader, Panel, StatusBadge, TableBody, TableHead, TableRow, Td, Th } from '../components/ui'
 import type { InternalLot, IQCRecord, PaginatedResponse, Receipt, UserProfile } from '../types'
 
@@ -17,10 +18,10 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
   const load = useCallback(async () => {
     if (!profile) return
     const requests = [
-      can('receipts:read') ? api.listReceipts({ page: 1, page_size: 8 }).then(setReceipts).catch((error) => setErrors((current) => [...current, `收料紀錄：${message(error)}`])) : Promise.resolve(),
-      can('materials:read') ? api.listInternalLots({ page: 1, page_size: 1 }).then(setLots).catch((error) => setErrors((current) => [...current, `內部批號：${message(error)}`])) : Promise.resolve(),
-      can('iqc:read') ? api.listIQCRecords({ page: 1, page_size: 1 }).then(setIqc).catch((error) => setErrors((current) => [...current, `IQC 紀錄：${message(error)}`])) : Promise.resolve(),
-      can('iqc:read') ? api.listIQCRecords({ result: 'pending', page: 1, page_size: 1 }).then(setPending).catch((error) => setErrors((current) => [...current, `待檢項目：${message(error)}`])) : Promise.resolve(),
+      can('receipts:read') ? api.listReceipts({ page: 1, page_size: 8 }).then(setReceipts).catch((error) => setErrors((current) => [...current, `收料紀錄：${formatErrorMessage(error)}`])) : Promise.resolve(),
+      can('materials:read') ? api.listInternalLots({ page: 1, page_size: 1 }).then(setLots).catch((error) => setErrors((current) => [...current, `內部批號：${formatErrorMessage(error)}`])) : Promise.resolve(),
+      can('iqc:read') ? api.listIQCRecords({ page: 1, page_size: 1 }).then(setIqc).catch((error) => setErrors((current) => [...current, `IQC 紀錄：${formatErrorMessage(error)}`])) : Promise.resolve(),
+      can('iqc:read') ? api.listIQCRecords({ result: 'pending', page: 1, page_size: 1 }).then(setPending).catch((error) => setErrors((current) => [...current, `待檢項目：${formatErrorMessage(error)}`])) : Promise.resolve(),
     ]
     await Promise.all(requests)
     setLoading(false)
@@ -51,5 +52,3 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
     <p className="mt-5 text-xs text-slate-500">儀表板統計來源為分頁 API 回傳總數；不會依部分清單推算良率、不良率或趨勢。</p>
   </section>
 }
-
-function message(error: unknown) { return error instanceof ApiError ? `讀取失敗：${error.details}` : '無法載入資料，請稍後再試。' }

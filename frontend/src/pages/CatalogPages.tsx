@@ -1,14 +1,17 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Plus, Search, Trash2, Upload } from "lucide-react";
-import { api, ApiError } from "../api/client";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { api } from "../api/client";
+import { formatErrorMessage } from "../lib/error";
 import { allMaterials, getErrorMessage } from "../lib/data";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -34,7 +37,6 @@ import {
 } from "../components/ui";
 import type {
   Material,
-  PaginatedResponse,
   Supplier,
   SupplierImportPreview,
   SupplierImportResult,
@@ -42,6 +44,42 @@ import type {
   SupplierDocumentAttachment,
   UserProfile,
 } from "../types";
+
+const materialSchema = z.object({
+  material_code: z.string().min(1, "物料代碼為必填").max(80, "物料代碼最多80字元"),
+  material_name: z.string().min(1, "物料名稱為必填").max(200, "物料名稱最多200字元"),
+  material_type: z.string().min(1, "物料類別為必填").max(50, "物料類別最多50字元"),
+  uom: z.string().min(1, "計量單位為必填").max(30, "計量單位最多30字元"),
+  spec: z.string().max(255, "規格最多255字元").optional(),
+  status: z.string().min(1, "狀態為必填").max(20, "狀態最多20字元"),
+});
+
+type MaterialFormData = z.infer<typeof materialSchema>;
+
+const supplierSchema = z.object({
+  supplier_code: z.string().min(1, "供應商代碼為必填").max(80, "供應商代碼最多80字元"),
+  supplier_name: z.string().min(1, "供應商名稱為必填").max(200, "供應商名稱最多200字元"),
+  contact_name: z.string().max(120, "聯絡人最多120字元").optional(),
+  email: z.string().max(160, "電子郵件最多160字元").refine((value) => !value || z.email().safeParse(value).success, "電子郵件格式不正確").optional(),
+  phone: z.string().max(40, "電話最多40字元").optional(),
+  country: z.string().max(80, "國家/地區最多80字元").optional(),
+  address: z.string().max(255, "地址最多255字元").optional(),
+  tax_id: z.string().max(20, "統一編號最多20字元").optional(),
+  status: z.string().min(1, "狀態為必填").max(20, "狀態最多20字元"),
+});
+
+type SupplierFormData = z.infer<typeof supplierSchema>;
+
+const supplierDocumentSchema = z.object({
+  doc_type: z.string().min(1, "文件類型為必填").max(50, "文件類型最多50字元"),
+  doc_name: z.string().min(1, "文件名稱為必填").max(200, "文件名稱最多200字元"),
+  doc_code: z.string().max(80, "文件編號最多80字元").optional(),
+  status: z.string().min(1, "狀態為必填").max(20, "狀態最多20字元"),
+  issued_at: z.string().optional(),
+  expires_at: z.string().optional(),
+});
+
+type SupplierDocumentFormData = z.infer<typeof supplierDocumentSchema>;
 
 export function CatalogPages({
   kind,
@@ -58,91 +96,137 @@ export function CatalogPages({
 }
 
 function SuppliersPage({ profile }: { profile: UserProfile | null }) {
-  const [data, setData] = useState<PaginatedResponse<Supplier> | null>(null);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-  const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [linkingSupplier, setLinkingSupplier] = useState<Supplier | null>(null);
   const [documentSupplier, setDocumentSupplier] = useState<Supplier | null>(null);
   const [materialOptions, setMaterialOptions] = useState<Material[]>([]);
   const [linkBusy, setLinkBusy] = useState(false);
-  const listRequestId = useRef(0);
   const canWrite = Boolean(profile?.permissions.includes("suppliers:write"));
-  const load = useCallback(async () => {
-    const requestId = ++listRequestId.current;
-    setLoading(true);
-    setError("");
-    try {
-      const result = await api.listSuppliers({
-        keyword: query || undefined,
+  
+  // React Hook Form 初始化
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting: saving },
+  } = useForm<SupplierFormData>({
+    resolver: zodResolver(supplierSchema),
+    defaultValues: {
+      supplier_code: "",
+      supplier_name: "",
+      contact_name: "",
+      email: "",
+      phone: "",
+      country: "",
+      address: "",
+      tax_id: "",
+      status: "active",
+    },
+  });
+  
+  // 當 editingSupplier 改變時重設表單
+  useEffect(() => {
+    if (editingSupplier) {
+      reset({
+        supplier_code: editingSupplier.supplier_code,
+        supplier_name: editingSupplier.supplier_name,
+        contact_name: editingSupplier.contact_name || "",
+        email: editingSupplier.email || "",
+        phone: editingSupplier.phone || "",
+        country: editingSupplier.country || "",
+        address: editingSupplier.address || "",
+        status: editingSupplier.status,
+      });
+    } else {
+      reset({
+        supplier_code: "",
+        supplier_name: "",
+        contact_name: "",
+        email: "",
+        phone: "",
+        country: "",
+        address: "",
+        tax_id: "",
+        status: "active",
+      });
+    }
+  }, [editingSupplier, reset]);
+  
+  // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, query ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  // 使用 TanStack Query 管理供應商列表資料載入
+  const {
+    data,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ['suppliers', debouncedQuery, status, page],
+    queryFn: async () => {
+      const response = await api.listSuppliers({
+        keyword: debouncedQuery || undefined,
         status: status || undefined,
         page,
         page_size: 20,
       });
-      if (requestId === listRequestId.current) setData(result);
-    } catch (err) {
-      if (requestId === listRequestId.current) setError(message(err));
-    } finally {
-      if (requestId === listRequestId.current) setLoading(false);
-    }
-  }, [query, status, page]);
-  useEffect(() => {
-    const timer = window.setTimeout(
-      () => {
-        void load();
-      },
-      query ? 250 : 0,
-    );
-    return () => window.clearTimeout(timer);
-  }, [load, query]);
-  useEffect(() => () => {
-    listRequestId.current += 1;
-  }, []);
+      return response;
+    },
+    retry: 1,
+    staleTime: 30 * 1000, // 30秒內不重複請求
+  });
+
+  const displayError = queryError ? getErrorMessage(queryError) : error;
+
   useEffect(() => {
     if (!linkingSupplier) return;
     let active = true;
-    allMaterials().then((items) => { if (active) setMaterialOptions(items) }).catch((err: unknown) => { if (active) setError(message(err)) });
+    allMaterials().then((items) => { if (active) setMaterialOptions(items) }).catch((err: unknown) => { if (active) setError(`操作失敗：${formatErrorMessage(err)}`) });
     return () => { active = false };
   }, [linkingSupplier]);
-  const create = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (formData: SupplierFormData) => {
     setError("");
     setSuccess("");
-    const form = new FormData(event.currentTarget);
-    setSaving(true);
     try {
       const payload = {
-        supplier_code: String(form.get("supplier_code")).trim(),
-        supplier_name: String(form.get("supplier_name")).trim(),
-        contact_name: optional(form.get("contact_name")),
-        email: optional(form.get("email")),
-        phone: optional(form.get("phone")),
-        country: optional(form.get("country")),
-        address: optional(form.get("address")),
-        status: String(form.get("status")),
+        supplier_code: formData.supplier_code.trim(),
+        supplier_name: formData.supplier_name.trim(),
+        contact_name: optional(formData.contact_name),
+        email: optional(formData.email),
+        phone: optional(formData.phone),
+        country: optional(formData.country),
+        address: optional(formData.address),
+        status: formData.status,
       };
       if (editingSupplier) {
         await api.updateSupplier(editingSupplier.id, payload);
         setSuccess(`供應商「${payload.supplier_name}」資料已更新。`);
       } else {
-        await api.createSupplier({ ...payload, tax_id: optional(form.get("tax_id")) });
+        await api.createSupplier({ ...payload, tax_id: optional(formData.tax_id) });
         setSuccess("供應商已建立。");
       }
       setShowForm(false);
       setEditingSupplier(null);
       setPage(1);
-      await load();
+      // 使所有相關查詢快取失效，確保列表資料最新
+      await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
     } catch (err) {
-      setError(message(err));
-    } finally {
-      setSaving(false);
+      setError(`操作失敗：${getErrorMessage(err)}`);
     }
   };
   const linkMaterial = async (event: FormEvent<HTMLFormElement>) => {
@@ -158,7 +242,9 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
       });
       setSuccess(`已建立「${linkingSupplier.supplier_name}」與所選物料的供應關聯。`);
       setLinkingSupplier(null);
-    } catch (err) { setError(message(err)); }
+      // 使所有相關查詢快取失效，確保列表資料最新
+      await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+    } catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
     finally { setLinkBusy(false); }
   };
   return (
@@ -195,7 +281,7 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         <SupplierImportPanel
           onImported={() => {
             setPage(1);
-            void load();
+            void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
           }}
         />
       )}
@@ -203,53 +289,51 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         <Panel title={editingSupplier ? `編輯供應商：${editingSupplier.supplier_name}` : "新增供應商"} description="代碼需唯一；停用供應商不會刪除既有追溯紀錄。" className="mb-5">
           <form
             key={editingSupplier?.id ?? "new-supplier"}
-            onSubmit={create}
+            onSubmit={handleSubmit(onSubmit)}
+            noValidate
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
           >
             <FormField label="供應商代碼">
               <input
-                name="supplier_code"
+                {...register("supplier_code")}
                 className={inputClass}
-                required
                 maxLength={80}
-                defaultValue={editingSupplier?.supplier_code ?? ""}
               />
+              {errors.supplier_code && <span className="text-sm text-rose-600">{errors.supplier_code.message}</span>}
             </FormField>
             <FormField label="供應商名稱">
               <input
-                name="supplier_name"
+                {...register("supplier_name")}
                 className={inputClass}
-                required
                 maxLength={200}
-                defaultValue={editingSupplier?.supplier_name ?? ""}
               />
+              {errors.supplier_name && <span className="text-sm text-rose-600">{errors.supplier_name.message}</span>}
             </FormField>
             <FormField label="聯絡人">
               <input
-                name="contact_name"
+                {...register("contact_name")}
                 className={inputClass}
                 maxLength={120}
-                defaultValue={editingSupplier?.contact_name ?? ""}
               />
+              {errors.contact_name && <span className="text-sm text-rose-600">{errors.contact_name.message}</span>}
             </FormField>
             <FormField label="電子郵件">
               <input
-                name="email"
+                {...register("email")}
                 type="email"
                 className={inputClass}
                 maxLength={160}
-                defaultValue={editingSupplier?.email ?? ""}
               />
+              {errors.email && <span className="text-sm text-rose-600">{errors.email.message}</span>}
             </FormField>
             <FormField label="電話">
-              <input name="phone" className={inputClass} maxLength={40} defaultValue={editingSupplier?.phone ?? ""} />
+              <input {...register("phone")} className={inputClass} maxLength={40} />
+              {errors.phone && <span className="text-sm text-rose-600">{errors.phone.message}</span>}
             </FormField>
-            <FormField label="國家／地區">
-              <input name="country" className={inputClass} maxLength={80} defaultValue={editingSupplier?.country ?? ""} />
-            </FormField>
-            {!editingSupplier && <FormField label="統一編號" hint="選填；建立後目前不可透過編輯流程更改。"><input name="tax_id" className={inputClass} maxLength={20} /></FormField>}
-            <FormField label="地址"><input name="address" className={inputClass} maxLength={255} defaultValue={editingSupplier?.address ?? ""} /></FormField>
-            <FormField label="供應商狀態" hint="停用不會刪除供應商及歷史作業資料。"><select name="status" className={inputClass} defaultValue={editingSupplier?.status ?? "active"}><option value="active">啟用</option><option value="inactive">停用</option></select></FormField>
+            <FormField label="國家／地區"><input {...register("country")} className={inputClass} maxLength={80} />{errors.country && <span className="text-sm text-rose-600">{errors.country.message}</span>}</FormField>
+            <FormField label="地址"><input {...register("address")} className={inputClass} maxLength={255} />{errors.address && <span className="text-sm text-rose-600">{errors.address.message}</span>}</FormField>
+            {!editingSupplier && <FormField label="統一編號" hint="選填；建立後目前不可透過編輯流程更改。"><input {...register("tax_id")} className={inputClass} maxLength={20} />{errors.tax_id && <span className="text-sm text-rose-600">{errors.tax_id.message}</span>}</FormField>}
+            <FormField label="供應商狀態" hint="停用不會刪除供應商及歷史作業資料。"><select {...register("status")} className={inputClass}><option value="active">啟用</option><option value="inactive">停用</option></select>{errors.status && <span className="text-sm text-rose-600">{errors.status.message}</span>}</FormField>
             <div className="sm:col-span-2 xl:col-span-3">
               <div className="flex gap-2"><Button variant="default" disabled={saving}>{saving ? "儲存中…" : editingSupplier ? "儲存變更" : "建立供應商"}</Button><Button type="button" variant="secondary" disabled={saving} onClick={() => { setShowForm(false); setEditingSupplier(null) }}>取消</Button></div>
             </div>
@@ -262,9 +346,9 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
           {success}
         </p>
       )}
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void load()} />
+          <ErrorState message={displayError} onRetry={() => void refetch()} />
         </div>
       )}
       <Panel
@@ -348,14 +432,54 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  
+  // React Hook Form 初始化
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting: saving },
+  } = useForm<SupplierDocumentFormData>({
+    resolver: zodResolver(supplierDocumentSchema),
+    defaultValues: {
+      doc_type: "",
+      doc_name: "",
+      doc_code: "",
+      status: "active",
+      issued_at: "",
+      expires_at: "",
+    },
+  });
+  
+  // 當 editing 改變時重設表單
+  useEffect(() => {
+    if (editing) {
+      reset({
+        doc_type: editing.doc_type,
+        doc_name: editing.doc_name,
+        doc_code: editing.doc_code || "",
+        status: editing.status,
+        issued_at: editing.issued_at?.slice(0, 10) || "",
+        expires_at: editing.expires_at?.slice(0, 10) || "",
+      });
+    } else {
+      reset({
+        doc_type: "",
+        doc_name: "",
+        doc_code: "",
+        status: "active",
+        issued_at: "",
+        expires_at: "",
+      });
+    }
+  }, [editing, reset]);
   const refresh = useCallback(async () => {
     try {
       const rows = await api.listSupplierDocuments(supplier.id);
       setDocuments(rows);
       setSelected((current) => current ? rows.find((item) => item.id === current.id) ?? null : null);
       setError("");
-    }
-    catch (err) { setError(message(err)); }
+    } catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
     finally { setLoading(false); }
   }, [supplier.id]);
   useEffect(() => {
@@ -368,7 +492,7 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
         setSelected((current) => current ? rows.find((item) => item.id === current.id) ?? null : null);
         setError("");
       } catch (err) {
-        if (active) setError(message(err));
+        if (active) setError(`操作失敗：${formatErrorMessage(err)}`);
       } finally {
         if (active) setLoading(false);
       }
@@ -379,20 +503,25 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
   useEffect(() => {
     if (!selected) return;
     let active = true;
-    api.listSupplierDocumentAttachments(supplier.id, selected.id).then((rows) => { if (active) setAttachments(rows); }).catch((err: unknown) => { if (active) setError(message(err)); });
+    api.listSupplierDocumentAttachments(supplier.id, selected.id).then((rows) => { if (active) setAttachments(rows); }).catch((err: unknown) => { if (active) setError(`操作失敗：${formatErrorMessage(err)}`); });
     return () => { active = false; };
   }, [selected, supplier.id]);
-  const save = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setError(""); setSuccess(""); setBusy(true);
-    const values = new FormData(event.currentTarget);
-    const dateValue = (name: string) => { const value = String(values.get(name) ?? ""); return value ? new Date(`${value}T00:00:00`).toISOString() : undefined; };
-    const payload = { doc_type: String(values.get("doc_type")).trim(), doc_code: optional(values.get("doc_code")), doc_name: String(values.get("doc_name")).trim(), issued_at: dateValue("issued_at"), expires_at: dateValue("expires_at"), status: String(values.get("status")) };
+  const onSubmit = async (formData: SupplierDocumentFormData) => {
+    setError(""); setSuccess("");
+    const dateValue = (value: string | undefined) => { return value ? new Date(`${value}T00:00:00`).toISOString() : undefined; };
+    const payload = { 
+      doc_type: formData.doc_type.trim(), 
+      doc_code: optional(formData.doc_code), 
+      doc_name: formData.doc_name.trim(), 
+      issued_at: dateValue(formData.issued_at), 
+      expires_at: dateValue(formData.expires_at), 
+      status: formData.status 
+    };
     try {
       if (editing) await api.updateSupplierDocument(supplier.id, editing.id, payload);
       else await api.createSupplierDocument(supplier.id, payload);
       setEditing(null); setSuccess(editing ? "資格文件已更新。" : "資格文件已建立。"); await refresh();
-    } catch (err) { setError(message(err)); }
-    finally { setBusy(false); }
+    } catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
   };
   const upload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (!selected) return;
@@ -400,14 +529,14 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
     const file = input.files?.[0]; if (!file) return;
     setBusy(true); setError(""); setSuccess("");
     try { await api.uploadSupplierDocumentAttachment(supplier.id, selected.id, file); setSuccess("附件已上傳並安全保存。"); input.value = ""; setAttachments(await api.listSupplierDocumentAttachments(supplier.id, selected.id)); }
-    catch (err) { setError(message(err)); }
+    catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
     finally { setBusy(false); }
   };
   const download = async (attachment: SupplierDocumentAttachment) => {
     if (!selected) return;
     setError("");
     try { const blob = await api.downloadSupplierDocumentAttachment(supplier.id, selected.id, attachment.id); const url = URL.createObjectURL(blob); const anchor = window.document.createElement("a"); anchor.href = url; anchor.download = attachment.original_filename; anchor.click(); URL.revokeObjectURL(url); }
-    catch (err) { setError(message(err)); }
+    catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
   };
   const removeAttachment = async (attachment: SupplierDocumentAttachment) => {
     if (!selected) return;
@@ -423,14 +552,14 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
   };
   return <Panel title={`資格文件：${supplier.supplier_name}`} description="文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。" className="mt-5" action={<Button variant="secondary" onClick={onClose}>關閉</Button>}>
     {error && <div className="mb-3"><ErrorState message={error} onRetry={() => void refresh()} /></div>}{success && <div className="mb-3"><SuccessMessage>{success}</SuccessMessage></div>}
-    {canWrite && <form key={editing?.id ?? `new-${supplier.id}`} onSubmit={save} className="mb-5 grid gap-3 rounded-md bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
-      <FormField label="文件類型"><input className={inputClass} name="doc_type" required maxLength={50} defaultValue={editing?.doc_type ?? ""} /></FormField>
-      <FormField label="文件名稱"><input className={inputClass} name="doc_name" required maxLength={200} defaultValue={editing?.doc_name ?? ""} /></FormField>
-      <FormField label="文件編號"><input className={inputClass} name="doc_code" maxLength={80} defaultValue={editing?.doc_code ?? ""} /></FormField>
-      <FormField label="狀態"><select className={inputClass} name="status" defaultValue={editing?.status ?? "active"}><option value="active">有效</option><option value="expired">已到期</option><option value="inactive">停用</option></select></FormField>
-      <FormField label="發證日"><input className={inputClass} name="issued_at" type="date" defaultValue={editing?.issued_at?.slice(0, 10) ?? ""} /></FormField>
-      <FormField label="到期日"><input className={inputClass} name="expires_at" type="date" defaultValue={editing?.expires_at?.slice(0, 10) ?? ""} /></FormField>
-      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2"><Button variant="default" disabled={busy}>{busy ? "儲存中…" : editing ? "儲存變更" : "新增文件"}</Button>{editing && <Button type="button" variant="secondary" onClick={() => setEditing(null)}>取消編輯</Button>}</div>
+    {canWrite && <form key={editing?.id ?? `new-${supplier.id}`} onSubmit={handleSubmit(onSubmit)} noValidate className="mb-5 grid gap-3 rounded-md bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <FormField label="文件類型"><input {...register("doc_type")} className={inputClass} maxLength={50} />{errors.doc_type && <span className="text-sm text-rose-600">{errors.doc_type.message}</span>}</FormField>
+      <FormField label="文件名稱"><input {...register("doc_name")} className={inputClass} maxLength={200} />{errors.doc_name && <span className="text-sm text-rose-600">{errors.doc_name.message}</span>}</FormField>
+      <FormField label="文件編號"><input {...register("doc_code")} className={inputClass} maxLength={80} />{errors.doc_code && <span className="text-sm text-rose-600">{errors.doc_code.message}</span>}</FormField>
+      <FormField label="狀態"><select {...register("status")} className={inputClass}><option value="active">有效</option><option value="expired">已到期</option><option value="inactive">停用</option></select>{errors.status && <span className="text-sm text-rose-600">{errors.status.message}</span>}</FormField>
+      <FormField label="發證日"><input {...register("issued_at")} className={inputClass} type="date" />{errors.issued_at && <span className="text-sm text-rose-600">{errors.issued_at.message}</span>}</FormField>
+      <FormField label="到期日"><input {...register("expires_at")} className={inputClass} type="date" />{errors.expires_at && <span className="text-sm text-rose-600">{errors.expires_at.message}</span>}</FormField>
+      <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2"><Button variant="default" disabled={saving}>{saving ? "儲存中…" : editing ? "儲存變更" : "新增文件"}</Button>{editing && <Button type="button" variant="secondary" onClick={() => setEditing(null)}>取消編輯</Button>}</div>
     </form>}
     {loading ? <LoadingState label="正在載入資格文件…" /> : documents.length ? <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]"><DataTable><TableHead><TableRow><Th>文件</Th><Th>類型／編號</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead><TableBody>{documents.map((document) => <TableRow key={document.id}><Td><button className="font-medium text-sky-800 hover:underline" onClick={() => setSelected(document)}>{document.doc_name}</button></Td><Td>{document.doc_type}<span className="block text-xs text-slate-500">{document.doc_code || "—"}</span></Td><Td><StatusBadge value={document.status} /></Td><Td><div className="flex gap-2">{canWrite && (<><Button variant="secondary" onClick={() => { setEditing(document); setSelected(document); }}>編輯</Button><ConfirmDialog trigger={<Button variant="secondary"><Trash2 className="h-4 w-4" />刪除</Button>} title="刪除資格文件？" description="文件及其附件 metadata 將一併刪除，實際附件檔案也會在資料庫交易成功後移除。" confirmLabel="刪除文件" destructive onConfirm={() => removeDocument(document)} /></>)}</div></Td></TableRow>)}</TableBody></DataTable>
       <div className="rounded-md border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{selected ? selected.doc_name : "選取文件以管理附件"}</h3>{selected && <><p className="mt-1 text-xs text-slate-500">發證：{selected.issued_at ? new Date(selected.issued_at).toLocaleDateString("zh-TW") : "—"} · 到期：{selected.expires_at ? new Date(selected.expires_at).toLocaleDateString("zh-TW") : "—"}</p>{canWrite && <form onSubmit={upload} className="mt-4 flex flex-wrap items-end gap-2"><FormField label="新增附件"><input className={inputClass} type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required /></FormField><Button variant="default" disabled={busy}><Upload className="h-4 w-4" />{busy ? "上傳中…" : "上傳附件"}</Button></form>}<div className="mt-4 space-y-2">{attachments.length ? attachments.map((attachment) => <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate text-sm">{attachment.original_filename}</span><span className="text-xs text-slate-500">{Math.ceil(attachment.size_bytes / 1024)} KB · {attachment.media_type}</span></span><div className="flex gap-2"><Button variant="secondary" onClick={() => void download(attachment)}><Download className="h-4 w-4" />下載</Button>{canWrite && <ConfirmDialog trigger={<Button variant="secondary" aria-label={`刪除 ${attachment.original_filename}`}><Trash2 className="h-4 w-4" /></Button>} title="刪除附件？" description="此操作只會刪除目前文件所屬的附件。" confirmLabel="刪除附件" destructive onConfirm={() => removeAttachment(attachment)} />}</div></div>) : <EmptyState title="尚無附件" description="可上傳 PDF、PNG 或 JPEG，單檔大小上限依後端設定。" />}</div></>}</div></div> : <EmptyState title="尚無資格文件" description="具備供應商管理權限的使用者可新增文件。" />}
@@ -463,7 +592,7 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
       const blob = await api.supplierImportTemplate();
       triggerDownload(blob, "supplier-import-template.xlsx");
     } catch (err) {
-      setError(message(err));
+      setError(`操作失敗：${getErrorMessage(err)}`);
     } finally {
       setBusy("");
     }
@@ -482,7 +611,7 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
       setPreview(await api.previewSupplierImport(file));
     } catch (err) {
       setPreview(null);
-      setError(message(err));
+      setError(`操作失敗：${formatErrorMessage(err)}`);
     } finally {
       setBusy("");
     }
@@ -509,7 +638,7 @@ function SupplierImportPanel({ onImported }: { onImported: () => void }) {
         setError("匯入未執行：檔案仍有驗證錯誤，請修正後重新上傳。");
       }
     } catch (err) {
-      setError(message(err));
+      setError(`操作失敗：${formatErrorMessage(err)}`);
     } finally {
       setBusy("");
     }
@@ -754,8 +883,48 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
-  const [saving, setSaving] = useState(false);
   const canWrite = Boolean(profile?.permissions.includes("materials:write"));
+  
+  // React Hook Form 初始化
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting: saving },
+  } = useForm<MaterialFormData>({
+    resolver: zodResolver(materialSchema),
+    defaultValues: {
+      material_code: "",
+      material_name: "",
+      material_type: "",
+      uom: "",
+      spec: "",
+      status: "active",
+    },
+  });
+  
+  // 當 editingMaterial 改變時重設表單
+  useEffect(() => {
+    if (editingMaterial) {
+      reset({
+        material_code: editingMaterial.material_code,
+        material_name: editingMaterial.material_name,
+        material_type: editingMaterial.material_type,
+        uom: editingMaterial.uom,
+        spec: editingMaterial.spec || "",
+        status: editingMaterial.status,
+      });
+    } else {
+      reset({
+        material_code: "",
+        material_name: "",
+        material_type: "",
+        uom: "",
+        spec: "",
+        status: "active",
+      });
+    }
+  }, [editingMaterial, reset]);
   
   // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -789,20 +958,18 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
   });
 
   const displayError = queryError ? getErrorMessage(queryError) : error;
-  const create = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  
+  const onSubmit = async (formData: MaterialFormData) => {
     setError("");
     setSuccess("");
-    const form = new FormData(event.currentTarget);
-    setSaving(true);
     try {
       const payload = {
-        material_code: String(form.get("material_code")).trim(),
-        material_name: String(form.get("material_name")).trim(),
-        material_type: String(form.get("material_type")).trim(),
-        uom: String(form.get("uom")).trim(),
-        spec: optional(form.get("spec")),
-        status: String(form.get("status")),
+        material_code: formData.material_code.trim(),
+        material_name: formData.material_name.trim(),
+        material_type: formData.material_type.trim(),
+        uom: formData.uom.trim(),
+        spec: formData.spec?.trim() || undefined,
+        status: formData.status,
       };
       if (editingMaterial) {
         await api.updateMaterial(editingMaterial.id, payload);
@@ -817,9 +984,7 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
       // 使所有相關查詢快取失效，確保列表資料最新
       await queryClient.invalidateQueries({ queryKey: ['materials'] });
     } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
+      setError(`操作失敗：${formatErrorMessage(err)}`);
     }
   };
   return (
@@ -844,51 +1009,55 @@ function MaterialsPage({ profile }: { profile: UserProfile | null }) {
         <Panel title={editingMaterial ? `編輯物料：${editingMaterial.material_name}` : "新增物料"} description="代碼需唯一；停用物料不會刪除既有庫存與追溯紀錄。" className="mb-5">
           <form
             key={editingMaterial?.id ?? "new-material"}
-            onSubmit={create}
+            onSubmit={handleSubmit(onSubmit)}
+            noValidate
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
           >
             <FormField label="物料代碼">
               <input
-                name="material_code"
+                {...register("material_code")}
                 className={inputClass}
-                required
                 maxLength={80}
-                defaultValue={editingMaterial?.material_code ?? ""}
               />
+              {errors.material_code && <span className="text-sm text-rose-600">{errors.material_code.message}</span>}
             </FormField>
             <FormField label="物料名稱">
               <input
-                name="material_name"
+                {...register("material_name")}
                 className={inputClass}
-                required
                 maxLength={200}
-                defaultValue={editingMaterial?.material_name ?? ""}
               />
+              {errors.material_name && <span className="text-sm text-rose-600">{errors.material_name.message}</span>}
             </FormField>
             <FormField label="物料類別">
               <input
-                name="material_type"
+                {...register("material_type")}
                 className={inputClass}
-                required
                 maxLength={50}
-                defaultValue={editingMaterial?.material_type ?? ""}
               />
+              {errors.material_type && <span className="text-sm text-rose-600">{errors.material_type.message}</span>}
             </FormField>
             <FormField label="計量單位">
               <input
-                name="uom"
+                {...register("uom")}
                 className={inputClass}
-                required
                 maxLength={30}
-                defaultValue={editingMaterial?.uom ?? ""}
               />
+              {errors.uom && <span className="text-sm text-rose-600">{errors.uom.message}</span>}
             </FormField>
             <FormField label="規格">
-              <input name="spec" className={inputClass} maxLength={255} defaultValue={editingMaterial?.spec ?? ""} />
+              <input {...register("spec")} className={inputClass} maxLength={255} />
+              {errors.spec && <span className="text-sm text-rose-600">{errors.spec.message}</span>}
             </FormField>
-            <FormField label="物料狀態"><select name="status" className={inputClass} defaultValue={editingMaterial?.status ?? "active"}><option value="active">啟用</option><option value="inactive">停用</option></select></FormField>
+            <FormField label="物料狀態">
+              <select {...register("status")} className={inputClass}>
+                <option value="active">啟用</option>
+                <option value="inactive">停用</option>
+              </select>
+            </FormField>
             <div className="flex items-end gap-2">
-              <button className={buttonClass} disabled={saving}>{saving ? "儲存中…" : editingMaterial ? "儲存變更" : "建立物料"}</button><button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => { setShowForm(false); setEditingMaterial(null) }}>取消</button>
+              <button className={buttonClass} disabled={saving}>{saving ? "儲存中…" : editingMaterial ? "儲存變更" : "建立物料"}</button>
+              <button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => { setShowForm(false); setEditingMaterial(null) }}>取消</button>
             </div>
           </form>
         </Panel>
@@ -1013,12 +1182,7 @@ function Pagination({
     </div>
   );
 }
-function optional(value: FormDataEntryValue | null) {
+function optional(value: FormDataEntryValue | null | string | undefined) {
   const result = String(value ?? "").trim();
   return result || undefined;
-}
-function message(error: unknown) {
-  return error instanceof ApiError
-    ? `操作失敗：${error.details}`
-    : "請求失敗，請確認網路連線後再試一次。";
 }

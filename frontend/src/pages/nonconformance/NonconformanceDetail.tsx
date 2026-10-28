@@ -55,21 +55,38 @@ export function NonconformanceDetail({
     }
 
     if (selectedItem.status === "pending_confirmation") {
+      // 檢查是否滿足結案條件：需要有調查內容和至少一筆處置記錄
+      const hasInvestigation = investigationContent && investigationContent.trim().length > 0;
+      const hasDispositions = selectedItem.dispositions && selectedItem.dispositions.length > 0;
+      const canClose = hasInvestigation && hasDispositions;
+      
       return (
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            disabled={isLoading}
-            onClick={() => onStatusTransition("investigating")}
-          >
-            退回調查
-          </Button>
-          <Button
-            disabled={isLoading}
-            onClick={() => onStatusTransition("closed")}
-          >
-            結案
-          </Button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              disabled={isLoading}
+              onClick={() => onStatusTransition("investigating")}
+            >
+              退回調查
+            </Button>
+            <Button
+              disabled={isLoading || !canClose}
+              onClick={() => onStatusTransition("closed")}
+              title={!canClose ? (
+                !hasInvestigation ? "需要先填寫調查內容" : "需要先新增至少一筆處置記錄"
+              ) : ""}
+            >
+              結案
+            </Button>
+          </div>
+          {!canClose && (
+            <p className="text-sm text-amber-600">
+              {!hasInvestigation && "請先填寫調查內容；"}
+              {!hasDispositions && "請先新增至少一筆處置記錄；"}
+              完成後才能結案
+            </p>
+          )}
         </div>
       );
     }

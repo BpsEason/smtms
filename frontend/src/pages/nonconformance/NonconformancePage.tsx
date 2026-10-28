@@ -153,6 +153,21 @@ export function NonconformancePage({
   // 轉換案件狀態
   const handleStatusTransition = async (newStatus: string) => {
     if (!selectedItem) return;
+    
+    // 結案前預檢查，提前提示使用者需要完成的項目
+    if (newStatus === "closed") {
+      const hasInvestigation = investigationContent && investigationContent.trim().length > 0;
+      const hasDispositions = selectedItem.dispositions && selectedItem.dispositions.length > 0;
+      
+      if (!hasInvestigation || !hasDispositions) {
+        const missing = [];
+        if (!hasInvestigation) missing.push("調查內容");
+        if (!hasDispositions) missing.push("至少一筆處置記錄");
+        setErrorMessage(`無法結案：請先完成${missing.join("和")}`);
+        return;
+      }
+    }
+    
     setIsLoading(true);
 
     try {

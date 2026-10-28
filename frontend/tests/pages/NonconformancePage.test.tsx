@@ -63,4 +63,67 @@ describe("NonconformancePage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Missing permissions: nonconformance:read");
     expect(screen.queryByText("目前沒有符合條件的案件。")).toBeNull();
   });
+
+  it("prevents closing a case when investigation or dispositions are missing", async () => {
+    const user = userEvent.setup();
+    // Mock a case in pending_confirmation state without investigation or dispositions
+    const pendingRecord = { 
+      ...record, 
+      status: "pending_confirmation",
+      investigation: "",
+      dispositions: []
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/nonconformances/1")) return response(pendingRecord);
+      if (url.includes("/api/v1/nonconformances")) return response({ items: [pendingRecord], total: 1, page: 1, page_size: 20 });
+      return response({ detail: "unexpected" });
+    });
+
+    render(<MemoryRouter><NonconformancePage profile={profile} /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "NC-100" }));
+    
+    // 檢查結案按鈕是否被禁用
+    const closeButton = screen.getByRole("button", { name: "結案" });
+    expect(closeButton).toBeDisabled();
+    
+    // 檢查是否顯示提示訊息
+    expect(await screen.findByText("請先填寫調查內容；請先新增至少一筆處置記錄；完成後才能結案")).toBeTruthy();
+  });
+
+  it("allows closing a case when all requirements are met", async () => {
+    const user = userEvent.setup();
+    // Mock a case in pending_confirmation state with all required data
+    const readyRecord = { 
+      ...record, 
+      status: "pending_confirmation",
+      investigation: "Complete investigation findings",
+      dispositions: [{ id: 1, content: "Rework process applied", result: "Pass", owner_user_id: 4, executed_at: "2026-10-21T10:00:00Z" }]
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/nonconformances/1") && init?.method === "PATCH") {
+        return response({ ...readyRecord, status: "closed" });
+      }
+      if (url.endsWith("/api/v1/nonconformances/1")) return response(readyRecord);
+      if (url.includes("/api/v1/nonconformances")) return response({ items: [readyRecord], total: 1, page: 1, page_size: 20 });
+      return response({ detail: "unexpected" });
+    });
+
+    render(<MemoryRouter><NonconformancePage profile={profile} /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "NC-100" }));
+    
+    // 檢查結案按鈕是否啟用
+    const closeButton = screen.getByRole("button", { name: "結案" });
+    expect(closeButton).not.toBeDisabled();
+    
+    // 嘗試點擊結案按鈕
+    await user.click(closeButton);
+    
+    // 驗證API是否被呼叫
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/nonconformances/1"),
+      expect.objectContaining({ method: "PATCH" })
+    );
+  });
 });

@@ -40,12 +40,18 @@ const TOKEN_KEY = "smtms_token";
 export class ApiError extends Error {
   status: number;
   details: string;
+  errors?: Record<string, string[]>; // Laravel 驗證錯誤結構
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    errors?: Record<string, string[]>,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.details = message;
+    this.errors = errors;
   }
 }
 
@@ -103,41 +109,96 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
+    // 處理401未授權：只有當有token且不是登入請求時才清除token並觸發事件
     if (response.status === 401 && token && !path.endsWith("/auth/login")) {
       clearToken();
       window.dispatchEvent(new Event("smtms:unauthorized"));
     }
-    const payloadDetail =
-      data && typeof data === "object" && "detail" in data
-        ? data.detail
-        : undefined;
-    const detail =
-      typeof payloadDetail === "string"
-        ? payloadDetail
-        : Array.isArray(payloadDetail)
-          ? payloadDetail
-              .map((item) =>
-                item &&
-                typeof item === "object" &&
-                "msg" in item &&
-                typeof item.msg === "string"
-                  ? item.msg
-                  : "Validation failed",
-              )
-              .join("; ")
-          : "Request failed";
-    throw new ApiError(response.status, detail);
+
+    let detail = "Request failed";
+    let errors: Record<string, string[]> | undefined;
+
+    // 解析後端返回的錯誤資訊
+    if (data && typeof data === "object") {
+      // 處理Laravel標準驗證錯誤格式 (422)
+      if (
+        response.status === 422 &&
+        "errors" in data &&
+        data.errors &&
+        typeof data.errors === "object"
+      ) {
+        errors = data.errors as Record<string, string[]>;
+        // 將所有驗證錯誤訊息合併成字串
+        const messages = Object.entries(errors)
+          .flatMap(([_, fieldErrors]) => fieldErrors)
+          .join("; ");
+        detail = messages || "欄位驗證失敗";
+      }
+      // 處理detail字段的錯誤
+      else if ("detail" in data && typeof data.detail === "string") {
+        detail = data.detail;
+      }
+      // 處理message字段的錯誤
+      else if ("message" in data && typeof data.message === "string") {
+        detail = data.message;
+      }
+      // 處理舊格式的陣列錯誤訊息
+      else if ("detail" in data && Array.isArray(data.detail)) {
+        detail = data.detail
+          .map((item: unknown) => {
+            if (
+              item &&
+              typeof item === "object" &&
+              "msg" in item &&
+              typeof item.msg === "string"
+            ) {
+              return item.msg;
+            }
+            return "Validation failed";
+          })
+          .join("; ");
+      }
+    }
+
+    // 根據HTTP狀態碼提供預設的錯誤訊息
+    if (detail === "Request failed") {
+      switch (response.status) {
+        case 401:
+          detail = "未授權，請重新登入";
+          break;
+        case 403:
+          detail = "您沒有權限執行此操作";
+          break;
+        case 404:
+          detail = "要求的資源不存在";
+          break;
+        case 422:
+          detail = "欄位驗證失敗";
+          break;
+        case 500:
+          detail = "伺服器內部錯誤，請稍後再試";
+          break;
+        default:
+          detail = `請求失敗 (${response.status})`;
+      }
+    }
+
+    throw new ApiError(response.status, detail, errors);
   }
 
   return (data ?? undefined) as T;
 }
 
 export const api = {
-  listAuditLogs: async (params?: Record<string, string | number | undefined | null>) =>
+  listAuditLogs: async (
+    params?: Record<string, string | number | undefined | null>,
+  ) =>
     request<{ items: AuditLog[]; page: number; page_size: number }>(
       `/api/v1/audit-logs${buildQueryString(params ?? {})}`,
     ),
-  exportAuditLogs: async (params?: Record<string, string | number | undefined | null>) => {
+  exportAuditLogs: async (
+    params?: Record<string, string | number | undefined | null>,
+  ) => {
     const headers = new Headers();
     const token = readToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -145,25 +206,73 @@ export const api = {
       `${API_BASE_URL}/api/v1/audit-logs/export.csv${buildQueryString(params ?? {})}`,
       { headers },
     );
-    if (!response.ok) throw new ApiError(response.status, "稽核紀錄匯出失敗");
+    if (!response.ok) {
+      // 統一的401處理邏輯
+      if (response.status === 401 && token) {
+        clearToken();
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+      }
+      throw new ApiError(response.status, "稽核紀錄匯出失敗");
+    }
     return response.blob();
   },
-  listNonconformances: async (params?: Record<string, string | number | undefined | null>) =>
-    request<PaginatedResponse<Nonconformance>>(`/api/v1/nonconformances${buildQueryString(params ?? {})}`),
-  getNonconformance: async (id: number) => request<Nonconformance>(`/api/v1/nonconformances/${id}`),
-  createNonconformance: async (payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances`, { method: "POST", body: JSON.stringify(payload) }),
-  updateNonconformance: async (id: number, payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
-  addNonconformanceDisposition: async (id: number, payload: Record<string, unknown>) => request<Nonconformance>(`/api/v1/nonconformances/${id}/dispositions`, { method: "POST", body: JSON.stringify(payload) }),
+  listNonconformances: async (
+    params?: Record<string, string | number | undefined | null>,
+  ) =>
+    request<PaginatedResponse<Nonconformance>>(
+      `/api/v1/nonconformances${buildQueryString(params ?? {})}`,
+    ),
+  getNonconformance: async (id: number) =>
+    request<Nonconformance>(`/api/v1/nonconformances/${id}`),
+  createNonconformance: async (payload: Record<string, unknown>) =>
+    request<Nonconformance>(`/api/v1/nonconformances`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateNonconformance: async (id: number, payload: Record<string, unknown>) =>
+    request<Nonconformance>(`/api/v1/nonconformances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  addNonconformanceDisposition: async (
+    id: number,
+    payload: Record<string, unknown>,
+  ) =>
+    request<Nonconformance>(`/api/v1/nonconformances/${id}/dispositions`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   uploadNonconformanceAttachment: async (id: number, file: File) => {
-    const form = new FormData(); form.append("file", file);
-    return request<{ id: number; original_filename: string }>(`/api/v1/nonconformances/${id}/attachments`, { method: "POST", body: form });
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ id: number; original_filename: string }>(
+      `/api/v1/nonconformances/${id}/attachments`,
+      { method: "POST", body: form },
+    );
   },
   deleteNonconformanceAttachment: async (id: number, attachmentId: number) =>
-    request<void>(`/api/v1/nonconformances/${id}/attachments/${attachmentId}`, { method: "DELETE" }),
-  downloadNonconformanceAttachment: async (id: number, attachmentId: number) => {
-    const headers = new Headers(); const token = readToken(); if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(`${API_BASE_URL}/api/v1/nonconformances/${id}/attachments/${attachmentId}/download`, { headers });
-    if (!response.ok) throw new ApiError(response.status, "附件下載失敗");
+    request<void>(`/api/v1/nonconformances/${id}/attachments/${attachmentId}`, {
+      method: "DELETE",
+    }),
+  downloadNonconformanceAttachment: async (
+    id: number,
+    attachmentId: number,
+  ) => {
+    const headers = new Headers();
+    const token = readToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/nonconformances/${id}/attachments/${attachmentId}/download`,
+      { headers },
+    );
+    if (!response.ok) {
+      // 統一的401處理邏輯
+      if (response.status === 401 && token) {
+        clearToken();
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+      }
+      throw new ApiError(response.status, "附件下載失敗");
+    }
     return response.blob();
   },
   login: async (username: string, password: string) =>
@@ -203,44 +312,94 @@ export const api = {
     request<SupplierDocument[]>(`/api/v1/suppliers/${supplierId}/documents`),
 
   getSupplierDocument: async (supplierId: number, documentId: number) =>
-    request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`),
+    request<SupplierDocument>(
+      `/api/v1/suppliers/${supplierId}/documents/${documentId}`,
+    ),
 
-  createSupplierDocument: async (supplierId: number, payload: SupplierDocumentPayload) =>
+  createSupplierDocument: async (
+    supplierId: number,
+    payload: SupplierDocumentPayload,
+  ) =>
     request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
-  updateSupplierDocument: async (supplierId: number, documentId: number, payload: Partial<SupplierDocumentPayload>) =>
-    request<SupplierDocument>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
+  updateSupplierDocument: async (
+    supplierId: number,
+    documentId: number,
+    payload: Partial<SupplierDocumentPayload>,
+  ) =>
+    request<SupplierDocument>(
+      `/api/v1/suppliers/${supplierId}/documents/${documentId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   deleteSupplierDocument: async (supplierId: number, documentId: number) =>
-    request<void>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`, { method: "DELETE" }),
+    request<void>(`/api/v1/suppliers/${supplierId}/documents/${documentId}`, {
+      method: "DELETE",
+    }),
 
-  listSupplierDocumentAttachments: async (supplierId: number, documentId: number) =>
-    request<SupplierDocumentAttachment[]>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`),
+  listSupplierDocumentAttachments: async (
+    supplierId: number,
+    documentId: number,
+  ) =>
+    request<SupplierDocumentAttachment[]>(
+      `/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`,
+    ),
 
-  uploadSupplierDocumentAttachment: async (supplierId: number, documentId: number, file: File) => {
+  uploadSupplierDocumentAttachment: async (
+    supplierId: number,
+    documentId: number,
+    file: File,
+  ) => {
     const form = new FormData();
     form.append("file", file);
-    return request<SupplierDocumentAttachment>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`, {
-      method: "POST",
-      body: form,
-    });
+    return request<SupplierDocumentAttachment>(
+      `/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments`,
+      {
+        method: "POST",
+        body: form,
+      },
+    );
   },
 
-  deleteSupplierDocumentAttachment: async (supplierId: number, documentId: number, attachmentId: number) =>
-    request<void>(`/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}`, { method: "DELETE" }),
+  deleteSupplierDocumentAttachment: async (
+    supplierId: number,
+    documentId: number,
+    attachmentId: number,
+  ) =>
+    request<void>(
+      `/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}`,
+      { method: "DELETE" },
+    ),
 
-  downloadSupplierDocumentAttachment: async (supplierId: number, documentId: number, attachmentId: number) => {
+  downloadSupplierDocumentAttachment: async (
+    supplierId: number,
+    documentId: number,
+    attachmentId: number,
+  ) => {
     const token = readToken();
-    const response = await fetch(`${API_BASE_URL}/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}/download`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!response.ok) throw new ApiError(response.status, "無法下載附件，請確認權限或稍後重試。");
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/suppliers/${supplierId}/documents/${documentId}/attachments/${attachmentId}/download`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!response.ok) {
+      // 統一的401處理邏輯
+      if (response.status === 401 && token) {
+        clearToken();
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+      }
+      throw new ApiError(
+        response.status,
+        "無法下載附件，請確認權限或稍後重試。",
+      );
+    }
     return response.blob();
   },
 
@@ -282,8 +441,12 @@ export const api = {
   getReceiptTrace: async (receiptId: number) =>
     request<ReceiptTrace>(`/api/v1/receipts/${receiptId}/trace`),
 
-  searchTraceability: async (params: Record<string, string | number | undefined | null>) =>
-    request<PaginatedResponse<TraceabilityReceipt>>(`/api/v1/traceability${buildQueryString(params)}`),
+  searchTraceability: async (
+    params: Record<string, string | number | undefined | null>,
+  ) =>
+    request<PaginatedResponse<TraceabilityReceipt>>(
+      `/api/v1/traceability${buildQueryString(params)}`,
+    ),
 
   createSupplierMaterial: async (
     supplierId: number,
@@ -385,8 +548,14 @@ export const api = {
       `${API_BASE_URL}/api/v1/suppliers/import/template`,
       { headers },
     );
-    if (!response.ok)
+    if (!response.ok) {
+      // 統一的401處理邏輯
+      if (response.status === 401 && token) {
+        clearToken();
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+      }
       throw new ApiError(response.status, "無法下載匯入範本，請稍後再試。");
+    }
     return response.blob();
   },
 
