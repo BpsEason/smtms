@@ -35,8 +35,8 @@ export function StatusBadge({ value, label }: { value: string; label?: string })
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${tone}`}>{label ?? statusLabel(value)}</span>
 }
 
-export function FormField({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {
-  return <label className="block min-w-0 space-y-1.5 text-sm font-medium text-slate-700"><span>{label}</span>{children}{hint && !error && <span className="block text-xs font-normal text-slate-500">{hint}</span>}{error && <span className="block text-xs font-normal text-rose-700">{error}</span>}</label>
+export function FormField({ label, hint, error, htmlFor, children }: { label: string; hint?: string; error?: string; htmlFor?: string; children: ReactNode }) {
+  return <label htmlFor={htmlFor} className="block min-w-0 space-y-1.5 text-sm font-medium text-slate-700"><span>{label}</span>{children}{hint && !error && <span className="block text-xs font-normal text-slate-500">{hint}</span>}{error && <span className="block text-xs font-normal text-rose-700">{error}</span>}</label>
 }
 
 export const inputClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-600 focus:ring-2 focus:ring-sky-600/15 disabled:cursor-not-allowed disabled:bg-slate-50'

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../../api/client";
 import { allInternalLots, getErrorMessage, localDateTimeNow } from "../../lib/data";
 import { Button } from "@/components/shadcn/button";
@@ -24,11 +27,27 @@ import {
 } from "../../components/ui";
 import { statusLabel } from "../../lib/status";
 import type {
-  IQCForm,
   InternalLot,
   UserProfile,
 } from "./types";
 import { Pagination } from "./components/SharedComponents";
+
+// Zod 驗證 schema - IQC 新增表單
+const iqcCreateSchema = z.object({
+  lotId: z.string().min(1, "請選擇內部批號"),
+  sampleQty: z.string().refine(
+    (val) => {
+      const num = Number(val);
+      return !isNaN(num) && num > 0;
+    },
+    "抽樣數量必須大於0"
+  ),
+  result: z.union([z.literal("pending"), z.literal("passed"), z.literal("failed")]),
+  inspectionDate: z.string().min(1, "檢驗日期時間為必填"),
+  remarks: z.string().max(500, "備註最多500字元").optional(),
+});
+
+export type IQCFormData = z.infer<typeof iqcCreateSchema>;
 
 export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const queryClient = useQueryClient();
@@ -40,15 +59,30 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const [lotError, setLotError] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [form, setForm] = useState<IQCForm>({
-    lotId: "",
-    sampleQty: "",
-    result: "pending" as "pending" | "passed" | "failed",
-    inspectionDate: localDateTimeNow(),
-    remarks: "",
-  });
   const [updatedLot, setUpdatedLot] = useState<InternalLot | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  
+  // 使用 react-hook-form 管理 IQC 表單
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors },
+  } = useForm<IQCFormData>({
+    resolver: zodResolver(iqcCreateSchema),
+    defaultValues: {
+      lotId: "",
+      sampleQty: "",
+      result: "pending",
+      inspectionDate: localDateTimeNow(),
+      remarks: "",
+    },
+  });
+  
+  // 監聽表單欄位變化以維持原有邏輯
+  const form = watch();
+  const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
   const canWrite = Boolean(profile?.permissions.includes("iqc:write"));
   const outcomeStatus =
     form.result === "passed"
@@ -56,7 +90,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
       : form.result === "failed"
         ? "rejected"
         : "hold";
-  const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
 
   // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -109,23 +142,24 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
     };
   }, []);
 
-  const createInspection = async () => {
+  const onSubmit = async (data: IQCFormData) => {
     setError("");
     setSuccess("");
-    if (!formRef.current?.reportValidity() || !selectedLot) return;
+    if (!selectedLot) return;
     try {
       const created = await api.createIQC({
         internal_lot_id: selectedLot.id,
-        sample_qty: form.sampleQty,
-        inspection_result: form.result,
-        inspection_date: new Date(form.inspectionDate).toISOString(),
+        sample_qty: data.sampleQty,
+        inspection_result: data.result,
+        inspection_date: new Date(data.inspectionDate).toISOString(),
         release_status: outcomeStatus,
-        remarks: form.remarks.trim() || undefined,
+        remarks: data.remarks?.trim() || undefined,
       });
       setSuccess(
         `檢驗紀錄 ${created.id} 已建立，結果：${statusLabel(created.inspection_result)}／${statusLabel(created.release_status)}。`,
       );
-      setForm({
+      // 重置表單
+      reset({
         lotId: "",
         sampleQty: "",
         result: "pending",
@@ -188,11 +222,14 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
             ) : (
               <form
                 ref={formRef}
-                onSubmit={(event) => event.preventDefault()}
+                onSubmit={handleSubmit(onSubmit)}
                 className="space-y-4"
+                noValidate
               >
                 <FormField
                   label="內部批號"
+                  htmlFor="internal-lot-select"
+                  error={errors.lotId?.message}
                   hint={
                     selectedLot
                       ? `目前後端批號狀態：${statusLabel(selectedLot.lot_status)} · 庫存 ${selectedLot.qty_on_hand} ${selectedLot.uom}`
@@ -200,11 +237,11 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                   }
                 >
                   <select
+                    id="internal-lot-select"
                     className={inputClass}
-                    required
-                    value={form.lotId}
+                    {...register("lotId")}
                     onChange={(event) => {
-                      setForm((old) => ({ ...old, lotId: event.target.value }));
+                      register("lotId").onChange(event);
                       setUpdatedLot(null);
                     }}
                   >
@@ -217,50 +254,33 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                   </select>
                 </FormField>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField label="抽樣數量">
+                  <FormField label="抽樣數量" htmlFor="sample-qty" error={errors.sampleQty?.message}>
                     <input
+                      id="sample-qty"
                       className={inputClass}
                       type="number"
                       min="0.0001"
                       step="any"
-                      required
-                      value={form.sampleQty}
-                      onChange={(event) =>
-                        setForm((old) => ({
-                          ...old,
-                          sampleQty: event.target.value,
-                        }))
-                      }
+                      {...register("sampleQty")}
                     />
                   </FormField>
-                  <FormField label="檢驗結果">
+                  <FormField label="檢驗結果" htmlFor="inspection-result" error={errors.result?.message}>
                     <select
+                      id="inspection-result"
                       className={inputClass}
-                      value={form.result}
-                      onChange={(event) =>
-                        setForm((old) => ({
-                          ...old,
-                          result: event.target.value as typeof old.result,
-                        }))
-                      }
+                      {...register("result")}
                     >
                       <option value="pending">待檢</option>
                       <option value="passed">合格</option>
                       <option value="failed">不合格</option>
                     </select>
                   </FormField>
-                  <FormField label="檢驗日期時間">
+                  <FormField label="檢驗日期時間" htmlFor="inspection-date" error={errors.inspectionDate?.message}>
                     <input
+                      id="inspection-date"
                       className={inputClass}
                       type="datetime-local"
-                      required
-                      value={form.inspectionDate}
-                      onChange={(event) =>
-                        setForm((old) => ({
-                          ...old,
-                          inspectionDate: event.target.value,
-                        }))
-                      }
+                      {...register("inspectionDate")}
                     />
                   </FormField>
                   <div className="space-y-1.5 text-sm font-medium text-slate-700">
@@ -273,29 +293,20 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                     </p>
                   </div>
                 </div>
-                <FormField label="備註">
+                <FormField label="備註" htmlFor="remarks" error={errors.remarks?.message}>
                   <textarea
+                    id="remarks"
                     className={`${inputClass} min-h-20 resize-y`}
                     maxLength={500}
-                    value={form.remarks}
-                    onChange={(event) =>
-                      setForm((old) => ({
-                        ...old,
-                        remarks: event.target.value,
-                      }))
-                    }
+                    {...register("remarks")}
                   />
                 </FormField>
                 <ConfirmDialog
                   trigger={
                     <Button
-                      type="button"
+                      type="submit"
                       variant="default"
                       disabled={!selectedLot}
-                      onClick={(event) => {
-                        if (!formRef.current?.reportValidity())
-                          event.preventDefault();
-                      }}
                     >
                       確認檢驗資料
                     </Button>
@@ -307,7 +318,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                       : "請先選擇內部批號。"
                   }
                   confirmLabel="儲存檢驗紀錄"
-                  onConfirm={createInspection}
+                  onConfirm={handleSubmit(onSubmit)}
                 />
               </form>
             )}

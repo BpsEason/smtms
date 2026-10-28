@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../../api/client";
 import {
   allSuppliers,
@@ -29,8 +32,6 @@ import {
 } from "../../components/ui";
 import { statusLabel } from "../../lib/status";
 import type {
-  ReceiptForm,
-  SplitForm,
   UserProfile,
   Receipt,
   ReceiptTrace,
@@ -38,6 +39,39 @@ import type {
   SupplierLot,
   Material,
 } from "./types";
+
+// Zod 驗證 schema - 新增收料表單
+const receiptSchema = z.object({
+  supplierId: z.string().min(1, "請選擇供應商"),
+  materialId: z.string().min(1, "請選擇物料"),
+  supplierLotId: z.string().min(1, "請選擇供應商批號"),
+  receiptNo: z.string().min(1, "收料單號為必填").max(100, "收料單號最多100字元"),
+  quantity: z.string().refine(
+    (val) => {
+      const num = Number(val);
+      return !isNaN(num) && num > 0 && num >= 0.0001;
+    },
+    "收料數量必須大於0，最小單位為0.0001"
+  ),
+  receivedAt: z.string().min(1, "收料日期為必填"),
+  notes: z.string().max(500, "備註最多500字元").optional(),
+});
+
+type ReceiptFormData = z.infer<typeof receiptSchema>;
+
+// Zod 驗證 schema - 拆分內部批號表單
+const splitSchema = (maxQuantity: number) => z.object({
+  lotNo: z.string().min(1, "內部批號為必填").max(100, "內部批號最多100字元"),
+  quantity: z.string().refine(
+    (val) => {
+      const num = Number(val);
+      return !isNaN(num) && num > 0 && num >= 0.0001 && num <= maxQuantity;
+    },
+    `拆分數量必須大於0，最小單位為0.0001，且不得超過剩餘數量 ${maxQuantity}`
+  ),
+});
+
+type SplitFormData = z.infer<ReturnType<typeof splitSchema>>;
 import { Pagination, Detail } from "./components/SharedComponents";
 
 export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
@@ -61,19 +95,55 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [resourceError, setResourceError] = useState("");
   const [success, setSuccess] = useState("");
   const [splitError, setSplitError] = useState("");
-  const [receiptForm, setReceiptForm] = useState<ReceiptForm>({
-    supplierId: "",
-    materialId: "",
-    supplierLotId: "",
-    receiptNo: "",
-    quantity: "",
-    receivedAt: localDateTimeNow(),
-    notes: "",
-  });
-  const [splitForm, setSplitForm] = useState<SplitForm>({ lotNo: "", quantity: "" });
-  const receiptFormRef = useRef<HTMLFormElement>(null);
-  const splitFormRef = useRef<HTMLFormElement>(null);
   const lotFormRef = useRef<HTMLFormElement>(null);
+  
+  // React Hook Form - 新增收料表單
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<ReceiptFormData>({
+    resolver: zodResolver(receiptSchema),
+    defaultValues: {
+      supplierId: "",
+      materialId: "",
+      supplierLotId: "",
+      receiptNo: "",
+      quantity: "",
+      receivedAt: localDateTimeNow(),
+      notes: "",
+    },
+  });
+  
+  // React Hook Form - 拆分內部批號表單
+  const maxRemainingQuantity = selectedReceipt ? Number(selectedReceipt.qty_remaining) : 0;
+  const {
+    register: registerSplit,
+    handleSubmit: handleSubmitSplit,
+    reset: resetSplit,
+    formState: { errors: splitErrors, isSubmitting: isSplitSubmitting },
+    trigger: triggerSplit,
+  } = useForm<SplitFormData>({
+    resolver: zodResolver(splitSchema(maxRemainingQuantity)),
+    defaultValues: {
+      lotNo: "",
+      quantity: "",
+    },
+  });
+  
+  // 當切換不同的收料單時，重新觸發驗證以更新最大數量限制
+  useEffect(() => {
+    if (selectedReceipt) {
+      triggerSplit();
+    }
+  }, [selectedReceipt, triggerSplit]);
+  
+  // 監聽表單值變化，用於計算eligibleLots
+  const supplierId = watch("supplierId");
+  const materialId = watch("materialId");
   const canWrite = Boolean(profile?.permissions.includes("receipts:write"));
   const canCreateSupplierLots = Boolean(
     profile?.permissions.some((permission) =>
@@ -87,10 +157,10 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     () =>
       supplierLots.filter(
         (lot) =>
-          String(lot.supplier_id) === receiptForm.supplierId &&
-          String(lot.material_id) === receiptForm.materialId,
+          String(lot.supplier_id) === supplierId &&
+          String(lot.material_id) === materialId,
       ),
-    [supplierLots, receiptForm.supplierId, receiptForm.materialId],
+    [supplierLots, supplierId, materialId],
   );
 
   // 創建防抖後的搜尋參數狀態
@@ -204,18 +274,17 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     };
   }, [selectedId, canTrace]);
 
-  const createReceipt = async () => {
+  const createReceipt = async (data: ReceiptFormData) => {
     setSuccess("");
-    if (!receiptFormRef.current?.reportValidity()) return;
     try {
       const created = await api.createReceipt({
-        supplier_id: Number(receiptForm.supplierId),
-        material_id: Number(receiptForm.materialId),
-        supplier_lot_id: Number(receiptForm.supplierLotId),
-        receipt_no: receiptForm.receiptNo.trim(),
-        qty_received: receiptForm.quantity,
-        received_at: new Date(receiptForm.receivedAt).toISOString(),
-        notes: receiptForm.notes.trim() || undefined,
+        supplier_id: Number(data.supplierId),
+        material_id: Number(data.materialId),
+        supplier_lot_id: Number(data.supplierLotId),
+        receipt_no: data.receiptNo.trim(),
+        qty_received: data.quantity,
+        received_at: new Date(data.receivedAt).toISOString(),
+        notes: data.notes?.trim() || undefined,
       });
       setSuccess(
         `收料單 ${created.receipt_no} 已建立，狀態：${statusLabel(created.status)}。`,
@@ -224,7 +293,8 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       _setTraceError("");
       setSelectedReceipt(created);
       setSelectedId(created.id);
-      setReceiptForm({
+      // 使用react-hook-form的reset方法重設表單
+      reset({
         supplierId: "",
         materialId: "",
         supplierLotId: "",
@@ -267,12 +337,10 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
           ? items.map((item) => (item.id === created.id ? created : item))
           : [...items, created],
       );
-      setReceiptForm((old) => ({
-        ...old,
-        supplierId: String(created.supplier_id),
-        materialId: String(created.material_id),
-        supplierLotId: String(created.id),
-      }));
+      // 使用react-hook-form的setValue方法設定表單值
+      setValue("supplierId", String(created.supplier_id));
+      setValue("materialId", String(created.material_id));
+      setValue("supplierLotId", String(created.id));
       setSuccess(
         `供應商批號「${created.supplier_lot_no}」已建立，可繼續登錄收料。`,
       );
@@ -285,24 +353,20 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     }
   };
 
-  const splitReceipt = async () => {
+  const splitReceipt = async (data: SplitFormData) => {
     setSplitError("");
     setSuccess("");
-    if (!selectedReceipt || !splitFormRef.current?.reportValidity()) return;
-    if (Number(splitForm.quantity) > Number(selectedReceipt.qty_remaining)) {
-      setSplitError("拆分數量不可超過收料單的剩餘數量。");
-      return;
-    }
+    if (!selectedReceipt) return;
     try {
       const created = await api.splitReceipt(selectedReceipt.id, {
-        internal_lot_no: splitForm.lotNo.trim(),
-        qty: splitForm.quantity,
+        internal_lot_no: data.lotNo.trim(),
+        qty: data.quantity,
       });
       _setSelectedLot(created);
       setSuccess(
         `內部批號 ${created.internal_lot_no} 已建立。後端狀態：${statusLabel(created.lot_status)}。`,
       );
-      setSplitForm({ lotNo: "", quantity: "" });
+      resetSplit({ lotNo: "", quantity: "" });
       await refetch();
       if (canTrace) {
         const currentTrace = await api.getReceiptTrace(selectedReceipt.id);
@@ -374,7 +438,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                           className={inputClass}
                           name="supplier_id"
                           required
-                          defaultValue={receiptForm.supplierId}
+                          defaultValue={supplierId}
                         >
                           <option value="">選擇供應商</option>
                           {suppliers.map((supplier) => (
@@ -390,7 +454,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                           className={inputClass}
                           name="material_id"
                           required
-                          defaultValue={receiptForm.materialId}
+                          defaultValue={materialId}
                         >
                           <option value="">選擇物料</option>
                           {materials.map((material) => (
@@ -476,23 +540,19 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                   步驟二：登錄收料
                 </h3>
                 <form
-                  ref={receiptFormRef}
-                  onSubmit={(event) => event.preventDefault()}
+                  onSubmit={handleSubmit(createReceipt)}
                   className="space-y-4"
+                  noValidate
                 >
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="供應商">
+                    <FormField label="供應商" error={errors.supplierId?.message}>
                       <select
                         className={inputClass}
-                        required
-                        value={receiptForm.supplierId}
-                        onChange={(event) =>
-                          setReceiptForm((old) => ({
-                            ...old,
-                            supplierId: event.target.value,
-                            supplierLotId: "",
-                          }))
-                        }
+                        {...register("supplierId", {
+                          onChange: () => {
+                            setValue("supplierLotId", "");
+                          }
+                        })}
                       >
                         <option value="">請選擇供應商</option>
                         {suppliers.map((supplier) => (
@@ -502,18 +562,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                         ))}
                       </select>
                     </FormField>
-                    <FormField label="物料">
+                    <FormField label="物料" error={errors.materialId?.message}>
                       <select
                         className={inputClass}
-                        required
-                        value={receiptForm.materialId}
-                        onChange={(event) =>
-                          setReceiptForm((old) => ({
-                            ...old,
-                            materialId: event.target.value,
-                            supplierLotId: "",
-                          }))
-                        }
+                        {...register("materialId", {
+                          onChange: () => {
+                            setValue("supplierLotId", "");
+                          }
+                        })}
                       >
                         <option value="">請選擇物料</option>
                         {materials.map((material) => (
@@ -527,20 +583,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                   <FormField
                     label="供應商批號"
                     hint="僅列出符合所選供應商與物料的批號。"
+                    error={errors.supplierLotId?.message}
                   >
                     <select
                       className={inputClass}
-                      required
                       disabled={
-                        !receiptForm.supplierId || !receiptForm.materialId
+                        !supplierId || !materialId
                       }
-                      value={receiptForm.supplierLotId}
-                      onChange={(event) =>
-                        setReceiptForm((old) => ({
-                          ...old,
-                          supplierLotId: event.target.value,
-                        }))
-                      }
+                      {...register("supplierLotId")}
                     >
                       <option value="">請選擇供應商批號</option>
                       {eligibleLots.map((lot) => (
@@ -552,62 +602,44 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                     </select>
                   </FormField>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="收料單號">
+                    <FormField label="收料單號" error={errors.receiptNo?.message}>
                       <input
                         className={inputClass}
-                        required
                         maxLength={100}
-                        value={receiptForm.receiptNo}
-                        onChange={(e) => setReceiptForm({...receiptForm, receiptNo: e.target.value})}
+                        {...register("receiptNo")}
                       />
                     </FormField>
-                    <FormField label="收料數量">
+                    <FormField label="收料數量" error={errors.quantity?.message}>
                       <input
                         className={inputClass}
                         type="number"
-                        required
                         min="0.0001"
                         step="0.0001"
-                        value={receiptForm.quantity}
-                        onChange={(e) => setReceiptForm({...receiptForm, quantity: e.target.value})}
+                        {...register("quantity")}
                       />
                     </FormField>
-                    <FormField label="收料日期">
+                    <FormField label="收料日期" error={errors.receivedAt?.message}>
                       <input
                         className={inputClass}
                         type="datetime-local"
-                        required
-                        value={receiptForm.receivedAt}
-                        onChange={(e) => setReceiptForm({...receiptForm, receivedAt: e.target.value})}
+                        {...register("receivedAt")}
                       />
                     </FormField>
-                    <FormField label="備註">
+                    <FormField label="備註" error={errors.notes?.message}>
                       <input
                         className={inputClass}
                         maxLength={500}
-                        value={receiptForm.notes}
-                        onChange={(e) => setReceiptForm({...receiptForm, notes: e.target.value})}
+                        {...register("notes")}
                       />
                     </FormField>
                   </div>
                   <div className="flex gap-2">
-                    <ConfirmDialog
-                      trigger={
-                        <Button
-                          type="button"
-                          onClick={(event) => {
-                            if (!receiptFormRef.current?.reportValidity())
-                              event.preventDefault();
-                          }}
-                        >
-                          確認建立收料單
-                        </Button>
-                      }
-                      title="建立收料紀錄？"
-                      description="收料單將與所選供應商、物料及供應商批號關聯，後端會進行資料驗證。"
-                      confirmLabel="建立收料單"
-                      onConfirm={createReceipt}
-                    />
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? "建立中…" : "建立收料單"}
+                    </Button>
                     <Button
                       type="button"
                       variant="secondary"
@@ -740,42 +772,42 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                 <h4 className="text-sm font-semibold text-slate-900 mb-4">拆分內部批號</h4>
                 {splitError && <ErrorState message={splitError} />}
                 <form
-                  ref={splitFormRef}
-                  onSubmit={(e) => e.preventDefault()}
+                  onSubmit={handleSubmitSplit(splitReceipt)}
                   className="grid gap-4 sm:grid-cols-3"
+                  noValidate
                 >
-                  <FormField label="內部批號">
+                  <FormField label="內部批號" htmlFor="internal-lot-no" error={splitErrors.lotNo?.message}>
                     <input
+                      id="internal-lot-no"
+                      aria-label="內部批號"
                       className={inputClass}
-                      required
                       maxLength={100}
-                      value={splitForm.lotNo}
-                      onChange={(e) => setSplitForm({...splitForm, lotNo: e.target.value})}
+                      {...registerSplit("lotNo")}
                     />
                   </FormField>
-                  <FormField label="拆分數量">
+                  <FormField label="拆分數量" htmlFor="split-quantity" error={splitErrors.quantity?.message}>
                     <input
+                      id="split-quantity"
+                      aria-label="拆分數量"
                       className={inputClass}
                       type="number"
-                      required
                       min="0.0001"
                       step="0.0001"
                       max={Number(selectedReceipt.qty_remaining)}
-                      value={splitForm.quantity}
-                      onChange={(e) => setSplitForm({...splitForm, quantity: e.target.value})}
+                      {...registerSplit("quantity")}
                     />
                   </FormField>
                   <div className="flex items-end">
                     <ConfirmDialog
                       trigger={
-                        <Button type="button">
-                          拆分批號
+                        <Button type="button" disabled={isSplitSubmitting}>
+                          {isSplitSubmitting ? "拆分中…" : "拆分批號"}
                         </Button>
                       }
                       title="建立內部批號？"
                       description="將從此收料單拆分出一個新的內部批號，剩餘數量將自動更新。"
                       confirmLabel="確認拆分"
-                      onConfirm={splitReceipt}
+                      onConfirm={handleSubmitSplit(splitReceipt)}
                     />
                   </div>
                 </form>

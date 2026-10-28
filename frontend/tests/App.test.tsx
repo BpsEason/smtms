@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -528,17 +528,33 @@ describe("SMTMS application", () => {
     await userEvent.type(screen.getByLabelText("收料單號"), "RCV-TEST-21");
     await userEvent.type(screen.getByLabelText("收料數量"), "12");
     await userEvent.click(
-      screen.getByRole("button", { name: "確認建立收料單" }),
-    );
-    await userEvent.click(
       await screen.findByRole("button", { name: "建立收料單" }),
     );
     expect(
       await screen.findByText(/收料單 RCV-TEST-21 已建立/),
     ).toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText("內部批號"), "LOT-TEST-31");
-    await userEvent.type(screen.getByLabelText(/拆分數量/), "5");
+    // 找到新建的收料單所在的行，然後點擊其查看詳情按鈕
+    const receiptCells = await screen.findAllByText("RCV-TEST-21");
+    const receiptRow = receiptCells
+      .map((el) => el.closest("tr"))
+      .find((row) => row !== null);
+
+    if (!receiptRow) {
+      throw new Error("找不到包含 RCV-TEST-21 的表格列");
+    }
+
+    const viewDetailsButton = within(receiptRow).getByRole("button", { name: "查看詳情" });
+    await userEvent.click(viewDetailsButton);
+
+    // 等待拆分表單加載完成
+    await screen.findByText("拆分內部批號");
+    // 使用明確的aria-label來定位輸入框，確保測試穩定性
+    const internalLotInput = screen.getByLabelText("內部批號");
+    await userEvent.type(internalLotInput, "LOT-TEST-31");
+    const qtyInput = screen.getByLabelText("拆分數量");
+    await userEvent.clear(qtyInput);
+    await userEvent.type(qtyInput, "5");
     await userEvent.click(screen.getByRole("button", { name: "拆分批號" }));
     await userEvent.click(
       await screen.findByRole("button", { name: "確認拆分" }),
