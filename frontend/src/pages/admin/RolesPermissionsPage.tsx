@@ -66,6 +66,99 @@ export function RolesPermissionsPage({
 
   const loading = rolesLoading || permissionsLoading || usersLoading;
 
+  // 所有useMutation必須在任何提前return之前宣告，符合React Hooks規則
+  // 角色建立Mutation
+  const createRoleMutation = useMutation({
+    mutationFn: async (payload: { name: string; description?: string }) => {
+      return api.createRole(payload);
+    },
+    onSuccess: () => {
+      setSuccess("角色已建立。");
+      setShowCreate(false);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
+  // 使用者建立Mutation
+  const createUserMutation = useMutation({
+    mutationFn: async (payload: { username: string; email?: string; password: string; role_ids: number[] }) => {
+      return api.createUser(payload);
+    },
+    onSuccess: () => {
+      setSuccess("內部使用者已建立並完成角色指派。");
+      setShowCreateUser(false);
+      setNewUserRoleIds([]);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
+  // 角色更新Mutation
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) => {
+      return api.updateRole(id, payload);
+    },
+    onSuccess: () => {
+      setSuccess("角色資料已更新。");
+      setEditingRole(null);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
+  // 角色刪除Mutation
+  const deleteRoleMutation = useMutation({
+    mutationFn: async (roleId: number) => {
+      return api.deleteRole(roleId);
+    },
+    onSuccess: (_: unknown, roleId: number) => {
+      const role = roles.find(r => r.id === roleId);
+      setSuccess(`角色「${role?.name || '未知角色'}」已刪除。`);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err: unknown) => {
+      setError(message(err));
+    },
+  });
+
+  // 權限設定Mutation
+  const savePermissionsMutation = useMutation({
+    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) => {
+      return api.setRolePermissions(roleId, permissionIds);
+    },
+    onSuccess: (_, variables) => {
+      const role = roles.find(r => r.id === variables.roleId);
+      setSuccess(`角色「${role?.name || permissionRole?.name}」的權限已更新。`);
+      setPermissionRole(null);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
+  // 使用者角色更新Mutation
+  const saveUserRolesMutation = useMutation({
+    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) => {
+      return api.setUserRoles(userId, roleIds);
+    },
+    onSuccess: () => {
+      setSuccess("使用者角色已更新。");
+      setRoleUserId(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => {
+      setError(message(err));
+    },
+  });
+
   // 處理查詢錯誤
   if (rolesError && rolesErr) {
     if (!error) setError(message(rolesErr));
@@ -96,21 +189,6 @@ export function RolesPermissionsPage({
     );
   }
 
-  // 角色建立Mutation
-  const createRoleMutation = useMutation({
-    mutationFn: async (payload: { name: string; description?: string }) => {
-      return api.createRole(payload);
-    },
-    onSuccess: () => {
-      setSuccess("角色已建立。");
-      setShowCreate(false);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err) => {
-      setError(message(err));
-    },
-  });
-
   const createRole = async (data: { name: string; description?: string }) => {
     resetNotices();
     try {
@@ -122,22 +200,6 @@ export function RolesPermissionsPage({
       // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
-
-  // 使用者建立Mutation
-  const createUserMutation = useMutation({
-    mutationFn: async (payload: { username: string; email?: string; password: string; role_ids: number[] }) => {
-      return api.createUser(payload);
-    },
-    onSuccess: () => {
-      setSuccess("內部使用者已建立並完成角色指派。");
-      setShowCreateUser(false);
-      setNewUserRoleIds([]);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (err) => {
-      setError(message(err));
-    },
-  });
 
   const createUser = async (data: { username: string; email?: string; password: string }) => {
     resetNotices();
@@ -152,21 +214,6 @@ export function RolesPermissionsPage({
       // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
-
-  // 角色更新Mutation
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) => {
-      return api.updateRole(id, payload);
-    },
-    onSuccess: () => {
-      setSuccess("角色資料已更新。");
-      setEditingRole(null);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err) => {
-      setError(message(err));
-    },
-  });
 
   const updateRole = async (data: { name: string; description?: string | null }) => {
     if (!editingRole) return;
@@ -183,21 +230,6 @@ export function RolesPermissionsPage({
       // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
     }
   };
-
-  // 角色刪除Mutation
-  const deleteRoleMutation = useMutation({
-    mutationFn: async (roleId: number) => {
-      return api.deleteRole(roleId);
-    },
-    onSuccess: (_: unknown, roleId: number) => {
-      const role = roles.find(r => r.id === roleId);
-      setSuccess(`角色「${role?.name || '未知角色'}」已刪除。`);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err: unknown) => {
-      setError(message(err));
-    },
-  });
 
   const deleteRole = async (role: Role) => {
     resetNotices();
@@ -218,22 +250,6 @@ export function RolesPermissionsPage({
         .map((permission) => permission.id),
     );
   };
-
-  // 權限設定Mutation
-  const savePermissionsMutation = useMutation({
-    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) => {
-      return api.setRolePermissions(roleId, permissionIds);
-    },
-    onSuccess: (_, variables) => {
-      const role = roles.find(r => r.id === variables.roleId);
-      setSuccess(`角色「${role?.name || permissionRole?.name}」的權限已更新。`);
-      setPermissionRole(null);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err) => {
-      setError(message(err));
-    },
-  });
 
   const savePermissions = async () => {
     if (!permissionRole) return;
@@ -257,21 +273,6 @@ export function RolesPermissionsPage({
         .map((role) => role.id),
     );
   };
-
-  // 使用者角色更新Mutation
-  const saveUserRolesMutation = useMutation({
-    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) => {
-      return api.setUserRoles(userId, roleIds);
-    },
-    onSuccess: () => {
-      setSuccess("使用者角色已更新。");
-      setRoleUserId(null);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (err) => {
-      setError(message(err));
-    },
-  });
 
   const saveUserRoles = async () => {
     if (roleUserId === null) return;
