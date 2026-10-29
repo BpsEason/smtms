@@ -210,6 +210,11 @@ export function NonconformancePage({
     }
   };
 
+  // 清除選中的案件，關閉詳細視窗
+  const clearSelectedItem = () => {
+    setSelectedItem(null);
+  };
+
   // 建立新案件 - react-hook-form 版本
   const onSubmit = async (formData: NonconformanceCreateFormData) => {
     setErrorMessage("");
@@ -431,6 +436,7 @@ export function NonconformancePage({
         onUploadAttachment={handleUploadAttachment}
         onDownloadAttachment={handleDownloadAttachment}
         onRemoveAttachment={handleRemoveAttachment}
+        onClose={clearSelectedItem}
       />
     </section>
   );

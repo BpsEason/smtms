@@ -78,4 +78,5 @@ export type NonconformanceDetailProps = {
   onUploadAttachment: (file?: File) => void;
   onDownloadAttachment: (attachmentId: number, filename: string) => void;
   onRemoveAttachment: (attachmentId: number) => void;
+  onClose: () => void;
 };

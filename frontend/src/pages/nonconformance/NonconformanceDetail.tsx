@@ -1,6 +1,7 @@
+import * as Dialog from '@radix-ui/react-dialog';
+import { X } from 'lucide-react';
 import { Button } from "../../components/shadcn/button";
 import {
-  Panel,
   FormField,
   StatusBadge,
   inputClass,
@@ -24,6 +25,7 @@ export function NonconformanceDetail({
   onUploadAttachment,
   onDownloadAttachment,
   onRemoveAttachment,
+  onClose,
 }: NonconformanceDetailProps) {
   if (!selectedItem) return null;
 
@@ -201,129 +203,150 @@ export function NonconformanceDetail({
   };
 
   return (
-    <Panel
-      title={`${selectedItem.case_no} · ${selectedItem.title}`}
-      description={`發現 ${new Date(selectedItem.found_at).toLocaleString()} · 發現人 ID ${selectedItem.found_by_user_id}`}
-    >
-      <div className="space-y-5">
-        {/* 基本資訊標籤 */}
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge value={selectedItem.status} />
-          <span>來源：{selectedItem.source}</span>
-          <span>嚴重程度：{selectedItem.severity}</span>
-          <span>不良數量：{selectedItem.defect_qty ?? "未填"}</span>
-        </div>
-
-        {/* 關聯ID資訊 */}
-        <p className="text-xs text-slate-500">
-          關聯 ID：供應商 {selectedItem.supplier_id ?? "—"} · 物料{" "}
-          {selectedItem.material_id ?? "—"} · 收料紀錄{" "}
-          {selectedItem.receipt_id ?? "—"} · 供應商批號{" "}
-          {selectedItem.supplier_lot_id ?? "—"} · 內部批號{" "}
-          {selectedItem.internal_lot_id ?? "—"} · IQC{" "}
-          {selectedItem.iqc_record_id ?? "—"}
-        </p>
-
-        {/* 編輯表單與調查內容 - 使用 react-hook-form 管理 */}
-        <form onSubmit={onSaveInvestigation} noValidate>
-          {renderEditForm()}
-
-          {/* 調查內容區 */}
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] mt-3">
-            <FormField label="調查內容" error={editErrors.investigation?.message}>
-              {!canEditSelected ? (
-                <p className="whitespace-pre-wrap text-sm">{selectedItem.investigation || "無調查內容"}</p>
-              ) : (
-                <textarea
-                  className={inputClass}
-                  rows={3}
-                  aria-label="調查內容"
-                  placeholder="調查內容"
-                  disabled={!canEditSelected}
-                  {...registerEdit("investigation")}
-                />
-              )}
-            </FormField>
-
-            {canEditSelected && (
-              <Button
-                variant="secondary"
-                disabled={isLoading}
-                type="submit"
-                className="self-end"
-              >
-                儲存調查
-              </Button>
-            )}
-          </div>
-        </form>
-
-        {/* 狀態轉換按鈕 */}
-        {renderStatusButtons()}
-
-        {/* 處置記錄表單 */}
-        {renderDispositionForm()}
-
-        {/* 處置記錄列表 */}
-        <div>
-          <h3 className="mb-2 font-semibold">圍堵與處置紀錄</h3>
-          {selectedItem.dispositions?.map((d) => (
-            <p key={d.id} className="border-t py-2 text-sm">
-              {new Date(d.executed_at).toLocaleString()} · {d.content} —{" "}
-              {d.result}（負責人 ID {d.owner_user_id}）
-            </p>
-          ))}
-        </div>
-
-        {/* 附件上傳 */}
-        {renderAttachmentUpload()}
-
-        {/* 附件列表 */}
-        <div>
-          <h3 className="mb-2 font-semibold">附件</h3>
-          {selectedItem.attachments?.map((a) => (
-            <span
-              key={a.id}
-              className="mr-3 inline-flex items-center gap-2"
+    <Dialog.Root open={!!selectedItem} onOpenChange={(open) => {
+      if (!open) onClose();
+    }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/35" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(900px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 max-h-[90vh] overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl focus:outline-none">
+          <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-start justify-between gap-4">
+            <div>
+              <Dialog.Title className="text-lg font-semibold text-slate-950">{`${selectedItem.case_no} · ${selectedItem.title}`}</Dialog.Title>
+              <Dialog.Description className="mt-1 text-xs text-slate-500">{`發現 ${new Date(selectedItem.found_at).toLocaleString()} · 發現人 ID ${selectedItem.found_by_user_id}`}</Dialog.Description>
+            </div>
+            <button 
+              type="button" 
+              aria-label="關閉" 
+              disabled={isLoading} 
+              onClick={onClose} 
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
             >
-              <button
-                className="text-sm text-sky-700 underline"
-                onClick={() => onDownloadAttachment(a.id, a.original_filename)}
-              >
-                {a.original_filename}
-              </button>
-              {canModify && (
-                <button
-                  aria-label={`刪除附件 ${a.original_filename}`}
-                  className="text-xs text-rose-700 underline"
-                  onClick={() => onRemoveAttachment(a.id)}
-                >
-                  刪除
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="p-5">
+            <div className="space-y-5">
+              {/* 基本資訊標籤 */}
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge value={selectedItem.status} />
+                <span>來源：{selectedItem.source}</span>
+                <span>嚴重程度：{selectedItem.severity}</span>
+                <span>不良數量：{selectedItem.defect_qty ?? "未填"}</span>
+              </div>
 
-        {/* 案件歷程 */}
-        <div>
-          <h3 className="mb-2 font-semibold">案件歷程</h3>
-          {selectedItem.history?.map((h) => (
-            <p key={h.id} className="border-t py-2 text-xs text-slate-600">
-              {new Date(h.created_at).toLocaleString()} · 使用者{" "}
-              {h.actor_user_id} · {h.action}
-              {h.before_data && (
-                <details className="mt-1">
-                  <summary>變更前後資料</summary>
-                  <pre className="overflow-auto">
-                    {h.before_data} → {h.after_data}
-                  </pre>
-                </details>
-              )}
-            </p>
-          ))}
-        </div>
-      </div>
-    </Panel>
+              {/* 關聯ID資訊 */}
+              <p className="text-xs text-slate-500">
+                關聯 ID：供應商 {selectedItem.supplier_id ?? "—"} · 物料{" "}
+                {selectedItem.material_id ?? "—"} · 收料紀錄{" "}
+                {selectedItem.receipt_id ?? "—"} · 供應商批號{" "}
+                {selectedItem.supplier_lot_id ?? "—"} · 內部批號{" "}
+                {selectedItem.internal_lot_id ?? "—"} · IQC{" "}
+                {selectedItem.iqc_record_id ?? "—"}
+              </p>
+
+              {/* 編輯表單與調查內容 - 使用 react-hook-form 管理 */}
+              <form onSubmit={onSaveInvestigation} noValidate>
+                {renderEditForm()}
+
+                {/* 調查內容區 */}
+                <div className="grid gap-3 md:grid-cols-[1fr_auto] mt-3">
+                  <FormField label="調查內容" error={editErrors.investigation?.message}>
+                    {!canEditSelected ? (
+                      <p className="whitespace-pre-wrap text-sm">{selectedItem.investigation || "無調查內容"}</p>
+                    ) : (
+                      <textarea
+                        className={inputClass}
+                        rows={3}
+                        aria-label="調查內容"
+                        placeholder="調查內容"
+                        disabled={!canEditSelected}
+                        {...registerEdit("investigation")}
+                      />
+                    )}
+                  </FormField>
+
+                  {canEditSelected && (
+                    <Button
+                      variant="secondary"
+                      disabled={isLoading}
+                      type="submit"
+                      className="self-end"
+                    >
+                      儲存調查
+                    </Button>
+                  )}
+                </div>
+              </form>
+
+              {/* 狀態轉換按鈕 */}
+              {renderStatusButtons()}
+
+              {/* 處置記錄表單 */}
+              {renderDispositionForm()}
+
+              {/* 處置記錄列表 */}
+              <div>
+                <h3 className="mb-2 font-semibold">圍堵與處置紀錄</h3>
+                {selectedItem.dispositions?.map((d) => (
+                  <p key={d.id} className="border-t py-2 text-sm">
+                    {new Date(d.executed_at).toLocaleString()} · {d.content} —{" "}
+                    {d.result}（負責人 ID {d.owner_user_id}）
+                  </p>
+                ))}
+              </div>
+
+              {/* 附件上傳 */}
+              {renderAttachmentUpload()}
+
+              {/* 附件列表 */}
+              <div>
+                <h3 className="mb-2 font-semibold">附件</h3>
+                {selectedItem.attachments?.map((a) => (
+                  <span
+                    key={a.id}
+                    className="mr-3 inline-flex items-center gap-2"
+                  >
+                    <button
+                      className="text-sm text-sky-700 underline"
+                      onClick={() => onDownloadAttachment(a.id, a.original_filename)}
+                    >
+                      {a.original_filename}
+                    </button>
+                    {canModify && (
+                      <button
+                        aria-label={`刪除附件 ${a.original_filename}`}
+                        className="text-xs text-rose-700 underline"
+                        onClick={() => onRemoveAttachment(a.id)}
+                      >
+                        刪除
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+
+              {/* 案件歷程 */}
+              <div>
+                <h3 className="mb-2 font-semibold">案件歷程</h3>
+                {selectedItem.history?.map((h) => (
+                  <p key={h.id} className="border-t py-2 text-xs text-slate-600">
+                    {new Date(h.created_at).toLocaleString()} · 使用者{" "}
+                    {h.actor_user_id} · {h.action}
+                    {h.before_data && (
+                      <details className="mt-1">
+                        <summary>變更前後資料</summary>
+                        <pre className="overflow-auto">
+                          {h.before_data} → {h.after_data}
+                        </pre>
+                      </details>
+                    )}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
