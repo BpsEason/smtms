@@ -607,7 +607,7 @@ def list_supplier_lots(
 
 
 @router.get("/supplier-lots/{supplier_lot_id}", response_model=SupplierLotResponse)
-def get_supplier_lot(
+def read_supplier_lot(
     supplier_lot: SupplierLotORM = Depends(get_supplier_lot),
     current_user: AuthenticatedUser = Depends(require_permission("suppliers:read")),
 ):
