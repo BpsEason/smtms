@@ -98,20 +98,6 @@ def get_receipt(
     return _get_receipt(db, receipt_id)
 
 
-def get_internal_lot(
-    internal_lot_id: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-) -> InternalMaterialLotORM:
-    return _get_internal_lot(db, internal_lot_id)
-
-
-def get_iqc_record(
-    iqc_id: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-) -> IQCRecordORM:
-    return _get_iqc_record(db, iqc_id)
-
-
 def _ensure_iqc_review_access(
     db: Session,
     current_user: AuthenticatedUser,
