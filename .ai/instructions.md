@@ -45,6 +45,90 @@
 - 資源查詢輔助函數優先使用 `_get_{resource}_or_404` 命名風格
 - 不為了函數命名一致而批次修改既有程式碼
 
+## 後端 Async/Sync 規範
+- **Redis 操作**：必須使用 `redis.asyncio` 客戶端，所有 Redis 操作都需要 `await`
+  ```python
+  # 正確範例
+  redis = get_redis_client()
+  await redis.get("key")
+  await redis.set("key", "value", ex=3600)
+  ```
+- **SQLAlchemy Session**：使用同步 Session，依賴注入 `get_db()`，不要在同步函數中執行 async 操作
+- **混合使用注意事項**：
+  - 同步 API 路由（使用 `def`）：不能直接呼叫 async 函數，若需要 Redis 操作，需將路由改為 `async def`
+  - 非同步 API 路由（使用 `async def`）：Session 仍使用同步依賴注入，FastAPI 會正確處理
+  - 禁止使用 `asyncio.run()` 包裝 async 呼叫來解決同步函數中的非同步操作，應改為將路由宣告為 async
+  - 永遠不要遺漏 `await` 關鍵字，否則會導致 Redis 操作永遠不會執行
+
+## SQLAlchemy Session 與交易規範
+- **Session 管理**：永遠使用依賴注入 `db: Session = Depends(get_db())`，不要自行建立 SessionLocal 或管理連線
+- **交易邊界**：
+  - 單一資料庫操作：FastAPI 依賴注入自動管理 Session 生命週期，呼叫 `db.commit()` 確認變更
+  - 複雜操作需要原子性：使用 `with db.begin():` 明確界定交易範圍
+  - 錯誤處理：發生例外時，依賴注入會自動 rollback，不需手動處理
+- **禁止行為**：
+  - 不要自行建立新的 Session 實例
+  - 不要使用巢狀交易
+  - 不要重複呼叫 db.commit() 或手動管理連線生命週期
+  - 不要跨請求重用 Session 實例
+
+## 認證、權限與資料歸屬規範
+- **認證機制**：沿用既有 JWT + Redis Token 撤銷機制，不要實作另一套認證流程
+- **權限檢查**：使用現有的依賴注入：
+  - `require_permission("permission.code")`：檢查使用者是否擁有特定權限
+  - `require_role("admin")`：檢查使用者是否擁有特定角色
+  - `get_current_user()`：取得目前認證的使用者資訊
+- **資料歸屬驗證**：
+  - 供應商帳號必須呼叫 `ensure_supplier_access(current_user, supplier_id)` 確認只能存取自己供應商的資料
+  - 所有資源存取都必須驗證當前使用者有權限存取該資源，避免垂直權限提升
+- **禁止行為**：不要自行新增另一套 RBAC 或存取控制抽象層，所有新 API 都必須沿用現有權限框架
+
+## 供應商資料隔離強制規範
+新增或修改涉及供應商資源的 API 時，**必須**遵循以下規範：
+
+### 1. 基礎存取控制要求
+- 單筆查詢、更新、刪除操作：必須驗證資源歸屬，使用 `ensure_supplier_access(current_user, supplier_id)` 或等效的資料庫層過濾
+- 列表、搜尋、分頁查詢：**必須**在資料庫查詢層限制可存取範圍，禁止先取得全部資料再於記憶體過濾
+- 不得只依據前端傳入的 `supplier_id` 或資源 ID 判定使用者有權存取，必須透過 `current_user.supplier_id` 驗證
+
+### 2. 關聯資料建立驗證
+建立關聯資料時，必須驗證相關資源之間的供應商歸屬是否一致：
+- 當建立涉及多個資源的關聯時（如供應商批次、收料紀錄、IQC 記錄等），必須確保所有關聯資源都屬於同一個供應商
+- 範例：建立收料紀錄時，驗證所關聯的供應商批次確實屬於指定的供應商
+- 範例：建立不良品記錄時，驗證所有關聯的收料、批次、IQC 記錄的供應商 ID 一致
+
+### 3. 巢狀資源與特殊操作
+- 巢狀資源（如 `/suppliers/{supplier_id}/materials`）：父資源必須先呼叫 `ensure_supplier_access` 驗證存取權限
+- 批次操作：每筆受影響的資源都必須獨立驗證供應商歸屬，或在查詢層過濾僅限目前使用者的供應商
+- 關聯查詢：必須連帶過濾所有關聯資源的供應商歸屬，避免跨供應商關聯洩漏
+- 檔案下載：下載前必須驗證檔案所屬的資源歸屬於目前使用者的供應商
+
+### 4. 現有實作模式參考
+- **suppliers.py**：所有以 `/{supplier_id}/` 開頭的巢狀資源都在進入點呼叫 `ensure_supplier_access`
+- **materials.py**：供應商使用者只能存取與自己有關聯的材料，列表查詢透過 `in_(supplier_material_ids)` 過濾
+- **quality.py**：複雜關聯資源透過 `_ensure_internal_lot_supplier_access` 追蹤整個追溯鏈的供應商歸屬
+- **nonconformances.py**：`_validate_links` 函數驗證所有關聯資源的供應商一致性，避免跨供應商關聯
+
+### 5. 測試要求
+依照修改範圍補充或執行跨供應商存取測試，至少驗證：
+- 供應商使用者無法存取其他供應商的資源（返回 403）
+- 內部使用者可以存取所有供應商的資源
+- 無法建立跨供應商的關聯資料（返回 400 或 403）
+- 列表查詢僅返回目前供應商有權存取的資料
+
+## API 與前端契約規範
+- **後端 Schema**：使用 Pydantic v2 定義請求與回應 Schema，保持與既有 API 一致的命名風格
+- **API 回應格式**：沿用既有統一錯誤回應格式，HTTP 狀態碼遵循標準 REST 慣例
+- **前端 API 呼叫**：
+  - 列表頁面使用 TanStack Query 管理遠端資料
+  - 表單使用 React Hook Form + Zod 進行驗證
+  - 所有 API 呼叫使用統一的 API client，錯誤處理通過 `getErrorMessage()` 統一處理
+- **型別一致性**：新增或修改欄位時，必須同步更新：
+  - 後端 Pydantic Schema
+  - 前端 TypeScript 類型定義（@/types）
+  - 前端 Zod 驗證 schema
+  - 確保前後端欄位名稱、型別完全一致
+
 ## 問題排查流程
 1. 重現問題並確認預期結果與實際結果
 2. 追蹤前端操作、API 請求、後端處理、資料庫及回應的完整資料流
