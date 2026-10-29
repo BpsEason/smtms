@@ -20,11 +20,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    init_redis_client()
+    await init_redis_client()
     try:
         yield
     finally:
-        close_redis_client()
+        await close_redis_client()
 
 
 app = FastAPI(

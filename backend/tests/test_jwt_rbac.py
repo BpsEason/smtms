@@ -25,10 +25,10 @@ class FakeRedis:
     def __init__(self) -> None:
         self.revoked: set[str] = set()
 
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return int(key in self.revoked)
 
-    def set(self, key: str, value: str, ex: int) -> bool:
+    async def set(self, key: str, value: str, ex: int) -> bool:
         assert value == "1"
         assert ex > 0
         self.revoked.add(key)

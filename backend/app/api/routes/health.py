@@ -15,9 +15,9 @@ def database_health_check() -> dict[str, str]:
         return {"status": "unavailable"}
 
 
-def redis_health_check() -> dict[str, str]:
+async def redis_health_check() -> dict[str, str]:
     try:
-        if ping_redis():
+        if await ping_redis():
             return {"status": "ok"}
         return {"status": "unavailable"}
     except Exception:
@@ -35,9 +35,9 @@ def liveness_check() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-def readiness_check() -> dict[str, object]:
+async def readiness_check() -> dict[str, object]:
     db_status = database_health_check()
-    redis_status = redis_health_check()
+    redis_status = await redis_health_check()
     ready = db_status["status"] == "ok" and redis_status["status"] == "ok"
     return {
         "status": "ready" if ready else "degraded",
@@ -54,10 +54,10 @@ def database_status() -> dict[str, str]:
 
 
 @router.get("/health/redis")
-def redis_status() -> dict[str, str]:
-    return redis_health_check()
+async def redis_status() -> dict[str, str]:
+    return await redis_health_check()
 
 
 @router.get("/ready")
-def readiness_alias() -> dict[str, object]:
-    return readiness_check()
+async def readiness_alias() -> dict[str, object]:
+    return await readiness_check()

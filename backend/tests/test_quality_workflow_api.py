@@ -25,8 +25,11 @@ from sqlalchemy.pool import StaticPool
 
 
 class FakeRedis:
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return 0
+
+    async def set(self, key: str, value: str, ex: int) -> bool:
+        return True
 
 
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:

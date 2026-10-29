@@ -23,8 +23,11 @@ FILE_URL = "/api/v1/suppliers/import/preview"
 
 
 class FakeRedis:
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return 0
+
+    async def set(self, key: str, value: str, ex: int) -> bool:
+        return True
 
 
 def workbook_bytes(rows: list[dict[str, object]], headers: tuple[str, ...] | None = None) -> bytes:

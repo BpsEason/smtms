@@ -80,7 +80,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
     )
 
 
-def get_current_token_claims(
+async def get_current_token_claims(
     credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
 ) -> dict[str, Any]:
     if credentials is None:
@@ -98,7 +98,7 @@ def get_current_token_claims(
     if not isinstance(token_id, str) or not token_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     try:
-        if redis_client.get_redis_client().exists(f"auth:revoked:{token_id}"):
+        if await redis_client.get_redis_client().exists(f"auth:revoked:{token_id}"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has been revoked",
@@ -113,7 +113,7 @@ def get_current_token_claims(
     return claims
 
 
-def revoke_access_token(claims: dict[str, Any]) -> None:
+async def revoke_access_token(claims: dict[str, Any]) -> None:
     token_id = claims.get("jti")
     expires_at = claims.get("exp")
     if not isinstance(token_id, str) or not isinstance(expires_at, (int, float)):
@@ -124,7 +124,7 @@ def revoke_access_token(claims: dict[str, Any]) -> None:
 
     ttl = max(1, int(expires_at - datetime.now(timezone.utc).timestamp()))
     try:
-        redis_client.get_redis_client().set(
+        await redis_client.get_redis_client().set(
             f"auth:revoked:{token_id}",
             "1",
             ex=ttl,

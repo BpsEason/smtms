@@ -1,11 +1,11 @@
-import redis
+import redis.asyncio as redis
 from app.core.config import get_settings
 
 settings = get_settings()
 _redis_client: redis.Redis | None = None
 
 
-def init_redis_client() -> redis.Redis:
+async def init_redis_client() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
         _redis_client = redis.Redis.from_url(
@@ -19,16 +19,18 @@ def init_redis_client() -> redis.Redis:
 
 
 def get_redis_client() -> redis.Redis:
-    return _redis_client or init_redis_client()
+    if _redis_client is None:
+        raise RuntimeError("Redis client not initialized. Call init_redis_client first.")
+    return _redis_client
 
 
-def close_redis_client() -> None:
+async def close_redis_client() -> None:
     global _redis_client
     if _redis_client is not None:
-        _redis_client.close()
+        await _redis_client.close()
         _redis_client = None
 
 
-def ping_redis() -> bool:
+async def ping_redis() -> bool:
     client = get_redis_client()
-    return bool(client.ping())
+    return bool(await client.ping())

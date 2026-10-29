@@ -30,8 +30,11 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 
 
 class FakeRedis:
-    def exists(self, key: str) -> int:
+    async def exists(self, key: str) -> int:
         return 0
+
+    async def set(self, key: str, value: str, ex: int) -> bool:
+        return True
 
 
 def _headers(client: TestClient, username: str, password: str = PASSWORD) -> dict[str, str]:

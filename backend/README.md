@@ -102,6 +102,14 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 登入密碼以 bcrypt 雜湊驗證。受保護 API 必須提供有效且未撤銷的 Token；若 Redis 無法提供 Token 撤銷檢查，API 會拒絕驗證，而不會略過檢查。授權依賴位於 `app.core.security`，包括 `get_current_user`、`require_role()` 與 `require_permission()`。
 
+### Redis 非同步客戶端實作
+專案已遷移至使用 `redis.asyncio` 非同步 Redis 客戶端，所有 Redis 相關操作皆需使用 `await`：
+- 客戶端初始化：透過 `app.core.redis_client.init_redis_client()` 在 FastAPI lifespan 中初始化
+- 資源清理：應用程式關閉時自動呼叫 `close_redis_client()` 釋放連線
+- JWT 撤銷：`revoke_access_token()` 與 Token 驗證流程皆使用非同步 Redis 呼叫
+- 健康檢查：`/health/ready` 與 `/health/redis` 端點使用非同步 ping 檢查 Redis 狀態
+- Redis 不可用時的處理：所有依賴 Redis 的認證流程會回傳 503 Service Unavailable，確保安全性
+
 ## 開發／測試資料 Seeder
 
 ### 安全限制與交易

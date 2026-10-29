@@ -1,5 +1,7 @@
+import asyncio
+
 from app.api.routes.health import database_health_check, redis_health_check
-from app.core.redis_client import get_redis_client, ping_redis
+from app.core.redis_client import get_redis_client, init_redis_client, ping_redis
 from app.db.session import SessionLocal, engine
 from app.main import app
 from fastapi.testclient import TestClient
@@ -12,16 +14,18 @@ def test_database_session_factory_imports() -> None:
 
 def test_redis_client_can_ping(monkeypatch) -> None:
     class FakeRedis:
-        def ping(self):
+        async def ping(self):
             return True
 
     fake_client = FakeRedis()
     monkeypatch.setattr(
         "app.core.redis_client.redis.Redis.from_url", lambda *args, **kwargs: fake_client
     )
+    # Need to call async init first
+    asyncio.run(init_redis_client())
     client = get_redis_client()
     assert client is fake_client
-    assert ping_redis() is True
+    assert asyncio.run(ping_redis()) is True
 
 
 def test_health_routes_are_available() -> None:
@@ -33,7 +37,7 @@ def test_health_routes_are_available() -> None:
     assert client.get("/api/v1/health/redis").status_code == 200
 
     database_status = database_health_check()
-    redis_status = redis_health_check()
+    redis_status = asyncio.run(redis_health_check())
     assert "status" in database_status
     assert "status" in redis_status
 

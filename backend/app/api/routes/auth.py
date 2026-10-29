@@ -61,8 +61,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 
 @router.post("/logout", response_model=LogoutResponse)
-def logout(claims: dict = Depends(get_current_token_claims)) -> LogoutResponse:
-    revoke_access_token(claims)
+async def logout(claims: dict = Depends(get_current_token_claims)) -> LogoutResponse:
+    await revoke_access_token(claims)
     return LogoutResponse(message="Successfully logged out")
 
 

@@ -20,8 +20,11 @@ from sqlalchemy.pool import StaticPool
 
 
 class FakeRedis:
-    def exists(self, _key: str) -> int:
+    async def exists(self, _key: str) -> int:
         return 0
+
+    async def set(self, key: str, value: str, ex: int) -> bool:
+        return True
 
 
 @pytest.fixture
