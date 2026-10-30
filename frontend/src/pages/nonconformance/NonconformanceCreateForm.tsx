@@ -1,9 +1,10 @@
+import { X } from "lucide-react";
 import {
-  Panel,
   FormField,
   inputClass,
 } from "../../components/ui";
 import { Button } from "@/components/shadcn/button";
+import * as Dialog from '@radix-ui/react-dialog';
 import type { UseFormRegister, FieldErrors } from "react-hook-form";
 import type { NonconformanceCreateFormData } from "./NonconformancePage";
 import { SOURCE_OPTIONS, SEVERITY_OPTIONS } from "./constants";
@@ -26,11 +27,30 @@ export function NonconformanceCreateForm({
   onSubmit,
   onClose,
 }: NonconformanceCreateFormProps) {
-  if (!isOpen) return null;
+  const handleOpenChange = (open: boolean) => {
+    if (!open) onClose();
+  };
 
   return (
-    <Panel title="建立品質異常案件">
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit} noValidate>
+    <Dialog.Root open={isOpen} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 animate-in fade-in duration-200" />
+        <Dialog.Content className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[90vw] max-w-[800px] translate-x-[-50%] translate-y-[-50%] overflow-y-auto rounded-lg bg-white p-6 shadow-lg animate-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between mb-4">
+            <Dialog.Title className="text-lg font-semibold text-slate-900">
+              建立品質異常案件
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="rounded-sm opacity-70 ring-offset-white transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2">
+                <X className="h-4 w-4" />
+                <span className="sr-only">關閉</span>
+              </button>
+            </Dialog.Close>
+          </div>
+          <Dialog.Description className="text-sm text-slate-500 mb-6">
+            填寫品質異常案件的基本資訊，所有必填欄位都需完成才能提交。
+          </Dialog.Description>
+          <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit} noValidate>
         <FormField label="異常編號" error={errors.case_no?.message}>
           <input
             className={inputClass}
@@ -164,6 +184,8 @@ export function NonconformanceCreateForm({
           </Button>
         </div>
       </form>
-    </Panel>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

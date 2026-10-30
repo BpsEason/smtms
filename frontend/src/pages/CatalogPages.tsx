@@ -6,7 +6,7 @@ import {
   type FormEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +14,7 @@ import { api } from "../api/client";
 import { formatErrorMessage } from "../lib/error";
 import { allMaterials, getErrorMessage } from "../lib/data";
 import { Button } from "@/components/shadcn/button";
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   ConfirmDialog,
   DataTable,
@@ -324,16 +325,20 @@ function SuppliersPage({ profile }: { profile: UserProfile | null }) {
     </section>
   );
 }
+  
+  function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Supplier; canWrite: boolean; onClose: () => void }) {
+    const [documents, setDocuments] = useState<SupplierDocument[]>([]);
+    const [selected, setSelected] = useState<SupplierDocument | null>(null);
+    const [attachments, setAttachments] = useState<SupplierDocumentAttachment[]>([]);
+    const [editing, setEditing] = useState<SupplierDocument | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const [success, setSuccess] = useState("");
 
-function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Supplier; canWrite: boolean; onClose: () => void }) {
-  const [documents, setDocuments] = useState<SupplierDocument[]>([]);
-  const [selected, setSelected] = useState<SupplierDocument | null>(null);
-  const [attachments, setAttachments] = useState<SupplierDocumentAttachment[]>([]);
-  const [editing, setEditing] = useState<SupplierDocument | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+    const handleOpenChange = (open: boolean) => {
+      if (!open) onClose();
+    };
   
   // React Hook Form 初始化
   const {
@@ -452,8 +457,26 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
     if (selected?.id === document.id) setSelected(null);
     setSuccess("資格文件及其附件已刪除。");
   };
-  return <Panel title={`資格文件：${supplier.supplier_name}`} description="文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。" className="mt-5" action={<Button variant="secondary" onClick={onClose}>關閉</Button>}>
-    {error && <div className="mb-3"><ErrorState message={error} onRetry={() => void refresh()} /></div>}{success && <div className="mb-3"><SuccessMessage>{success}</SuccessMessage></div>}
+  return (
+    <Dialog.Root open={true} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 animate-in fade-in duration-200" />
+        <Dialog.Content className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[90vw] max-w-[1000px] translate-x-[-50%] translate-y-[-50%] overflow-y-auto rounded-lg bg-white p-6 shadow-lg animate-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between mb-4">
+            <Dialog.Title className="text-lg font-semibold text-slate-900">
+              資格文件：{supplier.supplier_name}
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="rounded-sm opacity-70 ring-offset-white transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2">
+                <X className="h-4 w-4" />
+                <span className="sr-only">關閉</span>
+              </button>
+            </Dialog.Close>
+          </div>
+          <Dialog.Description className="text-sm text-slate-500 mb-6">
+            文件 metadata 與附件分開管理；附件透過授權 API 下載，支援 PDF、PNG、JPEG。
+          </Dialog.Description>
+          {error && <div className="mb-3"><ErrorState message={error} onRetry={() => void refresh()} /></div>}{success && <div className="mb-3"><SuccessMessage>{success}</SuccessMessage></div>}
     {canWrite && <form key={editing?.id ?? `new-${supplier.id}`} onSubmit={handleSubmit(onSubmit)} noValidate className="mb-5 grid gap-3 rounded-md bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
       <FormField label="文件類型"><input {...register("doc_type")} className={inputClass} maxLength={50} />{errors.doc_type && <span className="text-sm text-rose-600">{errors.doc_type.message}</span>}</FormField>
       <FormField label="文件名稱"><input {...register("doc_name")} className={inputClass} maxLength={200} />{errors.doc_name && <span className="text-sm text-rose-600">{errors.doc_name.message}</span>}</FormField>
@@ -465,7 +488,10 @@ function SupplierDocumentsPanel({ supplier, canWrite, onClose }: { supplier: Sup
     </form>}
     {loading ? <LoadingState label="正在載入資格文件…" /> : documents.length ? <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]"><DataTable><TableHead><TableRow><Th>文件</Th><Th>類型／編號</Th><Th>狀態</Th><Th>操作</Th></TableRow></TableHead><TableBody>{documents.map((document) => <TableRow key={document.id}><Td><button className="font-medium text-sky-800 hover:underline" onClick={() => setSelected(document)}>{document.doc_name}</button></Td><Td>{document.doc_type}<span className="block text-xs text-slate-500">{document.doc_code || "—"}</span></Td><Td><StatusBadge value={document.status} /></Td><Td><div className="flex gap-2">{canWrite && (<><Button variant="secondary" onClick={() => { setEditing(document); setSelected(document); }}>編輯</Button><ConfirmDialog trigger={<Button variant="secondary"><Trash2 className="h-4 w-4" />刪除</Button>} title="刪除資格文件？" description="文件及其附件 metadata 將一併刪除，實際附件檔案也會在資料庫交易成功後移除。" confirmLabel="刪除文件" destructive onConfirm={() => removeDocument(document)} /></>)}</div></Td></TableRow>)}</TableBody></DataTable>
       <div className="rounded-md border border-slate-200 p-4"><h3 className="text-sm font-semibold text-slate-900">{selected ? selected.doc_name : "選取文件以管理附件"}</h3>{selected && <><p className="mt-1 text-xs text-slate-500">發證：{selected.issued_at ? new Date(selected.issued_at).toLocaleDateString("zh-TW") : "—"} · 到期：{selected.expires_at ? new Date(selected.expires_at).toLocaleDateString("zh-TW") : "—"}</p>{canWrite && <form onSubmit={upload} className="mt-4 flex flex-wrap items-end gap-2"><FormField label="新增附件"><input className={inputClass} type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required /></FormField><Button variant="default" disabled={busy}><Upload className="h-4 w-4" />{busy ? "上傳中…" : "上傳附件"}</Button></form>}<div className="mt-4 space-y-2">{attachments.length ? attachments.map((attachment) => <div key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 px-3 py-2"><span className="min-w-0"><span className="block truncate text-sm">{attachment.original_filename}</span><span className="text-xs text-slate-500">{Math.ceil(attachment.size_bytes / 1024)} KB · {attachment.media_type}</span></span><div className="flex gap-2"><Button variant="secondary" onClick={() => void download(attachment)}><Download className="h-4 w-4" />下載</Button>{canWrite && <ConfirmDialog trigger={<Button variant="secondary" aria-label={`刪除 ${attachment.original_filename}`}><Trash2 className="h-4 w-4" /></Button>} title="刪除附件？" description="此操作只會刪除目前文件所屬的附件。" confirmLabel="刪除附件" destructive onConfirm={() => removeAttachment(attachment)} />}</div></div>) : <EmptyState title="尚無附件" description="可上傳 PDF、PNG 或 JPEG，單檔大小上限依後端設定。" />}</div></>}</div></div> : <EmptyState title="尚無資格文件" description="具備供應商管理權限的使用者可新增文件。" />}
-  </Panel>;
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
 }
 
 function SupplierImportPanel({ onImported }: { onImported: () => void }) {
