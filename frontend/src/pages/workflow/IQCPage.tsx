@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api } from "../../api/client";
+import { api } from "../../api";
 import { allInternalLots, getErrorMessage, localDateTimeNow } from "../../lib/data";
 import { Button } from "@/components/shadcn/button";
 import {

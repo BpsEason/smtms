@@ -10,7 +10,7 @@ import { Download, FileText, Plus, Search, Trash2, Upload, X } from "lucide-reac
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api } from "../api/client";
+import { api } from "../api";
 import { formatErrorMessage } from "../lib/error";
 import { allMaterials, getErrorMessage } from "../lib/data";
 import { Button } from "@/components/shadcn/button";

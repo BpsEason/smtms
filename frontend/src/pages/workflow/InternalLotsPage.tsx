@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { api } from "../../api/client";
+import { api } from "../../api";
 import { getErrorMessage } from "../../lib/data";
 import {
   DataTable,

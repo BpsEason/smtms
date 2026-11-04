@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api, ApiError, clearToken, readToken, saveToken } from "./api/client";
+import { api, ApiError, clearToken, readToken, saveToken } from "./api";
 import { AppLayout } from "./components/AppLayout";
 import {
   buttonClass,

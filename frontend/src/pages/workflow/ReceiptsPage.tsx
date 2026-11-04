@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { api } from "../../api/client";
+import { api } from "../../api";
 import {
   allSuppliers,
   allMaterials,

@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Eye, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { api, ApiError } from "../api/client";
+import { api, ApiError } from "../api";
 import type { AuditLog } from "../types";
 import { Button } from "../components/shadcn/button";
 import {

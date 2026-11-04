@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Activity, ArrowRight, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError } from '../api/client'
+import { ApiError } from '../api'
 import { FormField, inputClass } from '../components/ui'
 
 export function LoginPage({ onLogin, loading }: { onLogin: (username: string, password: string) => Promise<void>; loading: boolean }) {

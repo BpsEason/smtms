@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api, ApiError } from "../../api/client";
+import { api, ApiError } from "../../api";
 import { Button } from "../../components/shadcn/button";
 import {
   ErrorState,

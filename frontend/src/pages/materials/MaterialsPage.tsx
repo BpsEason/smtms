@@ -4,7 +4,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
-import { api } from "../../api/client";
+import { api } from "../../api";
 import { formatErrorMessage } from "../../lib/error";
 import { getErrorMessage } from "../../lib/data";
 import {

@@ -6,7 +6,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { api } from "../api";
 import { formatErrorMessage } from "../lib/error";
 import {
   DataTable,

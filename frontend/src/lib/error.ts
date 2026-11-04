@@ -1,4 +1,4 @@
-import { ApiError } from "../api/client";
+import { ApiError } from "../api";
 
 /**
  * 統一的錯誤訊息格式化函數

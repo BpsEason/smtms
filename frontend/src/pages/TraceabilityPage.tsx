@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import { Button } from "../components/shadcn/button";
-import { api } from "../api/client";
+import { api } from "../api";
 import { formatErrorMessage } from "../lib/error";
 import { buildTraceabilityPageCsv } from "../lib/traceabilityCsv";
 import {

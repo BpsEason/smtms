@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ClipboardSignature, RefreshCw } from 'lucide-react'
 import { Button } from '../components/shadcn/button'
-import { api } from '../api/client'
+import { api } from '../api'
 import { getErrorMessage } from '../lib/data'
 import { ConfirmDialog, DataTable, EmptyState, ErrorState, FormField, inputClass, LoadingState, PageHeader, Panel, StatusBadge, SuccessMessage, TableBody, TableHead, TableRow, Td, Th } from '../components/ui'
 import { statusLabel } from '../lib/status'

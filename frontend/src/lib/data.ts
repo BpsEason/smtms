@@ -1,4 +1,4 @@
-import { api } from '../api/client'
+import { api } from '../api'
 import type { PaginatedResponse } from '../types'
 
 export async function loadAllPages<T>(list: (params: Record<string, string | number | undefined | null>) => Promise<PaginatedResponse<T>>): Promise<T[]> {

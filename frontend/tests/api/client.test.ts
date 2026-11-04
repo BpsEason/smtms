@@ -5,7 +5,7 @@ import {
   readToken,
   saveToken,
   clearToken,
-} from "../../src/api/client";
+} from "../../src/api";
 
 // Mock fetch
 const mockFetch = vi.fn();
