@@ -1394,3 +1394,291 @@ def test_supplier_cannot_sign_even_if_quality_permission_is_misassigned(
         ).status_code
         == 403
     )
+
+
+def test_full_lot_trace_by_supplier_lot_no(quality_environment) -> None:
+    """測試通過供應商批次號查詢完整追溯履歷"""
+    client, _ = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    # 先建立測試數據（沿用test_end_to_end_receipt_trace_with_multiple_internal_lots的模式）
+    # 建立供應商、物料、供應商批次、收料單、內部批次
+    supplier = client.post(
+        "/api/v1/suppliers",
+        json={
+            "supplier_code": "SUP-TRACE-001",
+            "supplier_name": "Trace Test Supplier",
+            "status": "active",
+            "country": "China",
+        },
+        headers=headers,
+    )
+    assert supplier.status_code == 201
+
+    material = client.post(
+        "/api/v1/materials",
+        json={
+            "material_code": "MAT-TRACE-001",
+            "material_name": "Trace Test Material",
+            "material_type": "resistor",
+            "uom": "pcs",
+        },
+        headers=headers,
+    )
+    assert material.status_code == 201
+
+    # 建立供應商-物料關聯
+    supplier_material = client.post(
+        f"/api/v1/suppliers/{supplier.json()['id']}/materials",
+        json={
+            "material_id": material.json()["id"],
+            "supplier_material_code": "SM-TRACE-001",
+            "is_preferred": True,
+        },
+        headers=headers,
+    )
+    assert supplier_material.status_code == 201
+
+    supplier_lot = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": supplier.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_no": "SL-TRACE-001",
+            "manufacturing_date": "2026-10-01",
+            "expiry_date": "2028-10-01",
+            "qty_received": "100.0000",
+        },
+        headers=headers,
+    )
+    assert supplier_lot.status_code == 201
+
+    receipt = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": supplier.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_id": supplier_lot.json()["id"],
+            "receipt_no": "REC-TRACE-001",
+            "qty_received": "100.0000",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert receipt.status_code == 201
+
+    # 建立內部批次
+    internal_lot = client.post(
+        f"/api/v1/receipts/{receipt.json()['id']}/internal-lots",
+        json={"internal_lot_no": "IL-TRACE-001", "qty": "100.0000"},
+        headers=headers,
+    )
+    assert internal_lot.status_code == 201
+
+    # 測試1: 通過供應商批次號查詢
+    trace = client.get("/api/v1/trace/SL-TRACE-001", headers=headers)
+    assert trace.status_code == 200, trace.text
+    body = trace.json()
+    assert body["supplier_lot"]["supplier_lot_no"] == "SL-TRACE-001"
+    assert body["receipt"]["receipt_no"] == "REC-TRACE-001"
+    assert len(body["internal_lots"]) == 1
+    assert body["internal_lots"][0]["internal_lot"]["internal_lot_no"] == "IL-TRACE-001"
+
+    # 測試2: 通過收料單號查詢
+    trace_by_receipt = client.get("/api/v1/trace/REC-TRACE-001", headers=headers)
+    assert trace_by_receipt.status_code == 200, trace_by_receipt.text
+    assert trace_by_receipt.json()["receipt"]["receipt_no"] == "REC-TRACE-001"
+
+    # 測試3: 通過內部批次號查詢
+    trace_by_internal = client.get("/api/v1/trace/IL-TRACE-001", headers=headers)
+    assert trace_by_internal.status_code == 200, trace_by_internal.text
+    assert (
+        trace_by_internal.json()["internal_lots"][0]["internal_lot"]["internal_lot_no"]
+        == "IL-TRACE-001"
+    )
+
+    # 測試4: 不存在的批次號應該返回404
+    trace_not_found = client.get("/api/v1/trace/NONEXISTENT-LOT-999", headers=headers)
+    assert trace_not_found.status_code == 404
+    assert "Traceability record not found" in trace_not_found.json()["detail"]
+
+
+def test_lot_trace_permission_and_supplier_isolation(quality_environment) -> None:
+    """測試權限控制及供應商資料隔離"""
+    client, TestSession = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    # 建立第一個供應商和相關數據
+    supplier1 = client.post(
+        "/api/v1/suppliers",
+        json={
+            "supplier_code": "SUP-ISO-001",
+            "supplier_name": "Isolation Supplier 1",
+            "status": "active",
+            "country": "Taiwan",
+        },
+        headers=headers,
+    )
+    assert supplier1.status_code == 201
+
+    material = client.post(
+        "/api/v1/materials",
+        json={
+            "material_code": "MAT-ISO-001",
+            "material_name": "Isolation Material",
+            "material_type": "capacitor",
+            "uom": "pcs",
+        },
+        headers=headers,
+    )
+    assert material.status_code == 201
+
+    # 為供應商1建立供應商-物料關聯
+    supplier_material1 = client.post(
+        f"/api/v1/suppliers/{supplier1.json()['id']}/materials",
+        json={
+            "material_id": material.json()["id"],
+            "supplier_material_code": "SM-ISO-001",
+            "is_preferred": True,
+        },
+        headers=headers,
+    )
+    assert supplier_material1.status_code == 201
+
+    supplier_lot1 = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": supplier1.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_no": "SL-ISO-001",
+            "manufacturing_date": "2026-10-01",
+            "expiry_date": "2028-10-01",
+            "qty_received": "50.0000",
+        },
+        headers=headers,
+    )
+    assert supplier_lot1.status_code == 201
+
+    receipt1 = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": supplier1.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_id": supplier_lot1.json()["id"],
+            "receipt_no": "REC-ISO-001",
+            "qty_received": "50.0000",
+            "received_at": "2026-10-19T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert receipt1.status_code == 201
+
+    # 建立第二個供應商和相關數據
+    supplier2 = client.post(
+        "/api/v1/suppliers",
+        json={
+            "supplier_code": "SUP-ISO-002",
+            "supplier_name": "Isolation Supplier 2",
+            "status": "active",
+            "country": "China",
+        },
+        headers=headers,
+    )
+    assert supplier2.status_code == 201
+
+    # 為供應商2建立供應商-物料關聯
+    supplier_material2 = client.post(
+        f"/api/v1/suppliers/{supplier2.json()['id']}/materials",
+        json={
+            "material_id": material.json()["id"],
+            "supplier_material_code": "SM-ISO-002",
+            "is_preferred": False,
+        },
+        headers=headers,
+    )
+    assert supplier_material2.status_code == 201
+
+    supplier_lot2 = client.post(
+        "/api/v1/supplier-lots",
+        json={
+            "supplier_id": supplier2.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_no": "SL-ISO-002",
+            "manufacturing_date": "2026-10-02",
+            "expiry_date": "2028-10-02",
+            "qty_received": "30.0000",
+        },
+        headers=headers,
+    )
+    assert supplier_lot2.status_code == 201
+
+    # 為供應商2建立收料單
+    receipt2 = client.post(
+        "/api/v1/receipts",
+        json={
+            "supplier_id": supplier2.json()["id"],
+            "material_id": material.json()["id"],
+            "supplier_lot_id": supplier_lot2.json()["id"],
+            "receipt_no": "REC-ISO-002",
+            "qty_received": "30.0000",
+            "received_at": "2026-10-20T09:00:00Z",
+        },
+        headers=headers,
+    )
+    assert receipt2.status_code == 201
+
+    # 建立supplier-portal使用者（只能存取自己的供應商數據）
+    with TestSession.begin() as session:
+        # 建立供應商使用者
+        supplier_user = UserORM(
+            username="supplier-portal-test",
+            email="supplier-test@example.test",
+            password_hash=get_password_hash("Password-123!"),
+            is_active=True,
+            supplier_id=supplier1.json()["id"],  # 只能存取供應商1的數據
+        )
+        session.add(supplier_user)
+        session.flush()
+        supplier_role = session.query(RoleORM).filter_by(name="supplier-portal").one()
+        # 給予必要權限
+        required_permissions = (
+            session.query(PermissionORM)
+            .filter(PermissionORM.code.in_(["receipts:read", "materials:read", "iqc:read"]))
+            .all()
+        )
+        session.add(UserRoleORM(user_id=supplier_user.id, role_id=supplier_role.id))
+        for perm in required_permissions:
+            session.add(RolePermissionORM(role_id=supplier_role.id, permission_id=perm.id))
+
+    # 獲取供應商使用者的token
+    supplier_headers = _headers(client, "supplier-portal-test", "Password-123!")
+
+    # 供應商使用者可以存取自己供應商的批次
+    trace_allowed = client.get("/api/v1/trace/SL-ISO-001", headers=supplier_headers)
+    assert trace_allowed.status_code == 200
+
+    # 供應商使用者無法存取其他供應商的批次（供應商隔離）
+    trace_denied = client.get("/api/v1/trace/SL-ISO-002", headers=supplier_headers)
+    assert trace_denied.status_code == 403, trace_denied.text
+
+    # 測試缺少權限的情況：建立一個只有部分權限的使用者
+    with TestSession.begin() as session:
+        limited_user = UserORM(
+            username="limited-user",
+            email="limited@example.test",
+            password_hash=get_password_hash("Password-123!"),
+            is_active=True,
+        )
+        session.add(limited_user)
+        session.flush()
+        limited_role = RoleORM(name="limited-role")
+        session.add(limited_role)
+        session.flush()
+        session.add(UserRoleORM(user_id=limited_user.id, role_id=limited_role.id))
+        # 只給予receipts:read權限，缺少materials:read和iqc:read
+        only_receipt_perm = session.query(PermissionORM).filter_by(code="receipts:read").one()
+        session.add(RolePermissionORM(role_id=limited_role.id, permission_id=only_receipt_perm.id))
+
+    limited_headers = _headers(client, "limited-user", "Password-123!")
+    trace_no_perm = client.get("/api/v1/trace/SL-ISO-001", headers=limited_headers)
+    assert trace_no_perm.status_code == 403
