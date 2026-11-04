@@ -332,9 +332,7 @@ class MaterialReceiptORM(Base):
 class InternalMaterialLotORM(Base):
     __tablename__ = "internal_material_lots"
     __table_args__ = (
-        UniqueConstraint(
-            "material_id", "internal_lot_no", name="uq_internal_material_lots_material_internal_lot"
-        ),
+        UniqueConstraint("internal_lot_no", name="uq_internal_material_lots_internal_lot_no"),
         {"comment": "內部物料批次庫存"},
     )
 

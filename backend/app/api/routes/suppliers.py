@@ -528,7 +528,11 @@ def add_supplier_material(
 ):
     ensure_supplier_access(current_user, supplier_id)
     supplier = _get_supplier(db, supplier_id)
-    material = db.get(MaterialORM, payload.material_id)
+
+    # Lock material master record with SELECT FOR UPDATE to prevent race conditions
+    material = db.execute(
+        select(MaterialORM).where(MaterialORM.id == payload.material_id).with_for_update()
+    ).scalar_one_or_none()
     if material is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
 
