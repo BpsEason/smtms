@@ -41,20 +41,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: smtms-frontend
-    environment:
-      VITE_API_BASE_URL: ""
-    ports:
-      - "5173:5173"
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
     networks:
       - smtms-net
 
@@ -63,19 +49,6 @@ services:
     container_name: smtms-nginx
     ports:
       - "8087:80"
-    volumes:
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      frontend:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
     networks:
       - smtms-net
 

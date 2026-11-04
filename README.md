@@ -108,24 +108,44 @@ Seeder 僅允許在下列條件下執行：
 
 ### 啟動服務
 
-#### 方式一：Docker Compose 完整棧（推薦 Demo 使用）
+### 方式一：Docker Compose 完整棧（推薦 Demo 使用）
 
 MySQL 仍須由外部提供，Compose 只會啟動 Redis、後端、前端及 Nginx：
 
+#### 開發模式（保留 Vite Dev Server、HMR、原始碼掛載）
 ```powershell
 Set-Location C:\laragon\www\smtms
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
 啟動後的存取位址：
 - 系統入口：`http://127.0.0.1:8087/`（Nginx 反向代理）
+- Vite 開發伺服器：`http://127.0.0.1:5173/`
 - API 文件（Nginx 代理）：`http://127.0.0.1:8087/docs`
-- 直接存取後端：`http://127.0.0.1:8000/docs`
-- 直接存取前端開發伺服器：`http://127.0.0.1:5173/`
+- OpenAPI：`http://127.0.0.1:8087/openapi.json`
+- 健康檢查：`http://127.0.0.1:8087/health`
 
-#### 方式二：本機開發伺服器（開發除錯適用）
+#### 正式模式（使用 Nginx 靜態檔案、不啟動 Vite Dev Server）
+```powershell
+Set-Location C:\laragon\www\smtms
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
 
-先確保 MySQL 與 Redis 已在本機運作，並在一個終端機啟動後端：
+啟動後的存取位址：
+- 系統入口：`http://127.0.0.1:8087/`（Nginx 反向代理，提供 build 後的靜態檔案）
+- API 文件（Nginx 代理）：`http://127.0.0.1:8087/docs`
+- OpenAPI：`http://127.0.0.1:8087/openapi.json`
+- 健康檢查：`http://127.0.0.1:8087/health`
+
+> 注意：開發與正式模式必須使用對應的 `-f docker-compose.yml -f docker-compose.dev.yml` 或 `-f docker-compose.yml -f docker-compose.prod.yml` 組合。
+
+#### 方式二：本機開發伺服器（不使用 Docker，開發除錯適用）
+
+適用於直接在本機執行前後端，不經由 Docker Compose。
+
+前置條件：MySQL 與 Redis 已在本機運作。
+
+##### 1) 啟動後端（終端機 1）
 
 ```powershell
 Set-Location C:\laragon\www\smtms\backend
