@@ -119,25 +119,17 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
 
   // 創建防抖後的搜尋參數狀態
   const [debouncedQuery, setDebouncedQuery] = useState(receiptQuery);
-  const [debouncedStatus, setDebouncedStatus] = useState(receiptStatus);
-  const [debouncedDateFrom, setDebouncedDateFrom] = useState(dateFrom);
-  const [debouncedDateTo, setDebouncedDateTo] = useState(dateTo);
-  const [debouncedPage, setDebouncedPage] = useState(receiptPage);
 
-  // 延遲更新搜尋參數以避免過多請求（僅搜尋框輸入時使用250ms防抖）
+  // 僅對搜尋框輸入使用 250ms 防抖
   useEffect(() => {
     const timer = window.setTimeout(
       () => {
         setDebouncedQuery(receiptQuery);
-        setDebouncedStatus(receiptStatus);
-        setDebouncedDateFrom(dateFrom);
-        setDebouncedDateTo(dateTo);
-        setDebouncedPage(receiptPage);
       },
       receiptQuery ? 250 : 0,
     );
     return () => window.clearTimeout(timer);
-  }, [receiptQuery, receiptStatus, dateFrom, dateTo, receiptPage]);
+  }, [receiptQuery]);
 
   // 使用 TanStack Query 管理收料紀錄資料載入
   const {
@@ -149,22 +141,22 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     queryKey: [
       "receipts",
       debouncedQuery,
-      debouncedStatus,
-      debouncedDateFrom,
-      debouncedDateTo,
-      debouncedPage,
+      receiptStatus,
+      dateFrom,
+      dateTo,
+      receiptPage,
     ],
     queryFn: async () => {
       const response = await api.listReceipts({
         keyword: debouncedQuery || undefined,
-        status: debouncedStatus || undefined,
-        date_from: debouncedDateFrom
-          ? new Date(`${debouncedDateFrom}T00:00:00`).toISOString()
+        status: receiptStatus || undefined,
+        date_from: dateFrom
+          ? `${dateFrom}T00:00:00`
           : undefined,
-        date_to: debouncedDateTo
-          ? new Date(`${debouncedDateTo}T23:59:59.999`).toISOString()
+        date_to: dateTo
+          ? `${dateTo}T23:59:59`
           : undefined,
-        page: debouncedPage,
+        page: receiptPage,
         page_size: 50,
       });
       return response;
@@ -388,6 +380,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
             <CreateReceiptDialog
               open={showReceiptForm}
               onOpenChange={setShowReceiptForm}
+              lotFormRef={lotFormRef}
               suppliers={suppliers}
               materials={materials}
               canCreateSupplierLots={canCreateSupplierLots}

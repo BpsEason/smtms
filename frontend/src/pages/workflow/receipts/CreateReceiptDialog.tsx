@@ -45,6 +45,7 @@ interface CreateReceiptDialogProps {
   isSubmitting: boolean;
   lotSaving: boolean;
   showLotForm: boolean;
+  lotFormRef: React.RefObject<HTMLFormElement | null>;
   onShowLotFormChange: (show: boolean) => void;
   onSupplierIdChange: (id: string) => void;
   onMaterialIdChange: (id: string) => void;
@@ -66,6 +67,7 @@ export function CreateReceiptDialog({
   isSubmitting,
   lotSaving,
   showLotForm,
+  lotFormRef,
   onShowLotFormChange,
   onSupplierIdChange,
   onMaterialIdChange,
@@ -163,6 +165,7 @@ export function CreateReceiptDialog({
               {showLotForm && canCreateSupplierLots && (
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                   <form
+                    ref={lotFormRef}
                     onSubmit={(event) => event.preventDefault()}
                     className="grid gap-3 sm:grid-cols-2"
                   >
