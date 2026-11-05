@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import {
   allSuppliers,
   allMaterials,
   allSupplierLots,
   getErrorMessage,
-  localDateTimeNow,
 } from "../../lib/data";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -26,29 +24,15 @@ import {
   Th,
 } from "../../components/ui";
 import { statusLabel } from "../../lib/status";
+import type { SupplierLotCreatePayload } from "../../types";
 import type {
   UserProfile,
-  Receipt,
-  ReceiptTrace,
-  Supplier,
-  SupplierLot,
-  Material,
 } from "./types";
 import { Pagination } from "./components/SharedComponents";
 import { CreateReceiptDialog } from "./receipts/CreateReceiptDialog";
 import { ReceiptDetailDialog } from "./receipts/ReceiptDetailDialog";
 import { ReceiptFilters } from "./receipts/ReceiptFilters";
-
-// 表單型別定義由子元件維護，此處僅聲明所需的回呼型別
-type ReceiptFormData = {
-  supplierId: string;
-  materialId: string;
-  supplierLotId: string;
-  receiptNo: string;
-  quantity: string;
-  receivedAt: string;
-  notes?: string;
-};
+import type { ReceiptFormData } from "./receipts/CreateReceiptDialog";
 
 type SplitFormData = {
   lotNo: string;
@@ -56,10 +40,7 @@ type SplitFormData = {
 };
 
 export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [supplierLots, setSupplierLots] = useState<SupplierLot[]>([]);
-  const [showLotForm, setShowLotForm] = useState(false);
+  const queryClient = useQueryClient();
   const [lotSaving, setLotSaving] = useState(false);
   const [receiptQuery, setReceiptQuery] = useState("");
   const [receiptStatus, setReceiptStatus] = useState("");
@@ -68,36 +49,11 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const [showReceiptForm, setShowReceiptForm] = useState(false);
   const [receiptPage, setReceiptPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
-  const [trace, setTrace] = useState<ReceiptTrace | null>(null);
-  const [resourceLoading, setResourceLoading] = useState(true);
-  const [resourceError, setResourceError] = useState("");
   const [success, setSuccess] = useState("");
   const [splitError, setSplitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSplitSubmitting, setIsSplitSubmitting] = useState(false);
-  const lotFormRef = useRef<HTMLFormElement>(null);
 
-  // React Hook Form - 新增收料表單（僅保留必要的watch用於計算eligibleLots）
-  const {
-    reset,
-    setValue,
-    watch,
-  } = useForm<ReceiptFormData>({
-    defaultValues: {
-      supplierId: "",
-      materialId: "",
-      supplierLotId: "",
-      receiptNo: "",
-      quantity: "",
-      receivedAt: localDateTimeNow(),
-      notes: "",
-    },
-  });
-
-  // 監聽表單值變化，用於計算 eligibleLots
-  const supplierId = watch("supplierId");
-  const materialId = watch("materialId");
   const canWrite = Boolean(profile?.permissions.includes("receipts:write"));
   const canCreateSupplierLots = Boolean(
     profile?.permissions.some((permission) =>
@@ -107,15 +63,21 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const canTrace = ["receipts:read", "materials:read", "iqc:read"].every(
     (permission) => profile?.permissions.includes(permission),
   );
-  const eligibleLots = useMemo(
-    () =>
-      supplierLots.filter(
-        (lot) =>
-          String(lot.supplier_id) === supplierId &&
-          String(lot.material_id) === materialId,
-      ),
-    [supplierLots, supplierId, materialId],
-  );
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["suppliers", "all"],
+    queryFn: () => allSuppliers(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: materials = [] } = useQuery({
+    queryKey: ["materials", "all"],
+    queryFn: () => allMaterials(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: supplierLots = [] } = useQuery({
+    queryKey: ["supplierLots", "all"],
+    queryFn: () => allSupplierLots(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   // 創建防抖後的搜尋參數狀態
   const [debouncedQuery, setDebouncedQuery] = useState(receiptQuery);
@@ -181,73 +143,24 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
 
   const error = queryError ? getErrorMessage(queryError) : "";
 
-  // 載入供應商、物料、批號選項
-  useEffect(() => {
-    let active = true;
-    Promise.all([allSuppliers(), allMaterials(), allSupplierLots()])
-      .then(([supplierItems, materialItems, lotItems]) => {
-        if (active) {
-          setSuppliers(supplierItems);
-          setMaterials(materialItems);
-          setSupplierLots(lotItems);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active)
-          setResourceError(
-            `供應商、物料或供應商批號選項無法載入：${getErrorMessage(err)}。收料登錄需要 suppliers:read 與 materials:read 權限，且系統中必須已有符合條件的供應商批號。`,
-          );
-      })
-      .finally(() => {
-        if (active) setResourceLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   // 載入選中的收料詳情與追溯
-  useEffect(() => {
-    if (selectedId === null) {
-      setSelectedReceipt(null);
-      setTrace(null);
-      return;
-    }
+  const { data: detailData } = useQuery({
+    queryKey: ["receiptDetail", selectedId, canTrace],
+    queryFn: async () => {
+      if (selectedId === null) return null;
+      if (canTrace) {
+        const result = await api.getReceiptTrace(selectedId);
+        return { trace: result, receipt: result.receipt };
+      }
+      const receipt = await api.getReceipt(selectedId);
+      return { trace: null, receipt };
+    },
+    enabled: selectedId !== null,
+    staleTime: 30 * 1000,
+  });
 
-    let active = true;
-    if (canTrace) {
-      api
-        .getReceiptTrace(selectedId)
-        .then((result) => {
-          if (active) {
-            setTrace(result);
-            setSelectedReceipt(result.receipt);
-          }
-        })
-        .catch((err) => {
-          if (active) {
-            setTrace(null);
-            setSelectedReceipt(null);
-            console.error(getErrorMessage(err));
-          }
-        });
-    } else {
-      api
-        .getReceipt(selectedId)
-        .then((receipt) => {
-          if (active) setSelectedReceipt(receipt);
-        })
-        .catch((err) => {
-          if (active) {
-            setSelectedReceipt(null);
-            console.error(getErrorMessage(err));
-          }
-        });
-    }
-    return () => {
-      active = false;
-    };
-  }, [selectedId, canTrace]);
+  const selectedReceipt = detailData?.receipt ?? null;
+  const trace = detailData?.trace ?? null;
 
   const createReceipt = async (data: ReceiptFormData) => {
     setSuccess("");
@@ -265,18 +178,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
       setSuccess(
         `收料單 ${created.receipt_no} 已建立，狀態：${statusLabel(created.status)}。`,
       );
-      setTrace(null);
-      setSelectedReceipt(created);
       setSelectedId(created.id);
-      reset({
-        supplierId: "",
-        materialId: "",
-        supplierLotId: "",
-        receiptNo: "",
-        quantity: "",
-        receivedAt: localDateTimeNow(),
-        notes: "",
-      });
       await refetch();
     } catch (err) {
       console.error(getErrorMessage(err));
@@ -286,40 +188,23 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
     }
   };
 
-  const createSupplierLot = async () => {
+  const createSupplierLot = async (payload: SupplierLotCreatePayload) => {
     setSuccess("");
-    if (!lotFormRef.current?.reportValidity()) return;
-    const form = new FormData(lotFormRef.current);
     setLotSaving(true);
     try {
       const created = await api.createSupplierLot({
-        supplier_id: Number(form.get("supplier_id")),
-        material_id: Number(form.get("material_id")),
-        supplier_lot_no: String(form.get("supplier_lot_no")).trim(),
-        qty_received: String(form.get("qty_received")),
-        manufacturing_date: form.get("manufacturing_date")
-          ? new Date(
-              `${String(form.get("manufacturing_date"))}T00:00:00`,
-            ).toISOString()
-          : undefined,
-        expiry_date: form.get("expiry_date")
-          ? new Date(
-              `${String(form.get("expiry_date"))}T00:00:00`,
-            ).toISOString()
-          : undefined,
+        supplier_id: payload.supplier_id,
+        material_id: payload.material_id,
+        supplier_lot_no: payload.supplier_lot_no,
+        qty_received: payload.qty_received,
+        manufacturing_date: payload.manufacturing_date,
+        expiry_date: payload.expiry_date,
       });
-      setSupplierLots((items) =>
-        items.some((item) => item.id === created.id)
-          ? items.map((item) => (item.id === created.id ? created : item))
-          : [...items, created],
-      );
-      setValue("supplierId", String(created.supplier_id));
-      setValue("materialId", String(created.material_id));
-      setValue("supplierLotId", String(created.id));
+      await queryClient.invalidateQueries({ queryKey: ["supplierLots", "all"] });
       setSuccess(
         `供應商批號「${created.supplier_lot_no}」已建立，可繼續登錄收料。`,
       );
-      setShowLotForm(false);
+      return created;
     } catch (err) {
       console.error(getErrorMessage(err));
       throw err;
@@ -342,14 +227,7 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         `內部批號 ${created.internal_lot_no} 已建立。後端狀態：${statusLabel(created.lot_status)}。`,
       );
       await refetch();
-      if (canTrace) {
-        const currentTrace = await api.getReceiptTrace(selectedReceipt.id);
-        setTrace(currentTrace);
-        setSelectedReceipt(currentTrace.receipt);
-      } else {
-        const current = await api.getReceipt(selectedReceipt.id);
-        setSelectedReceipt(current);
-      }
+      await queryClient.invalidateQueries({ queryKey: ["receiptDetail", selectedReceipt.id] });
     } catch (err) {
       setSplitError(getErrorMessage(err));
       throw err;
@@ -360,8 +238,6 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
 
   const closeDetail = () => {
     setSelectedId(null);
-    setSelectedReceipt(null);
-    setTrace(null);
     setSplitError("");
   };
 
@@ -380,33 +256,14 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
             <CreateReceiptDialog
               open={showReceiptForm}
               onOpenChange={setShowReceiptForm}
-              lotFormRef={lotFormRef}
               suppliers={suppliers}
               materials={materials}
+              supplierLots={supplierLots}
               canCreateSupplierLots={canCreateSupplierLots}
-              eligibleLots={eligibleLots}
-              resourceLoading={resourceLoading}
-              resourceError={resourceError}
               isSubmitting={isSubmitting}
               lotSaving={lotSaving}
-              showLotForm={showLotForm}
-              onShowLotFormChange={setShowLotForm}
-              onSupplierIdChange={(id) => setValue("supplierId", id)}
-              onMaterialIdChange={(id) => setValue("materialId", id)}
-              onSupplierLotIdChange={(id) => setValue("supplierLotId", id)}
               onCreateSupplierLot={createSupplierLot}
               onSubmit={createReceipt}
-              onReset={() => {
-                reset({
-                  supplierId: "",
-                  materialId: "",
-                  supplierLotId: "",
-                  receiptNo: "",
-                  quantity: "",
-                  receivedAt: localDateTimeNow(),
-                  notes: "",
-                });
-              }}
             />
           </>
           ) : undefined

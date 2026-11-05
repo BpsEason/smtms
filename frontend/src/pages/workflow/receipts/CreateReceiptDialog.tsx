@@ -1,3 +1,4 @@
+import { useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +14,7 @@ import {
 } from "../../../components/ui";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Supplier, Material, SupplierLot } from "../types";
+import type { SupplierLotCreatePayload } from "../../../types";
 
 // Zod 驗證 schema - 新增收料表單
 const receiptSchema = z.object({
@@ -31,28 +33,21 @@ const receiptSchema = z.object({
   notes: z.string().max(500, "備註最多500字元").optional(),
 });
 
-type ReceiptFormData = z.infer<typeof receiptSchema>;
+export type ReceiptFormData = z.infer<typeof receiptSchema>;
 
 interface CreateReceiptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   suppliers: Supplier[];
   materials: Material[];
+  supplierLots: SupplierLot[];
   canCreateSupplierLots: boolean;
-  eligibleLots: SupplierLot[];
-  resourceLoading: boolean;
-  resourceError: string;
+  resourceLoading?: boolean;
+  resourceError?: string;
   isSubmitting: boolean;
   lotSaving: boolean;
-  showLotForm: boolean;
-  lotFormRef: React.RefObject<HTMLFormElement | null>;
-  onShowLotFormChange: (show: boolean) => void;
-  onSupplierIdChange: (id: string) => void;
-  onMaterialIdChange: (id: string) => void;
-  onSupplierLotIdChange: (id: string) => void;
-  onCreateSupplierLot: () => void;
   onSubmit: (data: ReceiptFormData) => Promise<void>;
-  onReset: () => void;
+  onCreateSupplierLot: (payload: SupplierLotCreatePayload) => Promise<SupplierLot>;
 }
 
 export function CreateReceiptDialog({
@@ -60,21 +55,14 @@ export function CreateReceiptDialog({
   onOpenChange,
   suppliers,
   materials,
+  supplierLots,
   canCreateSupplierLots,
-  eligibleLots,
-  resourceLoading,
-  resourceError,
+  resourceLoading = false,
+  resourceError = "",
   isSubmitting,
   lotSaving,
-  showLotForm,
-  lotFormRef,
-  onShowLotFormChange,
-  onSupplierIdChange,
-  onMaterialIdChange,
-  onSupplierLotIdChange,
-  onCreateSupplierLot,
   onSubmit,
-  onReset,
+  onCreateSupplierLot,
 }: CreateReceiptDialogProps) {
   const {
     register,
@@ -96,29 +84,66 @@ export function CreateReceiptDialog({
     },
   });
 
-  // 監聽表單值變化
-  const watchSupplierId = watch("supplierId");
-  const watchMaterialId = watch("materialId");
+  const lotFormRef = useRef<HTMLFormElement>(null);
+  const [showLotForm, setShowLotForm] = useState(false);
 
-  // 直接在register中定義onChange，避免手動調用導致的循環
-  // 移除自定義的handleSupplierChange和handleMaterialChange，改用內聯處理
+  const supplierId = watch("supplierId");
+  const materialId = watch("materialId");
+
+  const eligibleLots = useMemo(
+    () =>
+      supplierLots.filter(
+        (lot) =>
+          String(lot.supplier_id) === supplierId &&
+          String(lot.material_id) === materialId,
+      ),
+    [supplierLots, supplierId, materialId],
+  );
 
   const handleFormSubmit = async (data: ReceiptFormData) => {
     await onSubmit(data);
     onOpenChange(false);
   };
 
+  const handleOpenChange = (isOpen: boolean) => {
+    onOpenChange(isOpen);
+    if (!isOpen) {
+      reset();
+      setShowLotForm(false);
+    }
+  };
+
+  const handleCreateSupplierLot = async () => {
+    const form = lotFormRef.current;
+    if (!form?.reportValidity()) return;
+    const formData = new FormData(form);
+    const payload: SupplierLotCreatePayload = {
+      supplier_id: Number(formData.get("supplier_id")),
+      material_id: Number(formData.get("material_id")),
+      supplier_lot_no: String(formData.get("supplier_lot_no")).trim(),
+      qty_received: String(formData.get("qty_received")),
+      manufacturing_date: formData.get("manufacturing_date")
+        ? new Date(`${String(formData.get("manufacturing_date"))}T00:00:00`).toISOString()
+        : undefined,
+      expiry_date: formData.get("expiry_date")
+        ? new Date(`${String(formData.get("expiry_date"))}T00:00:00`).toISOString()
+        : undefined,
+    };
+    try {
+      const created = await onCreateSupplierLot(payload);
+      setValue("supplierId", String(created.supplier_id));
+      setValue("materialId", String(created.material_id));
+      setValue("supplierLotId", String(created.id));
+      setShowLotForm(false);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <Dialog.Root
       open={open}
-      onOpenChange={(open) => {
-        onOpenChange(open);
-        if (!open) {
-          reset();
-          onReset();
-          onShowLotFormChange(false);
-        }
-      }}
+      onOpenChange={handleOpenChange}
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/35" />
@@ -156,7 +181,7 @@ export function CreateReceiptDialog({
                     type="button"
                     variant="secondary"
                     disabled={!suppliers.length || !materials.length}
-                    onClick={() => onShowLotFormChange(!showLotForm)}
+                    onClick={() => setShowLotForm(!showLotForm)}
                   >
                     {showLotForm ? "關閉批號登錄" : "新增供應商批號"}
                   </Button>
@@ -174,7 +199,7 @@ export function CreateReceiptDialog({
                         className={inputClass}
                         name="supplier_id"
                         required
-                        defaultValue={watchSupplierId}
+                        defaultValue={supplierId}
                       >
                         <option value="">選擇供應商</option>
                         {suppliers.map((supplier) => (
@@ -189,7 +214,7 @@ export function CreateReceiptDialog({
                         className={inputClass}
                         name="material_id"
                         required
-                        defaultValue={watchMaterialId}
+                        defaultValue={materialId}
                       >
                         <option value="">選擇物料</option>
                         {materials.map((material) => (
@@ -258,13 +283,13 @@ export function CreateReceiptDialog({
                         title="建立供應商批號？"
                         description="批號將與所選供應商及物料關聯，建立後可用於收料登錄。後端會檢查供應關係及批號唯一性。"
                         confirmLabel="建立批號"
-                        onConfirm={onCreateSupplierLot}
+                        onConfirm={handleCreateSupplierLot}
                       />
                       <Button
                         type="button"
                         variant="secondary"
                         disabled={lotSaving}
-                        onClick={() => onShowLotFormChange(false)}
+                        onClick={() => setShowLotForm(false)}
                       >
                         取消
                       </Button>
@@ -289,9 +314,8 @@ export function CreateReceiptDialog({
                       className={inputClass}
                       {...register("supplierId", {
                         onChange: (e) => {
-                          onSupplierIdChange(e.target.value);
+                          setValue("supplierId", e.target.value);
                           setValue("supplierLotId", "");
-                          onSupplierLotIdChange("");
                         },
                       })}
                     >
@@ -311,9 +335,8 @@ export function CreateReceiptDialog({
                       className={inputClass}
                       {...register("materialId", {
                         onChange: (e) => {
-                          onMaterialIdChange(e.target.value);
+                          setValue("materialId", e.target.value);
                           setValue("supplierLotId", "");
-                          onSupplierLotIdChange("");
                         },
                       })}
                     >
@@ -333,7 +356,7 @@ export function CreateReceiptDialog({
                 >
                   <select
                     className={inputClass}
-                    disabled={!watchSupplierId || !watchMaterialId}
+                    disabled={!supplierId || !materialId}
                     {...register("supplierLotId")}
                   >
                     <option value="">請選擇供應商批號</option>
