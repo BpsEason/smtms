@@ -23,7 +23,7 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 | 物料追溯 | 以供應商批號、收料單、內部批號、IQC ID 或物料代碼查詢關聯流程；結果分頁，前端 CSV 匯出目前結果頁 | `quality.py` 的 `/traceability`、`frontend/src/pages/TraceabilityPage.tsx`、`test_quality_workflow_api.py` |
 | 稽核紀錄 | 記錄重要 ORM 建立／更新／刪除與成功登入；後台依 `audit:read` 權限查詢，支援操作者、操作類型、資源及時間範圍篩選、分頁、唯讀異動明細與 CSV 串流匯出 | `backend/app/services/audit.py`、`backend/app/api/routes/audit.py`、`frontend/src/pages/AuditLogPage.tsx`、`backend/tests/test_audit_api.py` |
 | 角色與權限管理 | 使用者、角色、權限及角色指派 API；前端依權限保護頁面，後端 API 另行授權；供應商帳號依綁定的供應商範圍隔離 | `backend/app/api/routes/access.py`、`backend/app/core/security.py`、`frontend/src/App.tsx`、`backend/tests/test_access_control_api.py`、`test_supplier_isolation.py` |
-
+| 認證與 Token | 登入核發 Access Token 與 Refresh Token；`/auth/refresh` 輪替 Refresh Token 並核發新 Access Token；`/auth/logout` 撤銷當前 Access Token；前端於 401 時自動刷新並重試請求 | `backend/app/api/routes/auth.py`、`backend/app/schemas/auth.py`、`frontend/src/api/client.ts`、`frontend/src/api/auth.ts` |
 以上列出程式碼與測試中可查證的範圍。附件目前存於後端設定的本機持久化目錄，限制格式與大小；尚未包含病毒掃描或外部物件儲存。追溯頁 CSV 僅匯出當前頁；Audit Log CSV 依目前篩選條件分批串流匯出所有符合紀錄。正式部署、長時間負載與合規認證尚未完成。
 
 ## 核心設計
@@ -32,6 +32,16 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 - **流程約束：** 收料累計量不可超過供應商批號申報量，內部拆批不可超過收料剩餘量；建立關聯紀錄時會檢查連結對象是否一致。
 - **權限邊界：** API 以權限依賴檢查操作權限，供應商帳號依 `supplier_id` 限制資料範圍。前端路由權限檢查用於介面導覽，後端仍負責 API 授權。
 - **異常與審核歷程：** IQC 審核決策另存為歷程；異常案件保留變更歷程及處置紀錄，並可關聯至追溯資料。
+
+## 認證與 Token
+
+- **Access Token：** 由 `/api/v1/auth/login` 核發，有效期限預設 60 分鐘（`access_token_expire_minutes`）；前端以 Bearer Token 呼叫 API。
+- **Refresh Token：** 登入同時核發，有效期限預設 30 天（`refresh_token_expire_days`），以 SHA-256 雜湊儲存於 `refresh_tokens` 資料表；JWT 類型為 `refresh`。
+- **更新流程：** 前端收到 401 時呼叫 `/api/v1/auth/refresh`，後端驗證 JWT 與資料庫紀錄（未撤銷、未過期），撤銷舊 Refresh Token 並核發新的 Access Token 與 Refresh Token（輪替）。
+- **失效與登出：** Refresh Token 過期、撤銷或使用者停用時刷新失敗；`/api/v1/auth/logout` 撤銷當前 Access Token（Redis 撤銷狀態）。
+- **相關端點：** `POST /api/v1/auth/login`、`POST /api/v1/auth/refresh`、`POST /api/v1/auth/logout`、`GET /api/v1/auth/me`。
+- **資料庫遷移：** `alembic/versions/20261105_refresh_tokens.py` 建立 `refresh_tokens` 資料表；執行 `alembic upgrade head` 套用。
+- **環境設定：** `SECRET_KEY`（至少 32 字元）、`access_token_expire_minutes`、`refresh_token_expire_days` 由 `backend/.env` / Settings 設定。
 
 ## 技術架構與堆疊
 
