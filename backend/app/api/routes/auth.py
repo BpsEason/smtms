@@ -1,7 +1,9 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,8 +12,8 @@ from app.core.security import (
     AuthenticatedUser,
     create_access_token,
     create_refresh_token,
+    decode_access_token,
     decode_refresh_token,
-    get_current_token_claims,
     get_current_user,
     get_password_hash,
     require_permission,
@@ -34,6 +36,7 @@ from app.schemas.auth import (
 settings = get_settings()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_security_scheme = HTTPBearer(auto_error=False)
 
 # A fixed dummy hash keeps unknown usernames on the same password-verification path.
 _DUMMY_PASSWORD_HASH = get_password_hash("not-a-real-user-password")
@@ -98,7 +101,15 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
         .where(RefreshTokenORM.token_hash == token_hash)
         .with_for_update()
     )
-    if stored is None or stored.revoked or stored.expires_at < datetime.now(timezone.utc):
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+    expires_at = stored.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if stored.revoked or expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or revoked refresh token",
@@ -135,16 +146,53 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
 
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(
-    claims: dict = Depends(get_current_token_claims),
+    payload: RefreshRequest | None = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_security_scheme),
     db: Session = Depends(get_db),
 ) -> LogoutResponse:
-    await revoke_access_token(claims)
-    try:
-        user_id = int(claims["user_id"])
-    except (KeyError, TypeError, ValueError):
+    claims = None
+    if credentials is not None:
+        try:
+            claims = decode_access_token(credentials.credentials)
+        except jwt.PyJWTError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+            ) from exc
+        try:
+            await revoke_access_token(claims)
+        except Exception:
+            pass
+    if claims is None and payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    if claims is not None:
+        try:
+            user_id = int(claims["user_id"])
+        except (KeyError, TypeError, ValueError):
+            return LogoutResponse(message="Successfully logged out")
+        query = db.query(RefreshTokenORM).filter(
+            RefreshTokenORM.user_id == user_id,
+            RefreshTokenORM.revoked.is_(False),
+        )
+        if payload is not None:
+            token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
+            query = query.filter(RefreshTokenORM.token_hash == token_hash)
+        query.update({"revoked": True})
+        db.commit()
         return LogoutResponse(message="Successfully logged out")
+
+    try:
+        refresh_claims = decode_refresh_token(payload.refresh_token)
+    except Exception:
+        return LogoutResponse(message="Successfully logged out")
+    token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
     db.query(RefreshTokenORM).filter(
-        RefreshTokenORM.user_id == user_id,
+        RefreshTokenORM.user_id == int(refresh_claims["user_id"]),
+        RefreshTokenORM.token_hash == token_hash,
         RefreshTokenORM.revoked.is_(False),
     ).update({"revoked": True})
     db.commit()
