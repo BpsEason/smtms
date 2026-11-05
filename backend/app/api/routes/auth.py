@@ -94,9 +94,17 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
 
     token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
     stored = db.scalar(
-        select(RefreshTokenORM).where(RefreshTokenORM.token_hash == token_hash)
+        select(RefreshTokenORM)
+        .where(RefreshTokenORM.token_hash == token_hash)
+        .with_for_update()
     )
     if stored is None or stored.revoked or stored.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    if stored.user_id != int(claims["user_id"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or revoked refresh token",
@@ -126,8 +134,20 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
 
 
 @router.post("/logout", response_model=LogoutResponse)
-async def logout(claims: dict = Depends(get_current_token_claims)) -> LogoutResponse:
+async def logout(
+    claims: dict = Depends(get_current_token_claims),
+    db: Session = Depends(get_db),
+) -> LogoutResponse:
     await revoke_access_token(claims)
+    try:
+        user_id = int(claims["user_id"])
+    except (KeyError, TypeError, ValueError):
+        return LogoutResponse(message="Successfully logged out")
+    db.query(RefreshTokenORM).filter(
+        RefreshTokenORM.user_id == user_id,
+        RefreshTokenORM.revoked.is_(False),
+    ).update({"revoked": True})
+    db.commit()
     return LogoutResponse(message="Successfully logged out")
 
 
