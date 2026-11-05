@@ -32,13 +32,38 @@ def upgrade() -> None:
         sa.Column("revoked", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.UniqueConstraint("token_hash", name="uq_refresh_tokens_token_hash"),
     )
-    op.create_index(op.f("ix_refresh_tokens_id"), "refresh_tokens", ["id"], unique=False)
-    op.create_index(op.f("ix_refresh_tokens_user_id"), "refresh_tokens", ["user_id"], unique=False)
-    op.create_index(op.f("ix_refresh_tokens_token_hash"), "refresh_tokens", ["token_hash"], unique=True)
+
+    op.create_index(
+        op.f("ix_refresh_tokens_id"),
+        "refresh_tokens",
+        ["id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_refresh_tokens_user_id"),
+        "refresh_tokens",
+        ["user_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_refresh_tokens_token_hash"),
+        "refresh_tokens",
+        ["token_hash"],
+        unique=True,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_refresh_tokens_token_hash"), table_name="refresh_tokens")
-    op.drop_index(op.f("ix_refresh_tokens_user_id"), table_name="refresh_tokens")
-    op.drop_index(op.f("ix_refresh_tokens_id"), table_name="refresh_tokens")
+    op.drop_index(
+        op.f("ix_refresh_tokens_token_hash"),
+        table_name="refresh_tokens",
+    )
+    op.drop_index(
+        op.f("ix_refresh_tokens_user_id"),
+        table_name="refresh_tokens",
+    )
+    op.drop_index(
+        op.f("ix_refresh_tokens_id"),
+        table_name="refresh_tokens",
+    )
     op.drop_table("refresh_tokens")
