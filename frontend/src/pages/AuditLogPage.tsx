@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+﻿import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Eye, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -66,9 +66,10 @@ export function AuditLogPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditLog | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [filterError, setFilterError] = useState("");
 
-  const params = useMemo(() => filterParams(filters), [filters]);
+  const params = filterParams(filters);
 
   const {
     data: result,
@@ -76,7 +77,7 @@ export function AuditLogPage() {
     error: queryError,
     refetch,
   } = useQuery({
-    queryKey: ["audit-logs", page, ...Object.values(params)],
+    queryKey: ["audit-logs", { page, page_size: PAGE_SIZE, ...params }],
     queryFn: async () => {
       const response = await api.listAuditLogs({
         ...params,
@@ -92,33 +93,54 @@ export function AuditLogPage() {
   const items = result?.items ?? [];
   const hasNext = items.length === PAGE_SIZE;
 
-  const displayError = queryError
+  const listErrorMessage = queryError
     ? queryError instanceof ApiError
       ? queryError.details
-      : "稽核紀錄載入失敗，請稍後重試。"
-    : error;
+      : "稽核紀錄載入失敗，請稍後重試"
+    : null;
+
+  function validateFilters(filters: Filters): string | null {
+    if (filters.start_at && filters.end_at && filters.start_at > filters.end_at) {
+      return "開始時間不可晚於結束時間";
+    }
+    return null;
+  }
 
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError("");
+    setFilterError("");
+    const validationError = validateFilters(draft);
+    if (validationError) {
+      setFilterError(validationError);
+      return;
+    }
     setPage(1);
     setSelected(null);
     setFilters({ ...draft });
   };
 
   const retryLoad = () => {
-    setError("");
     void refetch();
   };
 
+  const retryExport = () => {
+    setExportError("");
+    void exportCsv();
+  };
+
   const changePage = (nextPage: number) => {
-    setError("");
     setPage(nextPage);
   };
 
   const exportCsv = async () => {
+    const validationError = validateFilters(filters);
+    if (validationError) {
+      // CSV 匯出驗證失敗寫入 exportError，不污染 filterError
+      setExportError(validationError);
+      return;
+    }
     setExporting(true);
-    setError("");
+    setExportError("");
     try {
       const blob = await api.exportAuditLogs(params);
       const url = URL.createObjectURL(blob);
@@ -126,12 +148,12 @@ export function AuditLogPage() {
       link.href = url;
       link.download = "smtms-audit-logs.csv";
       link.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL?.(url), 100);
     } catch (cause) {
-      setError(
+      setExportError(
         cause instanceof ApiError
           ? cause.details
-          : "稽核紀錄匯出失敗，請稍後重試。",
+          : "稽核紀錄匯出失敗，請稍後再試",
       );
     } finally {
       setExporting(false);
@@ -169,18 +191,26 @@ export function AuditLogPage() {
               <input
                 className={inputClass}
                 value={draft.actor_username}
-                onChange={(event) =>
-                  setDraft({ ...draft, actor_username: event.target.value })
-                }
+                onChange={(event) => {
+                  setDraft((prev) => ({
+                    ...prev,
+                    actor_username: event.target.value,
+                  }));
+                  setFilterError("");
+                }}
               />
             </FormField>
             <FormField label="操作類型">
               <select
                 className={inputClass}
                 value={draft.action}
-                onChange={(event) =>
-                  setDraft({ ...draft, action: event.target.value })
-                }
+                onChange={(event) => {
+                  setDraft((prev) => ({
+                    ...prev,
+                    action: event.target.value,
+                  }));
+                  setFilterError("");
+                }}
               >
                 <option value="">全部</option>
                 <option value="CREATE">CREATE</option>
@@ -193,9 +223,13 @@ export function AuditLogPage() {
               <input
                 className={inputClass}
                 value={draft.resource_type}
-                onChange={(event) =>
-                  setDraft({ ...draft, resource_type: event.target.value })
-                }
+                onChange={(event) => {
+                  setDraft((prev) => ({
+                    ...prev,
+                    resource_type: event.target.value,
+                  }));
+                  setFilterError("");
+                }}
                 placeholder="例如 materials"
               />
             </FormField>
@@ -204,9 +238,13 @@ export function AuditLogPage() {
                 className={inputClass}
                 type="datetime-local"
                 value={draft.start_at}
-                onChange={(event) =>
-                  setDraft({ ...draft, start_at: event.target.value })
-                }
+                onChange={(event) => {
+                  setDraft((prev) => ({
+                    ...prev,
+                    start_at: event.target.value,
+                  }));
+                  setFilterError("");
+                }}
               />
             </FormField>
             <FormField label="結束時間">
@@ -214,9 +252,13 @@ export function AuditLogPage() {
                 className={inputClass}
                 type="datetime-local"
                 value={draft.end_at}
-                onChange={(event) =>
-                  setDraft({ ...draft, end_at: event.target.value })
-                }
+                onChange={(event) => {
+                  setDraft((prev) => ({
+                    ...prev,
+                    end_at: event.target.value,
+                  }));
+                  setFilterError("");
+                }}
               />
             </FormField>
             <div className="flex gap-2 sm:col-span-2 xl:col-span-5">
@@ -225,7 +267,8 @@ export function AuditLogPage() {
                 variant="secondary"
                 type="button"
                 onClick={() => {
-                  setError("");
+                  setFilterError("");
+                  setExportError("");
                   setDraft(EMPTY_FILTERS);
                   setFilters(EMPTY_FILTERS);
                   setPage(1);
@@ -236,16 +279,20 @@ export function AuditLogPage() {
               </Button>
             </div>
           </form>
+          {filterError && <ErrorState message={filterError} />}
         </Panel>
 
-        {displayError && (
-          <ErrorState message={displayError} onRetry={retryLoad} />
+        {exportError && (
+          <ErrorState message={exportError} onRetry={retryExport} />
         )}
 
         <Panel
-          title="操作紀錄"
+          title="稽核紀錄"
           description={`第 ${page} 頁 · 每頁 ${PAGE_SIZE} 筆`}
         >
+          {listErrorMessage && (
+            <ErrorState message={listErrorMessage} onRetry={retryLoad} />
+          )}
           {loading ? (
             <LoadingState label="稽核紀錄載入中…" />
           ) : items.length === 0 ? (
