@@ -1,10 +1,16 @@
+import hashlib
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import (
     AuthenticatedUser,
     create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
     get_current_token_claims,
     get_current_user,
     get_password_hash,
@@ -15,14 +21,17 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.audit import AuditLogORM
-from app.models.user import UserORM
+from app.models.user import RefreshTokenORM, UserORM
 from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     LogoutResponse,
+    RefreshRequest,
     TokenResponse,
     UserProfile,
 )
+
+settings = get_settings()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -57,7 +66,63 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         subject=user.username,
         payload={"user_id": user.id},
     )
-    return TokenResponse(access_token=token)
+    refresh_token = create_refresh_token(
+        subject=user.username,
+        payload={"user_id": user.id},
+    )
+    db.add(
+        RefreshTokenORM(
+            user_id=user.id,
+            token_hash=hashlib.sha256(refresh_token.encode()).hexdigest(),
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(days=settings.refresh_token_expire_days),
+        )
+    )
+    db.commit()
+    return TokenResponse(access_token=token, refresh_token=refresh_token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    try:
+        claims = decode_refresh_token(payload.refresh_token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        ) from exc
+
+    token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
+    stored = db.scalar(
+        select(RefreshTokenORM).where(RefreshTokenORM.token_hash == token_hash)
+    )
+    if stored is None or stored.revoked or stored.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    user = db.scalar(select(UserORM).where(UserORM.id == int(claims["user_id"])))
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is disabled or not found",
+        )
+
+    # rotate
+    stored.revoked = True
+    new_access = create_access_token(subject=user.username, payload={"user_id": user.id})
+    new_refresh = create_refresh_token(subject=user.username, payload={"user_id": user.id})
+    db.add(
+        RefreshTokenORM(
+            user_id=user.id,
+            token_hash=hashlib.sha256(new_refresh.encode()).hexdigest(),
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(days=settings.refresh_token_expire_days),
+        )
+    )
+    db.commit()
+    return TokenResponse(access_token=new_access, refresh_token=new_refresh)
 
 
 @router.post("/logout", response_model=LogoutResponse)

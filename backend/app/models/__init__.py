@@ -17,6 +17,7 @@ from app.models.quality import (
 )
 from app.models.user import (
     PermissionORM,
+    RefreshTokenORM,
     RoleORM,
     RolePermissionORM,
     UserORM,
@@ -36,6 +37,7 @@ __all__ = [
     "NonconformanceORM",
     "PermissionORM",
     "QualityReviewORM",
+    "RefreshTokenORM",
     "RoleORM",
     "RolePermissionORM",
     "SupplierDocumentAttachmentORM",

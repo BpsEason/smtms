@@ -2,6 +2,18 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "smtms_token";
 
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb);
+}
+
+function onRefreshed(token: string) {
+  refreshSubscribers.map((cb) => cb(token));
+  refreshSubscribers = [];
+}
+
 export class ApiError extends Error {
   status: number;
   details: string;
@@ -58,10 +70,56 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
   });
+
+  if (
+    response.status === 401 &&
+    token &&
+    !path.endsWith("/auth/login") &&
+    !path.endsWith("/auth/refresh")
+  ) {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        const refreshResponse = await fetch(
+          `${API_BASE_URL}/api/v1/auth/refresh`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              refresh_token: localStorage.getItem("smtms_refresh_token"),
+            }),
+          },
+        );
+
+        if (!refreshResponse.ok) throw new Error("Refresh failed");
+
+        const data = await refreshResponse.json();
+        saveToken(data.access_token);
+        localStorage.setItem("smtms_refresh_token", data.refresh_token);
+        isRefreshing = false;
+        onRefreshed(data.access_token);
+      } catch (err) {
+        isRefreshing = false;
+        clearToken();
+        localStorage.removeItem("smtms_refresh_token");
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+        // Do not throw here so the original 401 response proceeds down to standard response parsing and error mapping
+      }
+    } else {
+      const retryOriginalRequest = new Promise((resolve) => {
+        subscribeTokenRefresh((newToken: string) => {
+          headers.set("Authorization", `Bearer ${newToken}`);
+          resolve(fetch(`${API_BASE_URL}${path}`, { ...init, headers }));
+        });
+      });
+
+      response = (await retryOriginalRequest) as Response;
+    }
+  }
 
   const payload = await response.text();
   let data: unknown = null;
@@ -94,14 +152,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           .flatMap(([, fieldErrors]) => fieldErrors)
           .join("; ");
         detail = messages || "欄位驗證失敗";
-      }
-      else if ("detail" in data && typeof data.detail === "string") {
+      } else if ("detail" in data && typeof data.detail === "string") {
         detail = data.detail;
-      }
-      else if ("message" in data && typeof data.message === "string") {
+      } else if ("message" in data && typeof data.message === "string") {
         detail = data.message;
-      }
-      else if ("detail" in data && Array.isArray(data.detail)) {
+      } else if ("detail" in data && Array.isArray(data.detail)) {
         detail = data.detail
           .map((item: unknown) => {
             if (
@@ -157,10 +212,56 @@ async function requestBlob(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
   });
+
+  if (
+    response.status === 401 &&
+    token &&
+    !path.endsWith("/auth/login") &&
+    !path.endsWith("/auth/refresh")
+  ) {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        const refreshResponse = await fetch(
+          `${API_BASE_URL}/api/v1/auth/refresh`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              refresh_token: localStorage.getItem("smtms_refresh_token"),
+            }),
+          },
+        );
+
+        if (!refreshResponse.ok) throw new Error("Refresh failed");
+
+        const data = await refreshResponse.json();
+        saveToken(data.access_token);
+        localStorage.setItem("smtms_refresh_token", data.refresh_token);
+        isRefreshing = false;
+        onRefreshed(data.access_token);
+      } catch (err) {
+        isRefreshing = false;
+        clearToken();
+        localStorage.removeItem("smtms_refresh_token");
+        window.dispatchEvent(new Event("smtms:unauthorized"));
+        // Do not throw here so original 401 response proceeds to check !response.ok with errorMessage
+      }
+    } else {
+      const retryOriginalRequest = new Promise((resolve) => {
+        subscribeTokenRefresh((newToken: string) => {
+          headers.set("Authorization", `Bearer ${newToken}`);
+          resolve(fetch(`${API_BASE_URL}${path}`, { ...init, headers }));
+        });
+      });
+
+      response = (await retryOriginalRequest) as Response;
+    }
+  }
 
   if (!response.ok) {
     if (response.status === 401 && token && !path.endsWith("/auth/login")) {

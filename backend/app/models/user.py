@@ -90,6 +90,9 @@ class UserORM(Base):
     role_links: Mapped[list["UserRoleORM"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    refresh_tokens: Mapped[list["RefreshTokenORM"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class RoleORM(Base):
@@ -126,7 +129,6 @@ class RoleORM(Base):
 class PermissionORM(Base):
     __tablename__ = "permissions"
     __table_args__ = {"comment": "權限項目定義"}
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="權限主鍵編號")
     code: Mapped[str] = mapped_column(
         String(80), unique=True, nullable=False, index=True, comment="權限代碼"
@@ -172,7 +174,6 @@ class UserRoleORM(Base):
         nullable=False,
         comment="對應建立時間",
     )
-
     user: Mapped[UserORM] = relationship(back_populates="role_links")
     role: Mapped[RoleORM] = relationship(back_populates="user_links")
 
@@ -181,7 +182,7 @@ class RolePermissionORM(Base):
     __tablename__ = "role_permissions"
     __table_args__ = (
         UniqueConstraint("role_id", "permission_id", name="uq_role_permissions_role_permission"),
-        {"comment": "角色權限對應表"},
+        {"comment": "權限項目對應表"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="對應紀錄主鍵")
@@ -200,3 +201,34 @@ class RolePermissionORM(Base):
 
     role: Mapped[RoleORM] = relationship(back_populates="permissions")
     permission: Mapped[PermissionORM] = relationship(back_populates="role_links")
+
+
+class RefreshTokenORM(Base):
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_refresh_tokens_token_hash"),
+        {"comment": "Refresh Token 儲存表（僅存 hash）"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="主鍵編號")
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True, comment="所屬使用者主鍵"
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="Refresh Token 的 SHA-256 雜湊",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, comment="到期時間"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, comment="建立時間"
+    )
+    revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, comment="是否已撤銷"
+    )
+
+    user: Mapped[UserORM] = relationship(back_populates="refresh_tokens")

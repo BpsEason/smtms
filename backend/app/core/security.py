@@ -80,6 +80,36 @@ def decode_access_token(token: str) -> dict[str, Any]:
     )
 
 
+def create_refresh_token(
+    subject: str | Any,
+    payload: dict[str, Any] | None = None,
+    expires_delta: timedelta | None = None,
+) -> str:
+    now = datetime.now(timezone.utc)
+    lifetime = expires_delta or timedelta(days=settings.refresh_token_expire_days)
+    claims: dict[str, Any] = {
+        **(payload or {}),
+        "sub": str(subject),
+        "iat": now,
+        "exp": now + lifetime,
+        "jti": secrets.token_urlsafe(32),
+        "type": "refresh",
+    }
+    return jwt.encode(claims, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_refresh_token(token: str) -> dict[str, Any]:
+    claims = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[settings.algorithm],
+        options={"require": ["sub", "user_id", "iat", "exp", "jti", "type"]},
+    )
+    if claims.get("type") != "refresh":
+        raise jwt.PyJWTError("not a refresh token")
+    return claims
+
+
 async def get_current_token_claims(
     credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
 ) -> dict[str, Any]:

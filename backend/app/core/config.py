@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     smtms_seed_password: str | None = Field(default=None)
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=60)
+    refresh_token_expire_days: int = Field(default=30)
     database_url: str = Field(default="mysql+pymysql://root:root@localhost:3306/smtms")
     redis_url: str = Field(default="redis://localhost:6379/0")
     document_storage_dir: str = Field(default="var/documents")
