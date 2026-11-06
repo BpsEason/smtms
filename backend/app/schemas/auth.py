@@ -94,6 +94,21 @@ class InternalUserCreate(BaseModel):
     role_ids: list[int] = Field(default_factory=list)
 
 
+class InternalUserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str | None = Field(default=None, min_length=1, max_length=80)
+    password: str | None = Field(default=None, min_length=8, max_length=72)
+    email: EmailStr | None = None
+    role_ids: list[int] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_username(self):
+        if "username" in self.model_fields_set and self.username is None:
+            raise ValueError("username cannot be null")
+        return self
+
+
 class UserRolesUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

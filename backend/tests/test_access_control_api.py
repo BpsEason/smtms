@@ -560,3 +560,221 @@ def test_concurrent_management_removals_cannot_leave_zero_administrators_mysql()
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+def test_patch_user_update_username_and_email(access_environment) -> None:
+    client, TestSession, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_admin_two']}",
+        json={"username": "admin-two-updated", "email": "admin-two-updated@example.com"},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["username"] == "admin-two-updated"
+    assert updated.json()["email"] == "admin-two-updated@example.com"
+
+    with TestSession() as session:
+        user = session.get(UserORM, ids["user_admin_two"])
+        assert user.username == "admin-two-updated"
+        assert user.email == "admin-two-updated@example.com"
+
+
+def test_patch_user_update_role(access_environment) -> None:
+    client, TestSession, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"role_ids": [ids["role_admin"]]},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["roles"] == ["access-admin"]
+
+    with TestSession() as session:
+        links = session.scalars(
+            select(UserRoleORM).where(UserRoleORM.user_id == ids["user_staff"])
+        ).all()
+        assert {link.role_id for link in links} == {ids["role_admin"]}
+
+
+def test_patch_user_update_password_stores_hash(access_environment) -> None:
+    client, TestSession, ids = access_environment
+    headers = _headers(client, "admin-one")
+    new_password = "New-Password-2026!"
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"password": new_password},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    with TestSession() as session:
+        user = session.get(UserORM, ids["user_staff"])
+        assert user.password_hash != new_password
+        assert verify_password(new_password, user.password_hash)
+
+
+def test_patch_user_without_password_keeps_original(access_environment) -> None:
+    client, TestSession, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    with TestSession() as session:
+        original_hash = session.get(UserORM, ids["user_staff"]).password_hash
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"username": "staff-updated"},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+
+    with TestSession() as session:
+        user = session.get(UserORM, ids["user_staff"])
+        assert user.password_hash == original_hash
+        assert verify_password(PASSWORD, user.password_hash)
+
+
+def test_patch_user_empty_password_keeps_original(access_environment) -> None:
+    client, TestSession, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    with TestSession() as session:
+        original_hash = session.get(UserORM, ids["user_staff"]).password_hash
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"password": ""},
+        headers=headers,
+    )
+    assert updated.status_code == 422, updated.text
+
+    with TestSession() as session:
+        user = session.get(UserORM, ids["user_staff"])
+        assert user.password_hash == original_hash
+
+
+def test_patch_user_duplicate_username_conflict(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"username": "admin-one"},
+        headers=headers,
+    )
+    assert updated.status_code == 409
+
+
+def test_patch_user_null_username_rejected(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"username": None},
+        headers=headers,
+    )
+    assert updated.status_code == 422
+
+
+def test_patch_user_invalid_username_rejected(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"username": "invalid user!"},
+        headers=headers,
+    )
+    assert updated.status_code == 422
+
+
+def test_patch_user_undefined_field_rejected(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"undefined_field": 1},
+        headers=headers,
+    )
+    assert updated.status_code == 422
+
+
+def test_patch_user_portal_account_protected(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_portal']}",
+        json={"username": "portal-updated"},
+        headers=headers,
+    )
+    assert updated.status_code == 409
+
+
+def test_patch_user_cannot_assign_portal_role(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"role_ids": [ids["role_portal"]]},
+        headers=headers,
+    )
+    assert updated.status_code == 409
+
+
+def test_patch_user_cannot_remove_last_manager(access_environment) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    assert (
+        client.patch(
+            f"/api/v1/users/{ids['user_admin_two']}",
+            json={"role_ids": []},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+
+    assert (
+        client.patch(
+            f"/api/v1/users/{ids['user_admin_one']}",
+            json={"role_ids": []},
+            headers=headers,
+        ).status_code
+        == 409
+    )
+
+
+def test_patch_user_requires_manage_permission(access_environment) -> None:
+    client, _, ids = access_environment
+    staff_headers = _headers(client, "staff")
+
+    assert (
+        client.patch(
+            f"/api/v1/users/{ids['user_admin_two']}",
+            json={"username": "staff-should-not-update"},
+            headers=staff_headers,
+        ).status_code
+        == 403
+    )
+
+
+def test_patch_user_unknown_id_returns_404(access_environment) -> None:
+    client, _, _ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    assert (
+        client.patch(
+            "/api/v1/users/99999",
+            json={"username": "nonexistent"},
+            headers=headers,
+        ).status_code
+        == 404
+    )

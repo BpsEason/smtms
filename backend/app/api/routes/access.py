@@ -39,6 +39,7 @@ from app.models.user import (
 )
 from app.schemas.auth import (
     InternalUserCreate,
+    InternalUserUpdate,
     PermissionSummary,
     RoleCreate,
     RolePermissionUpdate,
@@ -363,32 +364,15 @@ def create_internal_user(
     db: Session = Depends(get_db),
     _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
 ) -> UserSummary:
-    username = payload.username.strip()
-    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", username):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="帳號僅能使用英文字母、數字、句點、底線及連字號。",
-        )
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="password must be at most 72 UTF-8 bytes",
-        )
+    username = _validate_internal_username(payload.username)
+    _validate_internal_password(payload.password)
     if db.scalar(select(UserORM.id).where(UserORM.username == username)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username already exists",
         )
 
-    role_ids = set(payload.role_ids)
-    roles = db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all() if role_ids else []
-    if len(roles) != len(role_ids):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
-    if any(role.name == SUPPLIER_ROLE_NAME for role in roles):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="供應商入口角色不可指派給內部使用者。",
-        )
+    roles = _resolve_assignable_roles(db, payload.role_ids)
 
     user = UserORM(
         username=username,
@@ -413,13 +397,25 @@ def create_internal_user(
     return _user_summary(db, user)
 
 
-@router.put("/users/{user_id}/roles", response_model=UserSummary)
-def set_user_roles(
-    user_id: int,
-    payload: UserRolesUpdate,
-    db: Session = Depends(get_db),
-    _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
-) -> UserSummary:
+def _validate_internal_username(username: str) -> str:
+    value = username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", value):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="帳號僅能使用英文字母、數字、句點、底線及連字號。",
+        )
+    return value
+
+
+def _validate_internal_password(password: str) -> None:
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="password must be at most 72 UTF-8 bytes",
+        )
+
+
+def _get_internal_user_or_404(db: Session, user_id: int) -> UserORM:
     user = db.get(UserORM, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -428,17 +424,28 @@ def set_user_roles(
             status_code=status.HTTP_409_CONFLICT,
             detail="供應商入口帳號不可指派內部角色。",
         )
+    return user
 
-    role_ids = set(payload.role_ids)
-    roles = db.scalars(select(RoleORM).where(RoleORM.id.in_(role_ids))).all() if role_ids else []
-    if len(roles) != len(role_ids):
+
+def _resolve_assignable_roles(db: Session, role_ids: list[int]) -> list[RoleORM]:
+    normalized_ids = set(role_ids)
+    roles = (
+        db.scalars(select(RoleORM).where(RoleORM.id.in_(normalized_ids))).all()
+        if normalized_ids
+        else []
+    )
+    if len(roles) != len(normalized_ids):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     if any(role.name == SUPPLIER_ROLE_NAME for role in roles):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="供應商入口角色不可指派給內部使用者。",
         )
+    return list(roles)
 
+
+def _replace_user_roles(db: Session, user: UserORM, roles: list[RoleORM]) -> None:
+    role_ids = {role.id for role in roles}
     existing = {
         link.role_id: link
         for link in db.scalars(select(UserRoleORM).where(UserRoleORM.user_id == user.id)).all()
@@ -449,5 +456,62 @@ def set_user_roles(
     for role_id in role_ids - set(existing):
         db.add(UserRoleORM(user_id=user.id, role_id=role_id))
 
+
+@router.put("/users/{user_id}/roles", response_model=UserSummary)
+def set_user_roles(
+    user_id: int,
+    payload: UserRolesUpdate,
+    db: Session = Depends(get_db),
+    _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
+) -> UserSummary:
+    user = _get_internal_user_or_404(db, user_id)
+    roles = _resolve_assignable_roles(db, payload.role_ids)
+    _replace_user_roles(db, user, roles)
     _commit_keeping_one_manager(db)
+    return _user_summary(db, user)
+
+
+@router.patch("/users/{user_id}", response_model=UserSummary)
+def update_internal_user(
+    user_id: int,
+    payload: InternalUserUpdate,
+    db: Session = Depends(get_db),
+    _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
+) -> UserSummary:
+    user = _get_internal_user_or_404(db, user_id)
+    changes = payload.model_dump(exclude_unset=True)
+
+    if "username" in changes:
+        username = _validate_internal_username(changes["username"] or "")
+        if username != user.username and db.scalar(
+            select(UserORM.id).where(UserORM.username == username, UserORM.id != user.id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username already exists",
+            )
+        user.username = username
+
+    if "email" in changes:
+        user.email = str(changes["email"]) if changes["email"] is not None else None
+
+    if "password" in changes:
+        password = changes["password"]
+        if password is not None and password != "":
+            _validate_internal_password(password)
+            user.password_hash = get_password_hash(password)
+
+    if "role_ids" in changes and changes["role_ids"] is not None:
+        roles = _resolve_assignable_roles(db, changes["role_ids"])
+        _replace_user_roles(db, user, roles)
+
+    try:
+        _commit_keeping_one_manager(db)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username already exists",
+        ) from exc
+    db.refresh(user)
     return _user_summary(db, user)
