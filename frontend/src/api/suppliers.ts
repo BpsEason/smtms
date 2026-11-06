@@ -16,7 +16,7 @@ export async function listSuppliers(
   params?: Record<string, string | number | undefined | null>,
 ) {
   return request<PaginatedResponse<Supplier>>(
-    `/api/v1/suppliers${buildQueryString(params ?? {})}`,
+    `/api/v1/suppliers/${buildQueryString(params ?? {})}`,
   );
 }
 
@@ -138,25 +138,29 @@ export async function downloadSupplierDocumentAttachment(
 }
 
 export async function supplierImportTemplate() {
-  return requestBlob(`/api/v1/suppliers/import/template`, {}, "無法下載匯入範本，請稍後再試。");
+  return requestBlob(
+    `/api/v1/suppliers/import/template`,
+    {},
+    "無法下載匯入範本，請稍後再試。",
+  );
 }
 
 export async function previewSupplierImport(file: File) {
   const form = new FormData();
   form.append("file", file);
-  return request<SupplierImportPreview>(
-    `/api/v1/suppliers/import/preview`,
-    { method: "POST", body: form },
-  );
+  return request<SupplierImportPreview>(`/api/v1/suppliers/import/preview`, {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function confirmSupplierImport(file: File) {
   const form = new FormData();
   form.append("file", file);
-  return request<SupplierImportResult>(
-    `/api/v1/suppliers/import/confirm`,
-    { method: "POST", body: form },
-  );
+  return request<SupplierImportResult>(`/api/v1/suppliers/import/confirm`, {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function createSupplierMaterial(
