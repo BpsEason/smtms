@@ -232,7 +232,19 @@ const handleSubmit = async () => {
 };
 ```
 
-## 11. 參考文件索引
+## 11. Layout 修改規範
+
+- **優先使用 ProLayout 原生功能**：不得為了客製化選單而重建整套側邊欄。
+- **UI/UX 一致性**：自訂 `menuItemRender` / `subMenuItemRender` 時，必須保留原生選單狀態與視覺；不得只為了讓測試通過而犧牲 UI 行為。
+- **狀態同步**：路由、選中狀態與 React Router 必須保持同步。使用 `useLocation` 同步 `pathname`。
+- **Header 管理**：修改 Header 時必須保留使用者資訊及登出功能，使用 ProLayout 支援的 Header 擴充 API，不得因自訂內容而使原生 Header 消失。
+- **驗證項目**：修改後必須驗證：
+  - 選單切換與選中狀態同步。
+  - 權限過濾（確認無權限項目不顯示）。
+  - Header 使用者資訊顯示。
+  - 登出功能正常運作。
+
+## 12. 參考文件索引
 
 - [技術架構詳細](architecture.md)
 - [業務規則詳細](business_rules.md)

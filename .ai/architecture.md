@@ -152,6 +152,30 @@ Browser → Nginx → FastAPI Backend → MySQL/Redis
 - MySQL 8 為外部資料庫，不由 Docker 管理。
 - 開發環境：前端 Vite dev server、後端 Uvicorn reload 模式。
 
+## 後台 Layout 架構 (ProLayout)
+
+### ProLayout 與 React Router 整合
+- 使用 Ant Design ProComponents 的 ProLayout 作為後台主要 Layout (`frontend/src/components/AdminLayout.tsx`)。
+- 保留 ProLayout 原生側邊選單，不得以普通 NavLink 清單取代。
+- 使用 route/menuData 管理導覽項目與群組。
+- 使用 React Router 的 NavLink 整合頁面導覽。
+- 使用 React Router useLocation 同步目前 pathname 與 ProLayout 的選中狀態。
+- 選單選中狀態必須隨路由切換，不得固定選中某個項目。
+- 保留選單圖示、群組、展開收合與原生視覺效果。
+
+### 導覽與權限
+- 導覽資料集中管理。
+- 保留 11 項導覽與群組分類（工作總覽、主檔資料、進料與追溯、系統設定）。
+- 保留 anyPermissions、permissions、permission 三種權限判斷規則。
+- 無權限的選單不得顯示。
+- 不得因 UI 改造而繞過既有 RBAC。
+
+### Header
+- 保留 ProLayout 原生 Header。
+- 顯示目前登入使用者名稱。
+- 保留登出按鈕及 onLogout 行為。
+- 使用 ProLayout 支援的 Header 擴充 API，不得因自訂內容而使原生 Header 消失。
+
 ## 代表性程式碼參考位置
 
 - 前端列表頁範例：[CatalogPages.tsx]
