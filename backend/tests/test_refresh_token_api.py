@@ -57,7 +57,7 @@ def auth_test_client(monkeypatch):
 
 
 def test_refresh_token_success(auth_test_client):
-    client, session_factory = auth_test_client
+    client, _ = auth_test_client
     # Login to get initial tokens
     login_resp = client.post(
         "/api/v1/auth/login", json={"username": "test.user", "password": "Password123!"}
@@ -82,7 +82,7 @@ def test_refresh_token_success(auth_test_client):
 
 
 def test_refresh_token_reuse_fails(auth_test_client):
-    client, session_factory = auth_test_client
+    client, _ = auth_test_client
     login_resp = client.post(
         "/api/v1/auth/login", json={"username": "test.user", "password": "Password123!"}
     )
@@ -254,7 +254,3 @@ def test_logout_does_not_revoke_other_user(auth_test_client):
 
     resp2 = client.post("/api/v1/auth/refresh", json={"refresh_token": rt2})
     assert resp2.status_code == 200
-    client, session_factory = auth_test_client
-    with session_factory() as session:
-        from app.core.security import get_password_hash
-
