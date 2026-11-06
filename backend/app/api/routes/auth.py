@@ -185,6 +185,11 @@ async def logout(
         db.commit()
         return LogoutResponse(message="Successfully logged out")
 
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
     try:
         refresh_claims = decode_refresh_token(payload.refresh_token)
     except Exception:
