@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Search, Plus, Users, Pencil } from "lucide-react";
+﻿import { useEffect } from "react";
+import { Search, Plus, Pencil } from "lucide-react";
 import { Modal } from "antd";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -75,7 +75,6 @@ interface UsersManagerProps {
   onCancelCreateUser: () => void;
   onCancelEditUser: () => void;
   onOpenEditUser: (user: AdminUser) => void;
-  onOpenUserRoles: (user: AdminUser) => void;
 }
 
 export function UsersManager({
@@ -99,7 +98,6 @@ export function UsersManager({
   onCancelCreateUser,
   onCancelEditUser,
   onOpenEditUser,
-  onOpenUserRoles,
 }: UsersManagerProps) {
   const isEdit = Boolean(editingUser);
   const {
@@ -150,7 +148,7 @@ export function UsersManager({
         title={isEdit ? "編輯內部使用者" : "新增內部使用者"}
         onCancel={handleCancel}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
         maskClosable={!busy}
         closable={!busy}
         width={720}
@@ -237,8 +235,8 @@ export function UsersManager({
       </Modal>
 
       <Panel
-        title="內部使用者與角色指派"
-        description={`共 ${users.length} 位內部使用者。搜尋帳號或電子郵件，再檢視目前角色並調整指派。`}
+        title="內部使用者"
+        description={`共 ${users.length} 位內部使用者。可在編輯中修改基本資料與角色。`}
         action={
           <button className={buttonClass} onClick={onToggleCreateUser} type="button">
             <Plus className="h-4 w-4" />
@@ -284,26 +282,15 @@ export function UsersManager({
                   </Td>
                   <Td>{user.roles.join("、") || "未指派角色"}</Td>
                   <Td>
-                    <div className="flex gap-2">
-                      <button
-                        className={secondaryButtonClass}
-                        aria-label={`編輯使用者 ${user.username}`}
-                        onClick={() => onOpenEditUser(user)}
-                        type="button"
-                      >
-                        <Pencil className="h-4 w-4" />
-                        編輯
-                      </button>
-                      <button
-                        className={secondaryButtonClass}
-                        aria-label={`指派角色 ${user.username}`}
-                        onClick={() => onOpenUserRoles(user)}
-                        type="button"
-                      >
-                        <Users className="h-4 w-4" />
-                        指派角色
-                      </button>
-                    </div>
+                    <button
+                      className={secondaryButtonClass}
+                      aria-label={`編輯使用者 ${user.username}`}
+                      onClick={() => onOpenEditUser(user)}
+                      type="button"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      編輯
+                    </button>
                   </Td>
                 </TableRow>
               ))}

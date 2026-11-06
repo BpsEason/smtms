@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,7 +22,7 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(
     <QueryClientProvider client={queryClient}>
       {ui}
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -97,9 +97,10 @@ function installMock(
     permissions?: Response;
     users?: Response;
     createRole?: Response;
+    updateRole?: Response;
     createUser?: Response;
+    updateUser?: Response;
     savePermissions?: Response;
-    saveUserRoles?: Response;
   } = {},
 ) {
   const currentUsers = [...users];
@@ -116,6 +117,8 @@ function installMock(
       const method = init?.method ?? "GET";
       if (url.endsWith("/api/v1/roles") && method === "POST")
         return overrides.createRole ?? jsonResponse(adminRole, 201);
+      if (url.match(/\/api\/v1\/roles\/\d+$/) && method === "PATCH")
+        return overrides.updateRole ?? jsonResponse(adminRole);
       if (url.endsWith("/api/v1/roles") && method === "GET")
         return overrides.roles ?? jsonResponse([adminRole, readerRole]);
       if (url.endsWith("/api/v1/permissions"))
@@ -125,12 +128,12 @@ function installMock(
         if (response.ok) currentUsers.push(createdUser);
         return response;
       }
+      if (url.match(/\/api\/v1\/users\/\d+$/) && method === "PATCH")
+        return overrides.updateUser ?? jsonResponse(users[0]);
       if (url.endsWith("/api/v1/users") && method === "GET")
         return overrides.users ?? jsonResponse(currentUsers);
       if (url.endsWith("/permissions") && method === "PUT")
         return overrides.savePermissions ?? jsonResponse(adminRole);
-      if (url.includes("/api/v1/users/") && method === "PUT")
-        return overrides.saveUserRoles ?? jsonResponse(users[0]);
       return jsonResponse({ detail: "unexpected" }, 500);
     },
   );
@@ -182,50 +185,83 @@ describe("roles and permissions admin page", () => {
     expect(String(call?.init?.body)).toContain("qc-lead");
   });
 
-  it("saves role permissions with the selected permission ids", async () => {
+  it("saves role basic data and permissions from one modal", async () => {
     installMock();
     await renderPage();
-    await userEvent.click(
-      screen.getByRole("button", { name: "設定權限 access-admin" }),
-    );
-    expect(screen.getByText("品質異常")).toBeInTheDocument();
-    expect(screen.getByLabelText("查看品質異常")).toBeInTheDocument();
-    expect(screen.getByLabelText("新增／修改品質異常")).toBeInTheDocument();
-    expect(screen.getByText("審核進料檢驗")).toBeInTheDocument();
-    expect(screen.getByText("核准進料檢驗")).toBeInTheDocument();
-    expect(screen.getByText("退回進料檢驗")).toBeInTheDocument();
-    expect(screen.getByText("建立供應商批號")).toBeInTheDocument();
-    expect(screen.getByText("建立收料紀錄")).toBeInTheDocument();
-    expect(screen.getByText("Legacy custom permission")).toBeInTheDocument();
-    expect(screen.queryByText(/Seed permission:/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("讀取 IQC"));
-    await userEvent.click(screen.getByLabelText("查看品質異常"));
-    await userEvent.click(screen.getByRole("button", { name: "儲存權限" }));
+    await userEvent.click(screen.getByRole("button", { name: "編輯 access-admin" }));
 
-    expect(
-      await screen.findByText("角色「access-admin」的權限已更新。"),
-    ).toBeInTheDocument();
-    const call = findCall("/api/v1/roles/1/permissions", "PUT");
-    expect(call).toBeTruthy();
-    expect(JSON.parse(String(call?.init?.body))).toEqual({
-      permission_ids: [10, 11, 12],
-    });
+    const dialog = await screen.findByRole("dialog", { name: /編輯角色：access-admin/ });
+    expect(within(dialog).getByText("品質異常")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("查看品質異常")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("新增／修改品質異常")).toBeInTheDocument();
+    expect(within(dialog).getByText("審核進料檢驗")).toBeInTheDocument();
+    expect(within(dialog).getByText("Legacy custom permission")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Seed permission:/)).not.toBeInTheDocument();
+
+    const nameInput = within(dialog).getByLabelText("角色名稱");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "access-admin-plus");
+    await userEvent.click(within(dialog).getByLabelText("查看進料檢驗（IQC）"));
+    await userEvent.click(within(dialog).getByLabelText("查看品質異常"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "儲存" }));
+
+    expect(await screen.findByText(/角色「access-admin-plus」已更新。/)).toBeInTheDocument();
+    const updateCall = findCall("/api/v1/roles/1", "PATCH");
+    expect(updateCall).toBeTruthy();
+    expect(JSON.parse(String(updateCall?.init?.body))).toMatchObject({ name: "access-admin-plus" });
+    const permCall = findCall("/api/v1/roles/1/permissions", "PUT");
+    expect(permCall).toBeTruthy();
+    expect(JSON.parse(String(permCall?.init?.body))).toEqual({ permission_ids: [10, 11, 12] });
   });
 
-  it("assigns roles to an internal user", async () => {
+  it("reports partial failure when role is updated but permissions fail", async () => {
+    installMock({
+      savePermissions: jsonResponse({ detail: "Permission update failed" }, 500),
+    });
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "編輯 access-admin" }));
+    const dialog = await screen.findByRole("dialog", { name: /編輯角色：access-admin/ });
+    const nameInput = within(dialog).getByLabelText("角色名稱");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "access-admin-plus");
+    await userEvent.click(within(dialog).getByLabelText("查看品質異常"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "儲存" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("角色基本資料已更新，但權限儲存失敗");
+    expect(findCall("/api/v1/roles/1", "PATCH")).toBeTruthy();
+    expect(findCall("/api/v1/roles/1/permissions", "PUT")).toBeTruthy();
+  });
+
+  it("shows only an edit action for each internal user", async () => {
     installMock();
     await renderPage();
-    await userEvent.click(
-      screen.getByRole("button", { name: "指派角色 staff" }),
-    );
-    await userEvent.click(screen.getByLabelText("角色 access-admin"));
-    await userEvent.click(screen.getByRole("button", { name: "儲存角色指派" }));
+    expect(screen.queryByRole("button", { name: "指派角色 staff" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編輯使用者 staff" })).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText("使用者角色已更新。")).toBeInTheDocument();
-    const call = findCall("/api/v1/users/3/roles", "PUT");
+  it("edits internal user basic data and roles from one modal", async () => {
+    installMock();
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "編輯使用者 staff" }));
+    const dialog = await screen.findByRole("dialog", { name: "編輯內部使用者" });
+
+    const username = within(dialog).getByLabelText("登入帳號");
+    await userEvent.clear(username);
+    await userEvent.type(username, "staff-updated");
+    const email = within(dialog).getByLabelText("電子郵件（選填）");
+    await userEvent.clear(email);
+    await userEvent.type(email, "staff-updated@example.test");
+    await userEvent.click(within(dialog).getByLabelText("編輯使用者角色 access-admin"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "儲存變更" }));
+
+    expect(await screen.findByText(/內部使用者「staff」已更新。/)).toBeInTheDocument();
+    const call = findCall("/api/v1/users/3", "PATCH");
     expect(call).toBeTruthy();
-    const body = JSON.parse(String(call?.init?.body)) as { role_ids: number[] };
+    const body = JSON.parse(String(call?.init?.body)) as { username: string; email: string; role_ids: number[] };
+    expect(body.username).toBe("staff-updated");
+    expect(body.email).toBe("staff-updated@example.test");
     expect([...body.role_ids].sort((a, b) => a - b)).toEqual([1, 2]);
+    expect(body).not.toHaveProperty("password");
   });
 
   it("creates an internal user with roles and refreshes the list", async () => {
@@ -261,8 +297,8 @@ describe("roles and permissions admin page", () => {
       role_ids: [2],
     });
     expect(
-      screen.queryByRole("button", { name: "建立內部使用者" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "新增內部使用者" }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces API errors without reporting success", async () => {
@@ -280,6 +316,19 @@ describe("roles and permissions admin page", () => {
     expect(screen.queryByText("角色已建立。")).not.toBeInTheDocument();
   });
 
+  it("surfaces internal-user update errors", async () => {
+    installMock({ updateUser: jsonResponse({ detail: "Cannot update user" }, 409) });
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "編輯使用者 staff" }));
+    const dialog = await screen.findByRole("dialog", { name: "編輯內部使用者" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "儲存變更" }));
+    const alerts = await screen.findAllByRole("alert");
+    expect(
+      alerts.some((alert) => alert.textContent?.includes("操作失敗：Cannot update user")),
+    ).toBe(true);
+    expect(screen.queryByText(/內部使用者「staff」已更新。/)).not.toBeInTheDocument();
+  });
+
   it("surfaces internal-user creation errors", async () => {
     installMock({ createUser: jsonResponse({ detail: "Username already exists" }, 409) });
     await renderPage();
@@ -294,9 +343,12 @@ describe("roles and permissions admin page", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "建立內部使用者" }),
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "操作失敗：Username already exists",
-    );
+    const alerts = await screen.findAllByRole("alert");
+    expect(
+      alerts.some((alert) =>
+        alert.textContent?.includes("操作失敗：Username already exists"),
+      ),
+    ).toBe(true);
   });
 
   it("reports a load failure when the roles request is denied", async () => {

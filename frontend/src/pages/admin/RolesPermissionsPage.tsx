@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "../../api";
@@ -10,15 +10,13 @@ import {
   ErrorState,
 } from "../../components/ui";
 import { RoleForm } from "./components/RoleForm";
-import { PermissionSettings } from "./components/PermissionSettings";
+import { RoleEditModal, type RoleEditSavePayload } from "./components/RoleEditModal";
 import { RolesList } from "./components/RolesList";
-import { UserRoleAssignment } from "./components/UserRoleAssignment";
 import { UsersManager } from "./components/UsersManager";
 import {
   optional,
   message,
   type Role,
-  type PermissionItem,
   type AdminUser,
   type UserProfile,
 } from "./types";
@@ -37,10 +35,6 @@ export function RolesPermissionsPage({
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editUserRoleIds, setEditUserRoleIds] = useState<number[]>([]);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [permissionRole, setPermissionRole] = useState<Role | null>(null);
-  const [selectedPermissionIds, setSelectedPermissionIds] = useState<number[]>([]);
-  const [roleUserId, setRoleUserId] = useState<number | null>(null);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
   const [userQuery, setUserQuery] = useState("");
 
   const canManage = Boolean(profile?.permissions.includes("users:manage"));
@@ -107,12 +101,11 @@ export function RolesPermissionsPage({
   const updateRoleMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) =>
       api.updateRole(id, payload),
-    onSuccess: () => {
-      setSuccess("角色資料已更新。");
-      setEditingRole(null);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err) => setError(message(err)),
+  });
+
+  const setPermissionsMutation = useMutation({
+    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) =>
+      api.setRolePermissions(roleId, permissionIds),
   });
 
   const deleteRoleMutation = useMutation({
@@ -123,29 +116,6 @@ export function RolesPermissionsPage({
       queryClient.invalidateQueries({ queryKey: ["roles"] });
     },
     onError: (err: unknown) => setError(message(err)),
-  });
-
-  const savePermissionsMutation = useMutation({
-    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) =>
-      api.setRolePermissions(roleId, permissionIds),
-    onSuccess: (_, variables) => {
-      const role = roles.find((r) => r.id === variables.roleId);
-      setSuccess(`角色「${role?.name || permissionRole?.name}」的權限已更新。`);
-      setPermissionRole(null);
-      queryClient.invalidateQueries({ queryKey: ["roles"] });
-    },
-    onError: (err) => setError(message(err)),
-  });
-
-  const saveUserRolesMutation = useMutation({
-    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) =>
-      api.setUserRoles(userId, roleIds),
-    onSuccess: () => {
-      setSuccess("使用者角色已更新。");
-      setRoleUserId(null);
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (err) => setError(message(err)),
   });
 
   if (rolesError && rolesErr) {
@@ -217,20 +187,40 @@ export function RolesPermissionsPage({
     }
   };
 
-  const updateRole = async (data: { name: string; description?: string | null }) => {
+  const saveRole = async (payload: RoleEditSavePayload) => {
     if (!editingRole) return;
     resetNotices();
+    let roleUpdated = false;
+    let permissionsUpdated = false;
     try {
-      await updateRoleMutation.mutateAsync({
-        id: editingRole.id,
-        payload: {
-          name: data.name.trim(),
-          description:
-            data.description === null || data.description === undefined ? null : optional(data.description),
-        },
-      });
-    } catch {
-      // handled by mutation
+      if (payload.nameChanged) {
+        await updateRoleMutation.mutateAsync({
+          id: editingRole.id,
+          payload: { name: payload.name, description: payload.description },
+        });
+        roleUpdated = true;
+      }
+      if (payload.permissionsChanged) {
+        await setPermissionsMutation.mutateAsync({
+          roleId: editingRole.id,
+          permissionIds: payload.permissionIds,
+        });
+        permissionsUpdated = true;
+      }
+      if (!roleUpdated && !permissionsUpdated) {
+        setEditingRole(null);
+        return;
+      }
+      setSuccess(`角色「${payload.name}」已更新。`);
+      setEditingRole(null);
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      if (roleUpdated && payload.permissionsChanged && !permissionsUpdated) {
+        setError(`角色基本資料已更新，但權限儲存失敗：${message(err)}`);
+      } else {
+        setError(message(err));
+      }
     }
   };
 
@@ -243,34 +233,6 @@ export function RolesPermissionsPage({
     }
   };
 
-  const openPermissions = (role: Role) => {
-    resetNotices();
-    setEditingRole(null);
-    setPermissionRole(role);
-    setSelectedPermissionIds(
-      permissions.filter((permission) => role.permissions.includes(permission.code)).map((permission) => permission.id),
-    );
-  };
-
-  const savePermissions = async () => {
-    if (!permissionRole) return;
-    resetNotices();
-    try {
-      await savePermissionsMutation.mutateAsync({
-        roleId: permissionRole.id,
-        permissionIds: selectedPermissionIds,
-      });
-    } catch {
-      // handled by mutation
-    }
-  };
-
-  const openUserRoles = (user: AdminUser) => {
-    resetNotices();
-    setRoleUserId(user.id);
-    setSelectedRoleIds(roles.filter((role) => user.roles.includes(role.name)).map((role) => role.id));
-  };
-
   const openEditUser = (user: AdminUser) => {
     resetNotices();
     setShowCreateUser(false);
@@ -279,58 +241,11 @@ export function RolesPermissionsPage({
     setEditUserRoleIds(roles.filter((role) => user.roles.includes(role.name)).map((role) => role.id));
   };
 
-  const saveUserRoles = async () => {
-    if (roleUserId === null) return;
-    resetNotices();
-    try {
-      await saveUserRolesMutation.mutateAsync({ userId: roleUserId, roleIds: selectedRoleIds });
-    } catch {
-      // handled by mutation
-    }
-  };
-
-  const selectedUser = users.find((user) => user.id === roleUserId) ?? null;
   const visibleUsers = users.filter((user) =>
     `${user.username} ${user.email ?? ""} ${user.roles.join(" ")}`
       .toLocaleLowerCase()
       .includes(userQuery.trim().toLocaleLowerCase()),
   );
-  const permissionIdsForRole = permissionRole
-    ? permissions.filter((permission) => permissionRole.permissions.includes(permission.code)).map((permission) => permission.id)
-    : [];
-  const permissionsChanged =
-    selectedPermissionIds.length !== permissionIdsForRole.length ||
-    selectedPermissionIds.some((id) => !permissionIdsForRole.includes(id));
-  const userRoleIdsForSelection = selectedUser
-    ? roles.filter((role) => selectedUser.roles.includes(role.name)).map((role) => role.id)
-    : [];
-  const userRolesChanged =
-    selectedRoleIds.length !== userRoleIdsForSelection.length ||
-    selectedRoleIds.some((id) => !userRoleIdsForSelection.includes(id));
-  const permissionGroups = permissions.reduce<Record<string, PermissionItem[]>>((groups, permission) => {
-    const prefix = permission.code.split(":", 1)[0];
-    const titles: Record<string, string> = {
-      suppliers: "供應商資料",
-      materials: "物料與批號",
-      receipts: "收料作業",
-      iqc: "進料檢驗（IQC）",
-      "supplier-lots": "供應商批號",
-      quality: "品保簽核",
-      nonconformance: "品質異常",
-      users: "使用者與系統設定",
-    };
-    const title = titles[prefix] ?? "其他已設定權限";
-    (groups[title] ??= []).push(permission);
-    return groups;
-  }, {});
-
-  const handlePermissionChange = (permissionId: number, checked: boolean) => {
-    setSelectedPermissionIds((current) => (checked ? [...current, permissionId] : current.filter((id) => id !== permissionId)));
-  };
-
-  const handleRoleChange = (roleId: number, checked: boolean) => {
-    setSelectedRoleIds((current) => (checked ? [...current, roleId] : current.filter((id) => id !== roleId)));
-  };
 
   const handleNewUserRoleChange = (roleId: number, checked: boolean) => {
     setNewUserRoleIds((current) => (checked ? [...current, roleId] : current.filter((id) => id !== roleId)));
@@ -342,11 +257,9 @@ export function RolesPermissionsPage({
 
   const handleEditRole = (role: Role) => {
     resetNotices();
-    setPermissionRole(null);
     setEditingRole(role);
   };
 
-  const handleCancelEdit = () => setEditingRole(null);
   const handleToggleCreate = () => {
     resetNotices();
     setShowCreate((value) => !value);
@@ -357,11 +270,6 @@ export function RolesPermissionsPage({
     setEditUserRoleIds([]);
     setShowCreateUser((value) => !value);
   };
-  const handleCancelPermissions = () => {
-    setPermissionRole(null);
-    setSelectedPermissionIds([]);
-  };
-  const handleCancelUserRoles = () => setRoleUserId(null);
   const handleCancelCreateUser = () => {
     setShowCreateUser(false);
     setNewUserRoleIds([]);
@@ -374,11 +282,10 @@ export function RolesPermissionsPage({
   const isBusy =
     createRoleMutation.isPending ||
     updateRoleMutation.isPending ||
+    setPermissionsMutation.isPending ||
     deleteRoleMutation.isPending ||
-    savePermissionsMutation.isPending ||
     createUserMutation.isPending ||
-    updateUserMutation.isPending ||
-    saveUserRolesMutation.isPending;
+    updateUserMutation.isPending;
 
   return (
     <section>
@@ -412,46 +319,25 @@ export function RolesPermissionsPage({
       )}
 
       <RoleForm
-        editingRole={editingRole}
         showCreate={showCreate}
         busy={isBusy}
-        error={error}
         onCreate={createRole}
-        onUpdate={updateRole}
-        onCancelEdit={handleCancelEdit}
-        onCloseCreate={handleToggleCreate}
       />
 
-      <PermissionSettings
-        permissionRole={permissionRole}
+      <RoleEditModal
+        role={editingRole}
         permissions={permissions}
-        selectedPermissionIds={selectedPermissionIds}
         busy={isBusy}
-        permissionsChanged={permissionsChanged}
-        permissionGroups={permissionGroups}
-        onPermissionChange={handlePermissionChange}
-        onSave={savePermissions}
-        onCancel={handleCancelPermissions}
+        onSave={saveRole}
+        onCancel={() => setEditingRole(null)}
       />
 
       <RolesList
         roles={roles}
         permissions={permissions}
         loading={loading}
-        onOpenPermissions={openPermissions}
         onEditRole={handleEditRole}
         onDeleteRole={deleteRole}
-      />
-
-      <UserRoleAssignment
-        selectedUser={selectedUser}
-        roles={roles}
-        selectedRoleIds={selectedRoleIds}
-        busy={isBusy}
-        userRolesChanged={userRolesChanged}
-        onRoleChange={handleRoleChange}
-        onSave={saveUserRoles}
-        onCancel={handleCancelUserRoles}
       />
 
       <UsersManager
@@ -475,7 +361,6 @@ export function RolesPermissionsPage({
         onCancelCreateUser={handleCancelCreateUser}
         onCancelEditUser={handleCancelEditUser}
         onOpenEditUser={openEditUser}
-        onOpenUserRoles={openUserRoles}
       />
     </section>
   );

@@ -1,4 +1,4 @@
-import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   secondaryButtonClass,
   Panel,
@@ -19,7 +19,6 @@ interface RolesListProps {
   roles: Role[];
   permissions: PermissionItem[];
   loading: boolean;
-  onOpenPermissions: (role: Role) => void;
   onEditRole: (role: Role) => void;
   onDeleteRole: (role: Role) => void;
 }
@@ -28,7 +27,6 @@ export function RolesList({
   roles,
   permissions,
   loading,
-  onOpenPermissions,
   onEditRole,
   onDeleteRole,
 }: RolesListProps) {
@@ -89,14 +87,6 @@ export function RolesList({
                 <Td>{role.user_count}</Td>
                 <Td>
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      className={secondaryButtonClass}
-                      aria-label={`設定權限 ${role.name}`}
-                      onClick={() => onOpenPermissions(role)}
-                    >
-                      <ShieldCheck className="h-4 w-4" />
-                      設定權限
-                    </button>
                     <button
                       className={secondaryButtonClass}
                       aria-label={`編輯 ${role.name}`}
