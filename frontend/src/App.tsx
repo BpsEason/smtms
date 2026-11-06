@@ -7,7 +7,7 @@ import {
 } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, clearToken, readToken, saveToken } from "./api";
-import { AppLayout } from "./components/AppLayout";
+import { AdminLayout } from "./components/AdminLayout";
 import {
   buttonClass,
   EmptyState,
@@ -145,7 +145,7 @@ function AppShell() {
                 onLogout={handleLogout}
               />
             ) : (
-              <AppLayout profile={profile} onLogout={handleLogout} />
+              <AdminLayout profile={profile} onLogout={handleLogout} />
             )
           ) : (
             <Navigate to="/login" replace />
