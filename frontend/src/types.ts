@@ -71,6 +71,13 @@ export type InternalUserCreatePayload = {
   role_ids: number[];
 };
 
+export type InternalUserUpdatePayload = {
+  username?: string;
+  password?: string;
+  email?: string | null;
+  role_ids?: number[];
+};
+
 export type Supplier = {
   id: number;
   supplier_code: string;

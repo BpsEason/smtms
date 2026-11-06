@@ -1,5 +1,9 @@
 import { request } from "./client";
-import type { AdminUser, InternalUserCreatePayload } from "../types";
+import type {
+  AdminUser,
+  InternalUserCreatePayload,
+  InternalUserUpdatePayload,
+} from "../types";
 
 export async function listUsers() {
   return request<AdminUser[]>(`/api/v1/users`);
@@ -8,6 +12,13 @@ export async function listUsers() {
 export async function createUser(payload: InternalUserCreatePayload) {
   return request<AdminUser>(`/api/v1/users`, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateUser(userId: number, payload: InternalUserUpdatePayload) {
+  return request<AdminUser>(`/api/v1/users/${userId}`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }

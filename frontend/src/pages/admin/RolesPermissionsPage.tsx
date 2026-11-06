@@ -34,132 +34,120 @@ export function RolesPermissionsPage({
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [newUserRoleIds, setNewUserRoleIds] = useState<number[]>([]);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [editUserRoleIds, setEditUserRoleIds] = useState<number[]>([]);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [permissionRole, setPermissionRole] = useState<Role | null>(null);
-  const [selectedPermissionIds, setSelectedPermissionIds] = useState<number[]>(
-    [],
-  );
+  const [selectedPermissionIds, setSelectedPermissionIds] = useState<number[]>([]);
   const [roleUserId, setRoleUserId] = useState<number | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
   const [userQuery, setUserQuery] = useState("");
 
   const canManage = Boolean(profile?.permissions.includes("users:manage"));
 
-  // 使用TanStack Query管理伺服器狀態
   const { data: roles = [], isLoading: rolesLoading, isError: rolesError, error: rolesErr } = useQuery({
     queryKey: ["roles"],
     queryFn: api.listRoles,
-    staleTime: 5 * 60 * 1000, // 5分鐘內不重新獲取
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: permissions = [], isLoading: permissionsLoading, isError: permissionsError, error: permissionsErr } = useQuery({
     queryKey: ["permissions"],
     queryFn: api.listPermissions,
-    staleTime: 10 * 60 * 1000, // 權限很少變動，10分鐘快取
+    staleTime: 10 * 60 * 1000,
   });
 
   const { data: users = [], isLoading: usersLoading, isError: usersError, error: usersErr } = useQuery({
     queryKey: ["users"],
     queryFn: api.listUsers,
-    staleTime: 2 * 60 * 1000, // 使用者資料2分鐘快取
+    staleTime: 2 * 60 * 1000,
   });
 
   const loading = rolesLoading || permissionsLoading || usersLoading;
 
-  // 所有useMutation必須在任何提前return之前宣告，符合React Hooks規則
-  // 角色建立Mutation
   const createRoleMutation = useMutation({
-    mutationFn: async (payload: { name: string; description?: string }) => {
-      return api.createRole(payload);
-    },
+    mutationFn: async (payload: { name: string; description?: string }) => api.createRole(payload),
     onSuccess: () => {
       setSuccess("角色已建立。");
       setShowCreate(false);
       queryClient.invalidateQueries({ queryKey: ["roles"] });
     },
-    onError: (err) => {
-      setError(message(err));
-    },
+    onError: (err) => setError(message(err)),
   });
 
-  // 使用者建立Mutation
   const createUserMutation = useMutation({
-    mutationFn: async (payload: { username: string; email?: string; password: string; role_ids: number[] }) => {
-      return api.createUser(payload);
-    },
+    mutationFn: async (payload: { username: string; email?: string; password: string; role_ids: number[] }) =>
+      api.createUser(payload),
     onSuccess: () => {
       setSuccess("內部使用者已建立並完成角色指派。");
       setShowCreateUser(false);
       setNewUserRoleIds([]);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: (err) => {
-      setError(message(err));
-    },
+    onError: (err) => setError(message(err)),
   });
 
-  // 角色更新Mutation
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) => {
-      return api.updateRole(id, payload);
+  const updateUserMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      payload,
+    }: {
+      userId: number;
+      payload: { username?: string; email?: string | null; password?: string; role_ids?: number[] };
+    }) => api.updateUser(userId, payload),
+    onSuccess: (user) => {
+      setSuccess(`內部使用者「${user.username}」已更新。`);
+      setEditingUser(null);
+      setEditUserRoleIds([]);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
+    onError: (err) => setError(message(err)),
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: { name: string; description?: string | null } }) =>
+      api.updateRole(id, payload),
     onSuccess: () => {
       setSuccess("角色資料已更新。");
       setEditingRole(null);
       queryClient.invalidateQueries({ queryKey: ["roles"] });
     },
-    onError: (err) => {
-      setError(message(err));
-    },
+    onError: (err) => setError(message(err)),
   });
 
-  // 角色刪除Mutation
   const deleteRoleMutation = useMutation({
-    mutationFn: async (roleId: number) => {
-      return api.deleteRole(roleId);
-    },
+    mutationFn: async (roleId: number) => api.deleteRole(roleId),
     onSuccess: (_: unknown, roleId: number) => {
-      const role = roles.find(r => r.id === roleId);
-      setSuccess(`角色「${role?.name || '未知角色'}」已刪除。`);
+      const role = roles.find((r) => r.id === roleId);
+      setSuccess(`角色「${role?.name || "未知角色"}」已刪除。`);
       queryClient.invalidateQueries({ queryKey: ["roles"] });
     },
-    onError: (err: unknown) => {
-      setError(message(err));
-    },
+    onError: (err: unknown) => setError(message(err)),
   });
 
-  // 權限設定Mutation
   const savePermissionsMutation = useMutation({
-    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) => {
-      return api.setRolePermissions(roleId, permissionIds);
-    },
+    mutationFn: async ({ roleId, permissionIds }: { roleId: number; permissionIds: number[] }) =>
+      api.setRolePermissions(roleId, permissionIds),
     onSuccess: (_, variables) => {
-      const role = roles.find(r => r.id === variables.roleId);
+      const role = roles.find((r) => r.id === variables.roleId);
       setSuccess(`角色「${role?.name || permissionRole?.name}」的權限已更新。`);
       setPermissionRole(null);
       queryClient.invalidateQueries({ queryKey: ["roles"] });
     },
-    onError: (err) => {
-      setError(message(err));
-    },
+    onError: (err) => setError(message(err)),
   });
 
-  // 使用者角色更新Mutation
   const saveUserRolesMutation = useMutation({
-    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) => {
-      return api.setUserRoles(userId, roleIds);
-    },
+    mutationFn: async ({ userId, roleIds }: { userId: number; roleIds: number[] }) =>
+      api.setUserRoles(userId, roleIds),
     onSuccess: () => {
       setSuccess("使用者角色已更新。");
       setRoleUserId(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
-    onError: (err) => {
-      setError(message(err));
-    },
+    onError: (err) => setError(message(err)),
   });
 
-  // 處理查詢錯誤
   if (rolesError && rolesErr) {
     if (!error) setError(message(rolesErr));
   } else if (permissionsError && permissionsErr) {
@@ -176,11 +164,7 @@ export function RolesPermissionsPage({
   if (!canManage) {
     return (
       <section>
-        <PageHeader
-          eyebrow="系統管理"
-          title="角色與權限"
-          description="管理系統角色、可指派權限與內部使用者角色。"
-        />
+        <PageHeader eyebrow="系統管理" title="角色與權限" description="管理系統角色、可指派權限與內部使用者角色。" />
         <EmptyState
           title="無法存取此功能"
           description="所需權限：users:manage。請洽系統管理員確認角色設定。"
@@ -192,12 +176,9 @@ export function RolesPermissionsPage({
   const createRole = async (data: { name: string; description?: string }) => {
     resetNotices();
     try {
-      await createRoleMutation.mutateAsync({
-        name: data.name.trim(),
-        description: optional(data.description),
-      });
+      await createRoleMutation.mutateAsync({ name: data.name.trim(), description: optional(data.description) });
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
     }
   };
 
@@ -211,7 +192,28 @@ export function RolesPermissionsPage({
         role_ids: newUserRoleIds,
       });
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
+    }
+  };
+
+  const updateUser = async (
+    userId: number,
+    data: { username: string; email?: string; password: string },
+  ) => {
+    resetNotices();
+    const email = optional(data.email);
+    try {
+      await updateUserMutation.mutateAsync({
+        userId,
+        payload: {
+          username: data.username.trim(),
+          email: email ?? null,
+          ...(data.password ? { password: data.password } : {}),
+          role_ids: editUserRoleIds,
+        },
+      });
+    } catch {
+      // handled by mutation
     }
   };
 
@@ -223,11 +225,12 @@ export function RolesPermissionsPage({
         id: editingRole.id,
         payload: {
           name: data.name.trim(),
-          description: data.description === null || data.description === undefined ? null : optional(data.description),
+          description:
+            data.description === null || data.description === undefined ? null : optional(data.description),
         },
       });
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
     }
   };
 
@@ -236,7 +239,7 @@ export function RolesPermissionsPage({
     try {
       await deleteRoleMutation.mutateAsync(role.id);
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
     }
   };
 
@@ -245,9 +248,7 @@ export function RolesPermissionsPage({
     setEditingRole(null);
     setPermissionRole(role);
     setSelectedPermissionIds(
-      permissions
-        .filter((permission) => role.permissions.includes(permission.code))
-        .map((permission) => permission.id),
+      permissions.filter((permission) => role.permissions.includes(permission.code)).map((permission) => permission.id),
     );
   };
 
@@ -260,30 +261,31 @@ export function RolesPermissionsPage({
         permissionIds: selectedPermissionIds,
       });
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
     }
   };
 
   const openUserRoles = (user: AdminUser) => {
     resetNotices();
     setRoleUserId(user.id);
-    setSelectedRoleIds(
-      roles
-        .filter((role) => user.roles.includes(role.name))
-        .map((role) => role.id),
-    );
+    setSelectedRoleIds(roles.filter((role) => user.roles.includes(role.name)).map((role) => role.id));
+  };
+
+  const openEditUser = (user: AdminUser) => {
+    resetNotices();
+    setShowCreateUser(false);
+    setNewUserRoleIds([]);
+    setEditingUser(user);
+    setEditUserRoleIds(roles.filter((role) => user.roles.includes(role.name)).map((role) => role.id));
   };
 
   const saveUserRoles = async () => {
     if (roleUserId === null) return;
     resetNotices();
     try {
-      await saveUserRolesMutation.mutateAsync({
-        userId: roleUserId,
-        roleIds: selectedRoleIds,
-      });
+      await saveUserRolesMutation.mutateAsync({ userId: roleUserId, roleIds: selectedRoleIds });
     } catch {
-      // 錯誤已由mutation的onError處理，這裡僅捕獲避免unhandled rejection
+      // handled by mutation
     }
   };
 
@@ -294,9 +296,7 @@ export function RolesPermissionsPage({
       .includes(userQuery.trim().toLocaleLowerCase()),
   );
   const permissionIdsForRole = permissionRole
-    ? permissions
-        .filter((permission) => permissionRole.permissions.includes(permission.code))
-        .map((permission) => permission.id)
+    ? permissions.filter((permission) => permissionRole.permissions.includes(permission.code)).map((permission) => permission.id)
     : [];
   const permissionsChanged =
     selectedPermissionIds.length !== permissionIdsForRole.length ||
@@ -307,48 +307,37 @@ export function RolesPermissionsPage({
   const userRolesChanged =
     selectedRoleIds.length !== userRoleIdsForSelection.length ||
     selectedRoleIds.some((id) => !userRoleIdsForSelection.includes(id));
-  const permissionGroups = permissions.reduce<Record<string, PermissionItem[]>>(
-    (groups, permission) => {
-      const prefix = permission.code.split(":", 1)[0];
-      const titles: Record<string, string> = {
-        suppliers: "供應商資料",
-        materials: "物料與批號",
-        receipts: "收料作業",
-        iqc: "進料檢驗（IQC）",
-        "supplier-lots": "供應商批號",
-        quality: "品保簽核",
-        nonconformance: "品質異常",
-        users: "使用者與系統設定",
-      };
-      const title = titles[prefix] ?? "其他已設定權限";
-      (groups[title] ??= []).push(permission);
-      return groups;
-    },
-    {},
-  );
+  const permissionGroups = permissions.reduce<Record<string, PermissionItem[]>>((groups, permission) => {
+    const prefix = permission.code.split(":", 1)[0];
+    const titles: Record<string, string> = {
+      suppliers: "供應商資料",
+      materials: "物料與批號",
+      receipts: "收料作業",
+      iqc: "進料檢驗（IQC）",
+      "supplier-lots": "供應商批號",
+      quality: "品保簽核",
+      nonconformance: "品質異常",
+      users: "使用者與系統設定",
+    };
+    const title = titles[prefix] ?? "其他已設定權限";
+    (groups[title] ??= []).push(permission);
+    return groups;
+  }, {});
 
   const handlePermissionChange = (permissionId: number, checked: boolean) => {
-    setSelectedPermissionIds((current) =>
-      checked
-        ? [...current, permissionId]
-        : current.filter((id) => id !== permissionId)
-    );
+    setSelectedPermissionIds((current) => (checked ? [...current, permissionId] : current.filter((id) => id !== permissionId)));
   };
 
   const handleRoleChange = (roleId: number, checked: boolean) => {
-    setSelectedRoleIds((current) =>
-      checked
-        ? [...current, roleId]
-        : current.filter((id) => id !== roleId)
-    );
+    setSelectedRoleIds((current) => (checked ? [...current, roleId] : current.filter((id) => id !== roleId)));
   };
 
   const handleNewUserRoleChange = (roleId: number, checked: boolean) => {
-    setNewUserRoleIds((current) =>
-      checked
-        ? [...current, roleId]
-        : current.filter((id) => id !== roleId)
-    );
+    setNewUserRoleIds((current) => (checked ? [...current, roleId] : current.filter((id) => id !== roleId)));
+  };
+
+  const handleEditUserRoleChange = (roleId: number, checked: boolean) => {
+    setEditUserRoleIds((current) => (checked ? [...current, roleId] : current.filter((id) => id !== roleId)));
   };
 
   const handleEditRole = (role: Role) => {
@@ -357,41 +346,38 @@ export function RolesPermissionsPage({
     setEditingRole(role);
   };
 
-  const handleCancelEdit = () => {
-    setEditingRole(null);
-  };
-
+  const handleCancelEdit = () => setEditingRole(null);
   const handleToggleCreate = () => {
     resetNotices();
     setShowCreate((value) => !value);
   };
-
   const handleToggleCreateUser = () => {
     resetNotices();
+    setEditingUser(null);
+    setEditUserRoleIds([]);
     setShowCreateUser((value) => !value);
   };
-
   const handleCancelPermissions = () => {
     setPermissionRole(null);
     setSelectedPermissionIds([]);
   };
-
-  const handleCancelUserRoles = () => {
-    setRoleUserId(null);
-  };
-
+  const handleCancelUserRoles = () => setRoleUserId(null);
   const handleCancelCreateUser = () => {
     setShowCreateUser(false);
     setNewUserRoleIds([]);
   };
+  const handleCancelEditUser = () => {
+    setEditingUser(null);
+    setEditUserRoleIds([]);
+  };
 
-  // 合併所有mutation的pending狀態，作為子元件的busy屬性
-  const isBusy = 
-    createRoleMutation.isPending || 
-    updateRoleMutation.isPending || 
-    deleteRoleMutation.isPending || 
-    savePermissionsMutation.isPending || 
-    createUserMutation.isPending || 
+  const isBusy =
+    createRoleMutation.isPending ||
+    updateRoleMutation.isPending ||
+    deleteRoleMutation.isPending ||
+    savePermissionsMutation.isPending ||
+    createUserMutation.isPending ||
+    updateUserMutation.isPending ||
     saveUserRolesMutation.isPending;
 
   return (
@@ -401,10 +387,7 @@ export function RolesPermissionsPage({
         title="角色與權限"
         description="管理系統角色、可指派權限與內部使用者角色。所有變更皆由後端權限驗證。"
         action={
-          <button
-            className={buttonClass}
-            onClick={handleToggleCreate}
-          >
+          <button className={buttonClass} onClick={handleToggleCreate}>
             <Plus className="h-4 w-4" />
             {showCreate ? "關閉" : "新增角色"}
           </button>
@@ -417,11 +400,14 @@ export function RolesPermissionsPage({
       )}
       {error && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => {
-            queryClient.invalidateQueries({ queryKey: ["roles"] });
-            queryClient.invalidateQueries({ queryKey: ["permissions"] });
-            queryClient.invalidateQueries({ queryKey: ["users"] });
-          }} />
+          <ErrorState
+            message={error}
+            onRetry={() => {
+              queryClient.invalidateQueries({ queryKey: ["roles"] });
+              queryClient.invalidateQueries({ queryKey: ["permissions"] });
+              queryClient.invalidateQueries({ queryKey: ["users"] });
+            }}
+          />
         </div>
       )}
 
@@ -429,9 +415,11 @@ export function RolesPermissionsPage({
         editingRole={editingRole}
         showCreate={showCreate}
         busy={isBusy}
+        error={error}
         onCreate={createRole}
         onUpdate={updateRole}
         onCancelEdit={handleCancelEdit}
+        onCloseCreate={handleToggleCreate}
       />
 
       <PermissionSettings
@@ -474,12 +462,19 @@ export function RolesPermissionsPage({
         userQuery={userQuery}
         visibleUsers={visibleUsers}
         newUserRoleIds={newUserRoleIds}
+        editingUser={editingUser}
+        editUserRoleIds={editUserRoleIds}
         busy={isBusy}
+        error={error}
         onCreateUser={createUser}
+        onUpdateUser={updateUser}
         onToggleCreateUser={handleToggleCreateUser}
         onUserQueryChange={setUserQuery}
         onNewUserRoleChange={handleNewUserRoleChange}
+        onEditUserRoleChange={handleEditUserRoleChange}
         onCancelCreateUser={handleCancelCreateUser}
+        onCancelEditUser={handleCancelEditUser}
+        onOpenEditUser={openEditUser}
         onOpenUserRoles={openUserRoles}
       />
     </section>
