@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,6 @@ from app.schemas.catalog import (
     SupplierLotCreate,
     SupplierLotResponse,
     SupplierLotUpdate,
-    SupplierResponse,
 )
 from app.services.material_receipts import split_receipt_into_internal_lot
 

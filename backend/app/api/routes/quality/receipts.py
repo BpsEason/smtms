@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -22,8 +22,8 @@ from app.models.quality import (
     SupplierORM,
 )
 from app.schemas.catalog import (
-    IQCRecordResponse,
     InternalLotResponse,
+    IQCRecordResponse,
     MaterialResponse,
     PaginatedResponse,
     ReceiptCreate,

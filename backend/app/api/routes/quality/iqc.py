@@ -17,7 +17,6 @@ from app.db.session import get_db
 from app.models.quality import (
     InternalMaterialLotORM,
     IQCRecordORM,
-    MaterialORM,
     MaterialReceiptORM,
     SupplierLotORM,
 )

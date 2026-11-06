@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import (
@@ -19,11 +18,10 @@ from app.models.quality import (
     MaterialORM,
     MaterialReceiptORM,
     SupplierLotORM,
-    SupplierORM,
 )
 from app.schemas.catalog import (
-    IQCRecordResponse,
     InternalLotResponse,
+    IQCRecordResponse,
     MaterialResponse,
     PaginatedResponse,
     ReceiptResponse,
