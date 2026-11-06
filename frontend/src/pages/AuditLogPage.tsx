@@ -1,11 +1,11 @@
 ﻿import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Eye, X } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { Download, Eye } from "lucide-react";
+import { Modal, Tag } from "antd";
 import { api, ApiError } from "../api";
 import type { AuditLog } from "../types";
-import { Button } from "../components/shadcn/button";
 import {
+  buttonClass,
   DataTable,
   EmptyState,
   ErrorState,
@@ -14,6 +14,7 @@ import {
   LoadingState,
   PageHeader,
   Panel,
+  secondaryButtonClass,
   TableBody,
   TableHead,
   TableRow,
@@ -58,6 +59,21 @@ function formatTimestamp(value: string) {
 
 function jsonContent(value: Record<string, unknown> | null) {
   return value ? JSON.stringify(value, null, 2) : "（無）";
+}
+
+function actionTagColor(action: string) {
+  switch (action) {
+    case "CREATE":
+      return "green";
+    case "UPDATE":
+      return "blue";
+    case "DELETE":
+      return "red";
+    case "LOGIN":
+      return "gold";
+    default:
+      return "default";
+  }
 }
 
 export function AuditLogPage() {
@@ -167,14 +183,15 @@ export function AuditLogPage() {
         title="稽核紀錄"
         description="檢視系統操作、異動內容與操作者。稽核紀錄僅供查詢。"
         action={
-          <Button
-            variant="secondary"
+          <button
+            type="button"
+            className={secondaryButtonClass}
             onClick={() => void exportCsv()}
             disabled={exporting}
           >
             <Download className="h-4 w-4" />
             {exporting ? "匯出中…" : "匯出篩選結果 CSV"}
-          </Button>
+          </button>
         }
       />
 
@@ -262,10 +279,12 @@ export function AuditLogPage() {
               />
             </FormField>
             <div className="flex gap-2 sm:col-span-2 xl:col-span-5">
-              <Button type="submit">套用篩選</Button>
-              <Button
-                variant="secondary"
+              <button type="submit" className={buttonClass}>
+                套用篩選
+              </button>
+              <button
                 type="button"
+                className={secondaryButtonClass}
                 onClick={() => {
                   setFilterError("");
                   setExportError("");
@@ -276,7 +295,7 @@ export function AuditLogPage() {
                 }}
               >
                 清除
-              </Button>
+              </button>
             </div>
           </form>
           {filterError && <ErrorState message={filterError} />}
@@ -323,9 +342,7 @@ export function AuditLogPage() {
                             : "系統")}
                       </Td>
                       <Td>
-                        <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold">
-                          {item.action}
-                        </span>
+                        <Tag color={actionTagColor(item.action)}>{item.action}</Tag>
                       </Td>
                       <Td>{item.resource_type}</Td>
                       <Td>{item.resource_id ?? "—"}</Td>
@@ -345,146 +362,104 @@ export function AuditLogPage() {
               </DataTable>
 
               <div className="mt-4 flex items-center justify-between">
-                <Button
-                  variant="secondary"
+                <button
+                  type="button"
+                  className={secondaryButtonClass}
                   disabled={page <= 1}
                   onClick={() => changePage(Math.max(1, page - 1))}
                 >
                   上一頁
-                </Button>
+                </button>
                 <span className="text-sm text-slate-500">第 {page} 頁</span>
-                <Button
-                  variant="secondary"
+                <button
+                  type="button"
+                  className={secondaryButtonClass}
                   disabled={!hasNext}
                   onClick={() => changePage(page + 1)}
                 >
                   下一頁
-                </Button>
+                </button>
               </div>
             </>
           )}
         </Panel>
       </div>
 
-      {/* 稽核紀錄明細 Dialog */}
-      <Dialog.Root
+      <Modal
         open={selected !== null}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
+        title="稽核紀錄明細"
+        onCancel={() => setSelected(null)}
+        footer={null}
+        destroyOnHidden
+        width={860}
       >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(860px,calc(100vw-32px))] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl focus:outline-none">
-            {selected && (
-              <>
-                <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-                  <div>
-                    <Dialog.Title className="text-lg font-semibold text-slate-900">
-                      稽核紀錄明細
-                    </Dialog.Title>
-                    <p className="mt-1 text-sm text-slate-500">
-                      紀錄 #{selected.id}
-                    </p>
-                  </div>
-                  <Dialog.Close asChild>
-                    <button
-                      type="button"
-                      aria-label="關閉"
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </Dialog.Close>
-                </div>
+        {selected && (
+          <div className="space-y-5">
+            <p className="-mt-2 text-sm text-slate-500">紀錄 #{selected.id}</p>
 
-                <div className="space-y-5 px-6 py-5">
-                  {/* 基本資訊 */}
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        操作時間
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {formatTimestamp(selected.created_at)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        操作者
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selected.actor_username ??
-                          (selected.actor_user_id
-                            ? `user:${selected.actor_user_id}`
-                            : "系統")}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        操作類型
-                      </p>
-                      <p className="mt-1">
-                        <span className="rounded bg-slate-100 px-2 py-1 text-xs font-semibold">
-                          {selected.action}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        資源類型
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selected.resource_type}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        資源 ID
-                      </p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selected.resource_id ?? "—"}
-                      </p>
-                    </div>
-                    <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 sm:col-span-3">
-                      <p className="text-xs font-medium text-slate-500">
-                        Request ID
-                      </p>
-                      <p className="mt-1 break-all text-sm font-medium text-slate-900">
-                        {selected.request_id ?? "—"}
-                      </p>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-medium text-slate-500">操作時間</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {formatTimestamp(selected.created_at)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-medium text-slate-500">操作者</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {selected.actor_username ??
+                    (selected.actor_user_id
+                      ? `user:${selected.actor_user_id}`
+                      : "系統")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-medium text-slate-500">操作類型</p>
+                <p className="mt-1">
+                  <Tag color={actionTagColor(selected.action)}>{selected.action}</Tag>
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-medium text-slate-500">資源類型</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {selected.resource_type}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-medium text-slate-500">資源 ID</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {selected.resource_id ?? "—"}
+                </p>
+              </div>
+              <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 sm:col-span-3">
+                <p className="text-xs font-medium text-slate-500">Request ID</p>
+                <p className="mt-1 break-all text-sm font-medium text-slate-900">
+                  {selected.request_id ?? "—"}
+                </p>
+              </div>
+            </div>
 
-                  {/* 異動前後資料 */}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl border border-slate-200">
-                      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                        <h4 className="text-sm font-semibold text-slate-900">
-                          異動前
-                        </h4>
-                      </div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-xs text-slate-700">
-                        {jsonContent(selected.before_data)}
-                      </pre>
-                    </div>
-                    <div className="rounded-xl border border-slate-200">
-                      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                        <h4 className="text-sm font-semibold text-slate-900">
-                          異動後
-                        </h4>
-                      </div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-xs text-slate-700">
-                        {jsonContent(selected.after_data)}
-                      </pre>
-                    </div>
-                  </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <h4 className="text-sm font-semibold text-slate-900">異動前</h4>
                 </div>
-              </>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-xs text-slate-700">
+                  {jsonContent(selected.before_data)}
+                </pre>
+              </div>
+              <div className="rounded-xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <h4 className="text-sm font-semibold text-slate-900">異動後</h4>
+                </div>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-xs text-slate-700">
+                  {jsonContent(selected.after_data)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
