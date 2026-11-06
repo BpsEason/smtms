@@ -116,7 +116,7 @@ async function waitForSupplierRequest(count: number) {
   await waitFor(() => {
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/api/v1/suppliers?"),
+        String(url).includes("/api/v1/suppliers/?"),
       ),
     ).toHaveLength(count);
   });
@@ -615,7 +615,7 @@ describe("supplier documents panel", () => {
   it("shows validation errors for required document fields", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([]);
@@ -646,7 +646,7 @@ describe("supplier documents panel", () => {
     
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([testDoc]);
@@ -674,7 +674,7 @@ describe("supplier documents panel", () => {
   it("handles document creation successfully", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents") && init?.method === "POST")
         return jsonResponse({ id: 1, doc_type: "合約書", doc_name: "新合約", status: "active" }, 201);
@@ -698,7 +698,7 @@ describe("supplier documents panel", () => {
   it("shows validation errors when field lengths exceed limits", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([]);
@@ -724,7 +724,7 @@ describe("supplier documents panel", () => {
   it("loads correct default values in create mode", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([]);
@@ -766,7 +766,7 @@ describe("supplier documents panel", () => {
     
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([firstDoc, secondDoc]);
@@ -800,7 +800,7 @@ describe("supplier documents panel", () => {
         callCount++;
         return jsonResponse({ detail: "文件編號已存在" }, 400);
       }
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([]);
@@ -838,7 +838,7 @@ describe("supplier documents panel", () => {
     
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/suppliers?"))
+      if (url.includes("/api/v1/suppliers/?"))
         return jsonResponse(page([supplier]));
       if (url.includes("/api/v1/suppliers/4/documents"))
         return jsonResponse([testDoc]);
