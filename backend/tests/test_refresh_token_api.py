@@ -16,8 +16,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 
+@pytest.fixture(scope="session")
+def test_password_hash() -> str:
+    """整個測試執行期間共用密碼雜湊，避免重複計算。"""
+    return get_password_hash("Password123!")
+
+
 @pytest.fixture
-def auth_test_client(db_session: Session, monkeypatch):
+def auth_test_client(
+    db_session: Session,
+    monkeypatch,
+    test_password_hash: str,
+):
     """使用共用測試資料庫，確保認證測試資料可在測試結束後回滾。"""
 
     # Mock settings，避免測試環境設定驗證錯誤。
@@ -50,7 +60,7 @@ def auth_test_client(db_session: Session, monkeypatch):
             user = UserORM(
                 username="test.user",
                 email="test@example.com",
-                password_hash=get_password_hash("Password123!"),
+                password_hash=test_password_hash,
                 is_active=True,
             )
             session.add(user)
@@ -153,7 +163,10 @@ def test_refresh_expired_token_fails(auth_test_client):
     assert resp.status_code == 401
 
 
-def test_refresh_tokens_different_users_isolated(auth_test_client):
+def test_refresh_tokens_different_users_isolated(
+    auth_test_client,
+    test_password_hash,
+):
     client, session_factory = auth_test_client
 
     # Create second user
@@ -162,7 +175,7 @@ def test_refresh_tokens_different_users_isolated(auth_test_client):
             UserORM(
                 username="other.user",
                 email="other@example.com",
-                password_hash=get_password_hash("Password123!"),
+                password_hash=test_password_hash,
                 is_active=True,
             )
         )
@@ -313,7 +326,10 @@ def test_logout_only_revokes_current_device(auth_test_client):
     assert resp2.status_code == 200
 
 
-def test_logout_does_not_revoke_other_user(auth_test_client):
+def test_logout_does_not_revoke_other_user(
+    auth_test_client,
+    test_password_hash,
+):
     client, session_factory = auth_test_client
 
     with session_factory() as session:
@@ -321,7 +337,7 @@ def test_logout_does_not_revoke_other_user(auth_test_client):
             UserORM(
                 username="other.user3",
                 email="other3@example.com",
-                password_hash=get_password_hash("Password123!"),
+                password_hash=test_password_hash,
                 is_active=True,
             )
         )
