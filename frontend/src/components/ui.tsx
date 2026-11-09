@@ -1,7 +1,7 @@
 import 'antd/dist/reset.css'
 import { Alert, Button, Card, Empty, Flex, Modal, Spin, Statistic, Tag, Typography } from 'antd'
 import { useState, type ReactNode } from 'react'
-import { statusLabel } from '../lib/status'
+import { statusLabel, severityLabel } from '../lib/status'
 
 const { Title, Text } = Typography
 
@@ -56,14 +56,26 @@ export function Td({ children, className = '' }: { children: ReactNode; classNam
 
 export function StatusBadge({ value, label }: { value: string; label?: string }) {
   const normalized = value.toLowerCase()
-  const tone = ['active', 'available', 'passed', 'released', 'approved', 'complete', 'completed'].includes(normalized)
+  const tone = ['active', 'available', 'passed', 'released', 'approved', 'complete', 'completed', 'closed'].includes(normalized)
     ? 'success'
-    : ['pending', 'hold', 'quarantine', 'received', 'in_progress'].includes(normalized)
+    : ['pending', 'hold', 'quarantine', 'received', 'in_progress', 'pending_confirmation'].includes(normalized)
       ? 'warning'
       : ['failed', 'rejected', 'inactive', 'blocked', 'returned'].includes(normalized)
         ? 'error'
-        : 'default'
+        : normalized === 'investigating'
+          ? 'processing'
+          : 'default'
   return <Tag color={tone}>{label ?? statusLabel(value)}</Tag>
+}
+
+export function SeverityBadge({ value, label }: { value: string; label?: string }) {
+  const normalized = value.toLowerCase()
+  const tone = normalized === 'critical' ? 'red'
+    : normalized === 'high' ? 'orange'
+    : normalized === 'medium' ? 'gold'
+    : normalized === 'low' ? 'green'
+    : 'default'
+  return <Tag color={tone}>{label ?? severityLabel(value)}</Tag>
 }
 
 // 保留 children 既有使用方式（label + 原生/自訂輸入），以 AntD 文字元件呈現狀態。

@@ -1,6 +1,7 @@
 import {
   DataTable,
   Panel,
+  SeverityBadge,
   StatusBadge,
   Td,
   Th,
@@ -107,7 +108,9 @@ export function NonconformanceList({
               </Td>
               <Td>{item.title}</Td>
               <Td>{item.source}</Td>
-              <Td>{item.severity}</Td>
+              <Td>
+                <SeverityBadge value={item.severity} />
+              </Td>
               <Td>
                 <StatusBadge value={item.status} />
               </Td>

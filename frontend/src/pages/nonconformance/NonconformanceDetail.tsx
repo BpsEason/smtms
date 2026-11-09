@@ -10,6 +10,7 @@ import {
 } from "antd";
 import {
   FormField,
+  SeverityBadge,
   StatusBadge,
   inputClass,
   buttonClass,
@@ -132,7 +133,7 @@ export function NonconformanceDetail({
         <Space wrap size="middle">
           <StatusBadge value={selectedItem.status} />
           <Text>來源：{selectedItem.source}</Text>
-          <Text>嚴重程度：{selectedItem.severity}</Text>
+          <SeverityBadge value={selectedItem.severity} />
           <Text>不良數量：{selectedItem.defect_qty ?? "未填"}</Text>
         </Space>
 
