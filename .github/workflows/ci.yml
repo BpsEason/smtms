@@ -93,6 +93,49 @@ jobs:
       - name: Run tests with pytest
         run: uv run pytest -q
 
+      # Docker validation
+      - name: Build backend Docker image
+        run: docker build -t smtms-backend:ci .
+
+      - name: Test backend Docker container
+        run: |
+          set -euo pipefail
+
+          CONTAINER_NAME=smtms-backend-ci
+
+          cleanup() {
+            docker logs "$CONTAINER_NAME" || true
+            docker rm -f "$CONTAINER_NAME" || true
+          }
+
+          trap cleanup EXIT
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --network host \
+            --env-file .env \
+            -v "$PWD/var/documents:/app/var/documents" \
+            smtms-backend:ci
+
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/openapi.json > /dev/null; then
+              echo "Docker container started successfully."
+              docker rm -f "$CONTAINER_NAME"
+              trap - EXIT
+              exit 0
+            fi
+
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null || echo false)" != "true" ]; then
+              echo "Docker container stopped unexpectedly."
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          echo "Docker container health check timed out."
+          exit 1
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
