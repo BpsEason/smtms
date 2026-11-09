@@ -1,4 +1,4 @@
-import { Button } from "../../../components/shadcn/button";
+import { secondaryButtonClass } from "../../../components/ui";
 
 // 共用的 Detail 元件，用於顯示詳細資訊
 export function Detail({ label, value }: { label: string; value: string }) {
@@ -33,20 +33,20 @@ export function Pagination({
           : "共 0 筆資料"}
       </span>
       <div className="flex gap-2">
-        <Button
-          variant="secondary"
+        <button
+          className={secondaryButtonClass}
           disabled={page <= 1}
           onClick={() => onChange(page - 1)}
         >
           上一頁
-        </Button>
-        <Button
-          variant="secondary"
+        </button>
+        <button
+          className={secondaryButtonClass}
           disabled={page >= pages}
           onClick={() => onChange(page + 1)}
         >
           下一頁
-        </Button>
+        </button>
       </div>
     </div>
   );

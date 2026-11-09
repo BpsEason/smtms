@@ -1,10 +1,11 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { Button } from "../../components/shadcn/button";
 import {
   FormField,
   StatusBadge,
   inputClass,
+  buttonClass,
+  secondaryButtonClass,
 } from "../../components/ui";
 import type { NonconformanceDetailProps } from "./types";
 import { SEVERITY_OPTIONS } from "./constants";
@@ -44,23 +45,25 @@ export function NonconformanceDetail({
 
     if (selectedItem.status === "open") {
       return (
-        <Button
+        <button
+          className={buttonClass}
           disabled={isLoading}
           onClick={() => onStatusTransition("investigating")}
         >
           開始調查
-        </Button>
+        </button>
       );
     }
 
     if (selectedItem.status === "investigating") {
       return (
-        <Button
+        <button
+          className={buttonClass}
           disabled={isLoading}
           onClick={() => onStatusTransition("pending_confirmation")}
         >
           送待確認
-        </Button>
+        </button>
       );
     }
 
@@ -69,14 +72,15 @@ export function NonconformanceDetail({
       return (
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
+            <button
+              className={secondaryButtonClass}
               disabled={isLoading}
               onClick={() => onStatusTransition("investigating")}
             >
               退回調查
-            </Button>
-            <Button
+            </button>
+            <button
+              className={buttonClass}
               disabled={isLoading || !canClose}
               onClick={() => onStatusTransition("closed")}
               title={!canClose ? (
@@ -84,7 +88,7 @@ export function NonconformanceDetail({
               ) : ""}
             >
               結案
-            </Button>
+            </button>
           </div>
           {!canClose && (
             <p className="text-sm text-amber-600">
@@ -178,9 +182,13 @@ export function NonconformanceDetail({
           />
         </FormField>
 
-        <Button disabled={isLoading}>
+        <button
+          type="submit"
+          className={buttonClass}
+          disabled={isLoading}
+        >
           新增處置紀錄
-        </Button>
+        </button>
       </form>
     );
   };
@@ -266,14 +274,13 @@ export function NonconformanceDetail({
                   </FormField>
 
                   {canEditSelected && (
-                    <Button
-                      variant="secondary"
-                      disabled={isLoading}
+                    <button
                       type="submit"
-                      className="self-end"
+                      className={`${buttonClass} self-end`}
+                      disabled={isLoading}
                     >
                       儲存調查
-                    </Button>
+                    </button>
                   )}
                 </div>
               </form>

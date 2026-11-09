@@ -9,6 +9,7 @@ import { formatErrorMessage } from "../../lib/error";
 import { getErrorMessage } from "../../lib/data";
 import {
   buttonClass,
+  secondaryButtonClass,
   DataTable,
   EmptyState,
   ErrorState,
@@ -23,7 +24,6 @@ import {
   Th,
   inputClass,
 } from "../../components/ui";
-import { Button } from "@/components/shadcn/button";
 import { MaterialFormDialog } from "./MaterialFormDialog";
 import type { Material, UserProfile } from "../../types";
 
@@ -264,12 +264,12 @@ export function MaterialsPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <div className="flex flex-wrap gap-2">
                       {canWrite && (
-                        <Button
-                          variant="secondary"
+                        <button
+                          className={secondaryButtonClass}
                           onClick={() => openEditDialog(material)}
                         >
                           編輯資料
-                        </Button>
+                        </button>
                       )}
                     </div>
                   </Td>

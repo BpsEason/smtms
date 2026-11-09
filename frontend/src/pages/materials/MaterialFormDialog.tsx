@@ -3,10 +3,11 @@ import { X } from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Button } from "@/components/shadcn/button";
 import {
   FormField,
   inputClass,
+  buttonClass,
+  secondaryButtonClass,
 } from "../../components/ui";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Material } from "../../types";
@@ -183,13 +184,17 @@ export function MaterialFormDialog({
             </FormField>
             <p className="-mt-3 text-xs text-slate-500">停用不會刪除歷史作業資料。</p>
             <div className="sm:col-span-2 flex gap-2 mt-2">
-              <Button variant="default" disabled={isSubmitting}>
+              <button
+                type="submit"
+                className={buttonClass}
+                disabled={isSubmitting}
+              >
                 {isSubmitting ? "儲存中…" : editingMaterial ? "儲存變更" : "建立物料"}
-              </Button>
+              </button>
               <Dialog.Close asChild>
-                <Button type="button" variant="secondary" disabled={isSubmitting}>
+                <button type="button" className={secondaryButtonClass} disabled={isSubmitting}>
                   取消
-                </Button>
+                </button>
               </Dialog.Close>
             </div>
           </form>

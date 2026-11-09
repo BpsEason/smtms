@@ -6,7 +6,6 @@ import { Download } from "lucide-react";
 import { api } from "../../api";
 import { formatErrorMessage } from "../../lib/error";
 import { getErrorMessage } from "../../lib/data";
-import { Button } from "@/components/shadcn/button";
 import {
   DataTable,
   EmptyState,
@@ -22,6 +21,8 @@ import {
   TableRow,
   Td,
   Th,
+  buttonClass,
+  secondaryButtonClass,
 } from "../../components/ui";
 import { triggerDownload, csvCell } from "./utils";
 import type {
@@ -139,14 +140,14 @@ export function SupplierImportPanel({ onImported }: { onImported: () => void }) 
       description="下載範本後填入資料，上傳可先預覽驗證，確認無誤再寫入。每列會建立一筆供應商與其登入帳號。"
       className="mb-5"
       action={
-        <Button
-          variant="secondary"
+        <button
+          className={secondaryButtonClass}
           disabled={busy !== ""}
           onClick={() => void downloadTemplate()}
         >
           <Download className="h-4 w-4" />
           {busy === "template" ? "下載中…" : "下載 Excel 範本"}
-        </Button>
+        </button>
       }
     >
       <div className="space-y-4">
@@ -166,28 +167,28 @@ export function SupplierImportPanel({ onImported }: { onImported: () => void }) 
           <p className="text-xs text-slate-500">已選擇：{fileName}</p>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
+          <button
+            className={secondaryButtonClass}
             disabled={!file || busy !== ""}
             onClick={() => void runPreview()}
           >
             {busy === "preview" ? "驗證中…" : "預覽驗證"}
-          </Button>
-          <Button
-            variant="default"
+          </button>
+          <button
+            className={buttonClass}
             disabled={!canConfirm}
             onClick={() => void runConfirm()}
           >
             {busy === "confirm" ? "匯入中…" : "確認匯入"}
-          </Button>
+          </button>
           {errors.length > 0 && (
-            <Button
-              variant="secondary"
+            <button
+              className={secondaryButtonClass}
               onClick={downloadErrorReport}
             >
               <Download className="h-4 w-4" />
               下載錯誤報告
-            </Button>
+            </button>
           )}
         </div>
 
@@ -295,8 +296,8 @@ export function SupplierImportPanel({ onImported }: { onImported: () => void }) 
             <p className="text-xs text-rose-700">
               初始密碼僅顯示本次，請立即妥善保存並通知供應商。供應商首次登入時必須變更密碼。
             </p>
-            <Button
-              variant="secondary"
+            <button
+              className={secondaryButtonClass}
               onClick={() =>
                 setResult((previous) =>
                   previous ? { ...previous, accounts: [] } : previous,
@@ -304,7 +305,7 @@ export function SupplierImportPanel({ onImported }: { onImported: () => void }) 
               }
             >
               清除密碼顯示
-            </Button>
+            </button>
           </div>
         ) : null}
 

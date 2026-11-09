@@ -4,13 +4,14 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { localDateTimeNow } from "../../../lib/data";
-import { Button } from "@/components/shadcn/button";
 import {
   ConfirmDialog,
   ErrorState,
   FormField,
   inputClass,
   LoadingState,
+  buttonClass,
+  secondaryButtonClass,
 } from "../../../components/ui";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Supplier, Material, SupplierLot } from "../types";
@@ -177,14 +178,14 @@ export function CreateReceiptDialog({
                   步驟一：登錄供應商批號
                 </h3>
                 {canCreateSupplierLots && (
-                  <Button
+                  <button
                     type="button"
-                    variant="secondary"
+                    className={secondaryButtonClass}
                     disabled={!suppliers.length || !materials.length}
                     onClick={() => setShowLotForm(!showLotForm)}
                   >
                     {showLotForm ? "關閉批號登錄" : "新增供應商批號"}
-                  </Button>
+                  </button>
                 )}
               </div>
               {showLotForm && canCreateSupplierLots && (
@@ -267,8 +268,9 @@ export function CreateReceiptDialog({
                     <div className="flex gap-2 sm:col-span-2">
                       <ConfirmDialog
                         trigger={
-                          <Button
+                          <button
                             type="button"
+                            className={buttonClass}
                             disabled={lotSaving}
                             onClick={(event) => {
                               const form = event.currentTarget
@@ -278,21 +280,21 @@ export function CreateReceiptDialog({
                             }}
                           >
                             {lotSaving ? "建立中…" : "確認批號資料"}
-                          </Button>
+                          </button>
                         }
                         title="建立供應商批號？"
                         description="批號將與所選供應商及物料關聯，建立後可用於收料登錄。後端會檢查供應關係及批號唯一性。"
                         confirmLabel="建立批號"
                         onConfirm={handleCreateSupplierLot}
                       />
-                      <Button
+                      <button
                         type="button"
-                        variant="secondary"
+                        className={secondaryButtonClass}
                         disabled={lotSaving}
                         onClick={() => setShowLotForm(false)}
                       >
                         取消
-                      </Button>
+                      </button>
                     </div>
                   </form>
                 </div>
@@ -412,13 +414,13 @@ export function CreateReceiptDialog({
                   </FormField>
                 </div>
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={isSubmitting}>
+                  <button type="submit" className={buttonClass} disabled={isSubmitting}>
                     {isSubmitting ? "建立中…" : "建立收料單"}
-                  </Button>
+                  </button>
                   <Dialog.Close asChild>
-                    <Button type="button" variant="secondary">
+                    <button type="button" className={secondaryButtonClass}>
                       取消
-                    </Button>
+                    </button>
                   </Dialog.Close>
                 </div>
               </form>

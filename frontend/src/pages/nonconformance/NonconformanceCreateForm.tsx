@@ -2,8 +2,9 @@ import { X } from "lucide-react";
 import {
   FormField,
   inputClass,
+  buttonClass,
+  secondaryButtonClass,
 } from "../../components/ui";
-import { Button } from "@/components/shadcn/button";
 import * as Dialog from '@radix-ui/react-dialog';
 import type { UseFormRegister, FieldErrors } from "react-hook-form";
 import type { NonconformanceCreateFormData } from "./NonconformancePage";
@@ -176,12 +177,12 @@ export function NonconformanceCreateForm({
         </div>
 
         <div className="flex gap-2 md:col-span-2">
-          <Button type="submit" disabled={isLoading} variant="default">
+          <button type="submit" className={buttonClass} disabled={isLoading}>
             建立案件
-          </Button>
-          <Button type="button" variant="secondary" onClick={onClose}>
+          </button>
+          <button type="button" className={secondaryButtonClass} onClick={onClose}>
             取消
-          </Button>
+          </button>
         </div>
       </form>
         </Dialog.Content>

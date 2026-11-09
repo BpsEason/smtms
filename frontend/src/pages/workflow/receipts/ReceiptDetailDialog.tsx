@@ -3,7 +3,6 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { statusLabel } from "../../../lib/status";
-import { Button } from "@/components/shadcn/button";
 import {
   ConfirmDialog,
   ErrorState,
@@ -11,6 +10,7 @@ import {
   inputClass,
   LoadingState,
   StatusBadge,
+  buttonClass,
 } from "../../../components/ui";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Receipt, ReceiptTrace } from "../types";
@@ -208,13 +208,13 @@ export function ReceiptDetailDialog({
                         <div className="flex items-end">
                           <ConfirmDialog
                             trigger={
-                              <Button
+                              <button
                                 type="button"
-                                className="w-full"
+                                className={buttonClass}
                                 disabled={isSplitSubmitting || isSplitSubmittingForm}
                               >
                                 {isSplitSubmitting || isSplitSubmittingForm ? "拆分中…" : "拆分批號"}
-                              </Button>
+                              </button>
                             }
                             title="建立內部批號？"
                             description="將從此收料單拆分出一個新的內部批號，剩餘數量將自動更新。"
