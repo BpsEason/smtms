@@ -71,7 +71,7 @@ flowchart LR
 ### 前置條件
 
 - Python 3.12 或 3.13 與 [uv](https://docs.astral.sh/uv/)
-- Node.js 20.19+ 與 npm（CI 使用 Node.js 20；Vite 8 的版本需求見 `frontend/package-lock.json`）
+- Node.js 20.19+ 與 pnpm（建議透過 Corepack 管理；CI 使用 Node.js 20；Vite 8 的版本需求見 `frontend/pnpm-lock.yaml`）
 - MySQL 8 相容資料庫，並建立專用的 `smtms` 開發資料庫及使用者
 - Redis 7（可由 Compose 啟動）
 - Docker Compose（若要使用容器啟動）
@@ -167,8 +167,9 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```powershell
 Set-Location C:\laragon\www\smtms\frontend
-npm ci
-npm run dev
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run dev
 ```
 
 Vite 開發伺服器預設在 `http://localhost:5173/`。前端 API Base URL 由 `frontend/src/api/client.ts` 讀取環境變數 `VITE_API_BASE_URL`，若未設定則預設為 `http://localhost:8000`。
@@ -237,10 +238,10 @@ uv run mypy app/             # 靜態型別檢查
 uv run pytest -q             # 功能測試驗證
 
 # 前端（frontend 目錄）
-npm run lint                 # oxlint 程式碼檢查
-npx tsc --noEmit             # TypeScript 型別檢查
-npm test                     # Vitest 單元測試
-npm run build                # 生產建置驗證
+pnpm run lint                 # oxlint 程式碼檢查
+pnpm exec tsc --noEmit        # TypeScript 型別檢查
+pnpm test -- --run            # Vitest 單元測試
+pnpm run build                # 生產建置驗證
 ```
 
 CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。完整後端環境設定及 Seeder 限制見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)。正式規格入口為 [`docs/01_SRS.md`](docs/01_SRS.md)，並包括[領域規則](docs/02_DOMAIN_RULES.md)、[API 契約](docs/04_API_CONTRACT.md)、[資料庫結構](docs/05_DATABASE_SCHEMA.md)、[目前實作狀態](docs/06_CURRENT_STATE.md)、[驗收標準](docs/07_ACCEPTANCE.md)及[開發路線圖](docs/08_ROADMAP.md)。

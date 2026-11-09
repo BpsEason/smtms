@@ -160,7 +160,7 @@ last_updated: 2026-11-04
 - 任務完成後必須執行相關測試：`uv run pytest tests/test_xxx.py`
 - 檢查程式碼風格：`uv run ruff check .`
 - 檢查型別正確性：`uv run mypy app/`
-- 前端測試：`cd frontend && npm run test`
+- 前端測試：`cd frontend && pnpm test -- --run`
 
 ## 10. AI Agent 執行限制
 
