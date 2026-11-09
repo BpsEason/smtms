@@ -11,6 +11,11 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // 讓 container 外可以連進來
+    watch: {
+      usePolling: true, // Docker volume 必加，否則改檔不會觸發 HMR
+      interval: 300,
+    },
     proxy: {
       "/api": { target: "http://backend:8000", changeOrigin: true },
       "/health": { target: "http://backend:8000", changeOrigin: true },

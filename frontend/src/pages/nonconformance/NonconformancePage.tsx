@@ -4,10 +4,10 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api, ApiError } from "../../api";
-import { Button } from "../../components/shadcn/button";
 import {
   ErrorState,
   PageHeader,
+  buttonClass,
 } from "../../components/ui";
 import type { UserProfile, Nonconformance } from "../../types";
 import { NonconformanceCreateForm } from "./NonconformanceCreateForm";
@@ -391,11 +391,13 @@ export function NonconformancePage({
         description="記錄品質事件、追蹤圍堵與初步處置，並保留案件操作歷程。"
         action={
           canModify ? (
-            <Button
+            <button
+              type="button"
+              className={buttonClass}
               onClick={() => setIsCreateModalOpen(!isCreateModalOpen)}
             >
               新增案件
-            </Button>
+            </button>
           ) : undefined
         }
       />

@@ -1,3 +1,4 @@
+
 import {
   useCallback,
   useEffect,
@@ -27,16 +28,58 @@ import { NonconformancePage } from "./pages/NonconformancePage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import type { UserProfile } from "./types";
 
+/**
+ * 台灣在地化設定
+ */
+const LOCALE = "zh-TW";
+const TIME_ZONE = "Asia/Taipei";
+
+/**
+ * 格式化台灣日期時間。
+ *
+ * 日期：2026/11/06
+ * 時間：14:30:00
+ * 日期時間：2026/11/06 14:30:00
+ */
+export const taiwanDateTimeFormatters = {
+  date: new Intl.DateTimeFormat(LOCALE, {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }),
+  time: new Intl.DateTimeFormat(LOCALE, {
+    timeZone: TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }),
+  dateTime: new Intl.DateTimeFormat(LOCALE, {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }),
+};
+
 function normalizePermissions(
   permissions: string[] | undefined | null,
 ): string[] {
   const unique = new Set<string>();
+
   for (const permission of permissions ?? []) {
     const normalized = permission.startsWith("seed:")
       ? permission.slice("seed:".length)
       : permission;
+
     if (normalized) unique.add(normalized);
   }
+
   return [...unique];
 }
 
@@ -59,26 +102,32 @@ function AppShell() {
   const [token, setToken] = useState<string | null>(() => readToken());
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [checkingSession, setCheckingSession] = useState(Boolean(readToken()));
+
   const expireSession = useCallback(() => {
     clearToken();
     setToken(null);
     setProfile(null);
     setCheckingSession(false);
   }, []);
+
   const refreshProfile = useCallback(async () => {
     setProfile(normalizeProfile(await api.getProfile()));
   }, []);
 
   useEffect(() => {
     const onUnauthorized = () => expireSession();
+
     window.addEventListener("smtms:unauthorized", onUnauthorized);
+
     return () =>
       window.removeEventListener("smtms:unauthorized", onUnauthorized);
   }, [expireSession]);
 
   useEffect(() => {
     if (!token || profile) return;
+
     let active = true;
+
     api
       .getProfile()
       .then((me) => {
@@ -90,6 +139,7 @@ function AppShell() {
       .finally(() => {
         if (active) setCheckingSession(false);
       });
+
     return () => {
       active = false;
     };
@@ -97,7 +147,9 @@ function AppShell() {
 
   const handleLogin = async (username: string, password: string) => {
     const auth = await api.login(username, password);
+
     saveToken(auth.access_token);
+
     try {
       const me = await api.getProfile();
       setProfile(normalizeProfile(me));
@@ -114,8 +166,9 @@ function AppShell() {
     try {
       if (readToken()) await api.logout();
     } catch {
-      /* Always clear the local session. */
+      // 無論登出 API 是否成功，都清除本機登入狀態。
     }
+
     expireSession();
   };
 
@@ -131,6 +184,7 @@ function AppShell() {
           )
         }
       />
+
       <Route
         path="/"
         element={
@@ -153,6 +207,7 @@ function AppShell() {
         }
       >
         <Route index element={<DashboardPage profile={profile} />} />
+
         <Route
           path="suppliers"
           element={
@@ -161,6 +216,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="materials"
           element={
@@ -169,6 +225,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="receipts"
           element={
@@ -177,6 +234,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="internal-lots"
           element={
@@ -185,6 +243,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="iqc"
           element={
@@ -193,6 +252,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="signoff"
           element={
@@ -208,6 +268,7 @@ function AppShell() {
             </AnyPermissionPage>
           }
         />
+
         <Route
           path="traceability"
           element={
@@ -219,7 +280,19 @@ function AppShell() {
             </MultiPermissionPage>
           }
         />
-        <Route path="nonconformances" element={<PermissionPage profile={profile} permission="nonconformance:read"><NonconformancePage profile={profile} /></PermissionPage>} />
+
+        <Route
+          path="nonconformances"
+          element={
+            <PermissionPage
+              profile={profile}
+              permission="nonconformance:read"
+            >
+              <NonconformancePage profile={profile} />
+            </PermissionPage>
+          }
+        />
+
         <Route
           path="admin/roles"
           element={
@@ -228,6 +301,7 @@ function AppShell() {
             </PermissionPage>
           }
         />
+
         <Route
           path="admin/audit-logs"
           element={
@@ -237,6 +311,7 @@ function AppShell() {
           }
         />
       </Route>
+
       <Route
         path="*"
         element={<Navigate to={token ? "/" : "/login"} replace />}
@@ -257,41 +332,49 @@ function ChangePasswordScreen({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+
     if (newPassword !== confirmPassword) {
-      setError("新密碼與確認密碼不一致。");
+      setError("新密碼與確認密碼不一致，請重新輸入。");
       return;
     }
+
     setBusy(true);
+
     try {
       await api.changePassword(currentPassword, newPassword);
       await onChanged();
     } catch (err) {
       setError(
         err instanceof ApiError
-          ? `變更失敗：${err.details}`
-          : "變更失敗，請確認網路連線後再試一次。",
+          ? `密碼變更失敗：${err.details}`
+          : "密碼變更失敗，請確認網路連線後再試一次。",
       );
     } finally {
       setBusy(false);
     }
   };
+
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-5 py-12">
       <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
           首次登入
         </p>
+
         <h1 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
           請先變更初始密碼
         </h1>
+
         <p className="mt-2 text-sm text-slate-600">
-          基於安全考量，首次登入必須設定新的密碼後才能使用系統。
+          為確保帳號安全，首次登入時請先設定新密碼，完成後即可使用系統。
         </p>
+
         <form onSubmit={submit} className="mt-6 space-y-5">
-          <FormField label="目前（初始）密碼">
+          <FormField label="目前密碼（初始密碼）">
             <input
               className={inputClass}
               type="password"
@@ -301,7 +384,8 @@ function ChangePasswordScreen({
               required
             />
           </FormField>
-          <FormField label="新密碼" hint="長度 8–72 個字元。">
+
+          <FormField label="新密碼" hint="請輸入 8～72 個字元。">
             <input
               className={inputClass}
               type="password"
@@ -313,6 +397,7 @@ function ChangePasswordScreen({
               required
             />
           </FormField>
+
           <FormField label="確認新密碼">
             <input
               className={inputClass}
@@ -325,6 +410,7 @@ function ChangePasswordScreen({
               required
             />
           </FormField>
+
           {error && (
             <p
               role="alert"
@@ -333,10 +419,12 @@ function ChangePasswordScreen({
               {error}
             </p>
           )}
+
           <button className={`${buttonClass} w-full`} disabled={busy}>
             {busy ? "正在變更密碼…" : "變更密碼並繼續"}
           </button>
         </form>
+
         <button
           type="button"
           className="mt-4 w-full text-xs text-slate-500 underline underline-offset-2"
@@ -358,20 +446,23 @@ function PermissionPage({
   permission: string;
   children: ReactNode;
 }) {
-  if (!profile?.permissions.includes(permission))
+  if (!profile?.permissions.includes(permission)) {
     return (
       <section>
         <PageHeader
-          eyebrow="權限控管"
+          eyebrow="權限管理"
           title="需要存取權限"
-          description="目前帳號沒有檢視此作業功能的權限。"
+          description="目前帳號沒有檢視此功能的權限，請聯絡系統管理員。"
         />
+
         <EmptyState
           title="無法存取此功能"
-          description={`所需權限：${permission}。請洽系統管理員確認角色設定。`}
+          description={`所需權限：${permission}。請聯絡系統管理員確認角色及權限設定。`}
         />
       </section>
     );
+  }
+
   return children;
 }
 
@@ -388,20 +479,23 @@ function MultiPermissionPage({
     !permissions.every((permission) =>
       profile?.permissions.includes(permission),
     )
-  )
+  ) {
     return (
       <section>
         <PageHeader
-          eyebrow="權限控管"
+          eyebrow="權限管理"
           title="需要存取權限"
-          description="目前帳號沒有檢視此作業功能的完整權限。"
+          description="目前帳號缺少檢視此功能所需的完整權限，請聯絡系統管理員。"
         />
+
         <EmptyState
           title="無法存取此功能"
-          description={`所需權限：${permissions.join(", ")}。請洽系統管理員確認角色設定。`}
+          description={`所需權限：${permissions.join("、")}。請聯絡系統管理員確認角色及權限設定。`}
         />
       </section>
     );
+  }
+
   return children;
 }
 
@@ -415,21 +509,26 @@ function AnyPermissionPage({
   children: ReactNode;
 }) {
   if (
-    !permissions.some((permission) => profile?.permissions.includes(permission))
-  )
+    !permissions.some((permission) =>
+      profile?.permissions.includes(permission),
+    )
+  ) {
     return (
       <section>
         <PageHeader
-          eyebrow="權限控管"
+          eyebrow="權限管理"
           title="需要存取權限"
-          description="目前帳號沒有檢視此作業功能的權限。"
+          description="目前帳號沒有檢視此功能的權限，請聯絡系統管理員。"
         />
+
         <EmptyState
           title="無法存取此功能"
-          description={`所需權限（具備任一即可）：${permissions.join(", ")}。請洽系統管理員確認角色設定。`}
+          description={`所需權限（具備任一項即可）：${permissions.join("、")}。請聯絡系統管理員確認角色及權限設定。`}
         />
       </section>
     );
+  }
+
   return children;
 }
 

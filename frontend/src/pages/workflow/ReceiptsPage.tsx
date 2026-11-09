@@ -7,7 +7,6 @@ import {
   allSupplierLots,
   getErrorMessage,
 } from "../../lib/data";
-import { Button } from "@/components/shadcn/button";
 import {
   DataTable,
   EmptyState,
@@ -22,6 +21,7 @@ import {
   TableRow,
   Td,
   Th,
+  buttonClass,
 } from "../../components/ui";
 import { statusLabel } from "../../lib/status";
 import type { SupplierLotCreatePayload } from "../../types";
@@ -250,22 +250,26 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
         action={
           canWrite ? (
             <>
-            <Button variant="default" onClick={() => setShowReceiptForm(true)}>
-              新增收料
-            </Button>
-            <CreateReceiptDialog
-              open={showReceiptForm}
-              onOpenChange={setShowReceiptForm}
-              suppliers={suppliers}
-              materials={materials}
-              supplierLots={supplierLots}
-              canCreateSupplierLots={canCreateSupplierLots}
-              isSubmitting={isSubmitting}
-              lotSaving={lotSaving}
-              onCreateSupplierLot={createSupplierLot}
-              onSubmit={createReceipt}
-            />
-          </>
+              <button
+                type="button"
+                className={buttonClass}
+                onClick={() => setShowReceiptForm(true)}
+              >
+                新增收料
+              </button>
+              <CreateReceiptDialog
+                open={showReceiptForm}
+                onOpenChange={setShowReceiptForm}
+                suppliers={suppliers}
+                materials={materials}
+                supplierLots={supplierLots}
+                canCreateSupplierLots={canCreateSupplierLots}
+                isSubmitting={isSubmitting}
+                lotSaving={lotSaving}
+                onCreateSupplierLot={createSupplierLot}
+                onSubmit={createReceipt}
+              />
+            </>
           ) : undefined
         }
       />

@@ -6,7 +6,6 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../../api";
 import { allInternalLots, getErrorMessage, localDateTimeNow } from "../../lib/data";
-import { Button } from "@/components/shadcn/button";
 import {
   ConfirmDialog,
   DataTable,
@@ -14,6 +13,7 @@ import {
   ErrorState,
   FormField,
   inputClass,
+  buttonClass,
   LoadingState,
   PageHeader,
   Panel,
@@ -300,13 +300,13 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 </FormField>
                 <ConfirmDialog
                   trigger={
-                    <Button
+                    <button
                       type="button"
-                      variant="default"
+                      className={buttonClass}
                       disabled={!selectedLot}
                     >
                       確認檢驗資料
-                    </Button>
+                    </button>
                   }
                   title="確定儲存檢驗結果？"
                   description={

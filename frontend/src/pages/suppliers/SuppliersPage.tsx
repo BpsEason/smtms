@@ -8,13 +8,14 @@ import { FileText, Plus, Search, Upload } from "lucide-react";
 import { api } from "../../api";
 import { formatErrorMessage } from "../../lib/error";
 import { allMaterials, getErrorMessage } from "../../lib/data";
-import { Button } from "@/components/shadcn/button";
 import {
   DataTable,
   EmptyState,
   ErrorState,
   FormField,
   inputClass,
+  buttonClass,
+  secondaryButtonClass,
   LoadingState,
   PageHeader,
   Panel,
@@ -169,8 +170,9 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
         action={
           canWrite && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
+              <button
+                type="button"
+                className={secondaryButtonClass}
                 onClick={() => {
                   setShowImport((value) => !value);
                   setSuccess("");
@@ -178,14 +180,15 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
               >
                 <Upload className="h-4 w-4" />
                 {showImport ? "關閉匯入" : "批次匯入"}
-              </Button>
-              <Button
-                variant="default"
+              </button>
+              <button
+                type="button"
+                className={buttonClass}
                 onClick={openCreateDialog}
               >
                 <Plus className="h-4 w-4" />
                 新增供應商
-              </Button>
+              </button>
             </div>
           )
         }
@@ -198,7 +201,41 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
           }}
         />
       )}
-      {linkingSupplier && <Panel title={`建立供應物料關聯：${linkingSupplier.supplier_name}`} description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。" className="mb-5"><form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2"><FormField label="物料"><select name="material_id" className={inputClass} required defaultValue=""><option value="">選擇物料</option>{materialOptions.map((material) => <option key={material.id} value={material.id}>{material.material_code} · {material.material_name}</option>)}</select></FormField><FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。"><input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} /></FormField><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="is_preferred" />設為此物料的首選供應商</label><div className="flex gap-2 sm:col-span-2"><Button variant="default" disabled={linkBusy || !materialOptions.length}>{linkBusy ? "建立中…" : "建立關聯"}</Button><Button type="button" variant="secondary" disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>取消</Button></div></form></Panel>}
+      {linkingSupplier && (
+        <Panel
+          title={`建立供應物料關聯：${linkingSupplier.supplier_name}`}
+          description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。"
+          className="mb-5"
+        >
+          <form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2">
+            <FormField label="物料">
+              <select name="material_id" className={inputClass} required defaultValue="">
+                <option value="">選擇物料</option>
+                {materialOptions.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {material.material_code} · {material.material_name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。">
+              <input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} />
+            </FormField>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" name="is_preferred" />
+              設為此物料的首選供應商
+            </label>
+            <div className="flex gap-2 sm:col-span-2">
+              <button type="submit" className={buttonClass} disabled={linkBusy || !materialOptions.length}>
+                {linkBusy ? "建立中…" : "建立關聯"}
+              </button>
+              <button type="button" className={secondaryButtonClass} disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>
+                取消
+              </button>
+            </div>
+          </form>
+        </Panel>
+      )}
       {success && (
         <p role="status" className="mb-4 text-sm text-emerald-800">
           {success}
@@ -228,7 +265,22 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
               }}
             />
           </div>
-          <label className="text-sm text-slate-700">狀態 <select aria-label="供應商狀態篩選" className={`${inputClass} mt-1 min-w-36`} value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">全部狀態</option><option value="active">啟用</option><option value="inactive">停用</option></select></label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <span className="whitespace-nowrap">狀態</span>
+            <select
+              aria-label="供應商狀態篩選"
+              className={`${inputClass} min-w-36 !bg-sky-600 !text-white border-sky-600`}
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">全部狀態</option>
+              <option value="active">啟用</option>
+              <option value="inactive">停用</option>
+            </select>
+          </label>
         </div>
         {loading ? (
           <LoadingState label="正在載入供應商資料…" />
@@ -256,7 +308,33 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                   <Td>
                     <StatusBadge value={supplier.status} />
                   </Td>
-                  <Td><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setDocumentSupplier(supplier)}><FileText className="h-4 w-4" />資格文件</Button>{canWrite && <><Button variant="secondary" onClick={() => { setLinkingSupplier(supplier); setDialogOpen(false); setShowImport(false); setError("") }}>連結物料</Button><Button variant="secondary" onClick={() => openEditDialog(supplier)}>編輯資料</Button></>}</div></Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={secondaryButtonClass} onClick={() => setDocumentSupplier(supplier)}>
+                        <FileText className="h-4 w-4" />
+                        資格文件
+                      </button>
+                      {canWrite && (
+                        <>
+                          <button
+                            type="button"
+                            className={secondaryButtonClass}
+                            onClick={() => {
+                              setLinkingSupplier(supplier);
+                              setDialogOpen(false);
+                              setShowImport(false);
+                              setError("");
+                            }}
+                          >
+                            連結物料
+                          </button>
+                          <button type="button" className={secondaryButtonClass} onClick={() => openEditDialog(supplier)}>
+                            編輯資料
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </Td>
                 </TableRow>
               ))}
             </TableBody>
@@ -276,7 +354,13 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
           onChange={setPage}
         />
       </Panel>
-      {documentSupplier && <SupplierDocumentsPanel supplier={documentSupplier} canWrite={canWrite} onClose={() => setDocumentSupplier(null)} />}
+      {documentSupplier && (
+        <SupplierDocumentsPanel
+          supplier={documentSupplier}
+          canWrite={canWrite}
+          onClose={() => setDocumentSupplier(null)}
+        />
+      )}
       <SupplierFormDialog
         open={dialogOpen}
         onOpenChange={handleDialogOpenChange}
