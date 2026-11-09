@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { Descriptions, Modal, Typography } from "antd";
 import { api } from "../../api";
 import { getErrorMessage } from "../../lib/data";
 import {
@@ -25,6 +24,8 @@ import type {
 } from "./types";
 import { Pagination } from "./components/SharedComponents";
 
+const { Text, Title } = Typography;
+
 export function InternalLotsPage({ profile: _profile }: { profile: UserProfile | null }) {
   const [lots, setLots] = useState<PaginatedResponse<InternalLot> | null>(null);
   const [lotQuery, setLotQuery] = useState("");
@@ -47,7 +48,6 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
         page_size: 50,
       });
       setLots(response);
-      // 不再自動選取第一筆
     } catch (err) {
       setLots(null);
       setError(getErrorMessage(err));
@@ -66,7 +66,6 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
     return () => window.clearTimeout(timer);
   }, [loadInternalLots, lotQuery]);
 
-  // 載入詳情
   useEffect(() => {
     if (selectedLotId === null) {
       setSelectedLot(null);
@@ -186,92 +185,50 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
         </Panel>
       </div>
 
-      {/* 批號詳情 Dialog */}
-      <Dialog.Root
+      <Modal
         open={selectedLotId !== null}
-        onOpenChange={(open) => {
-          if (!open) closeDetail();
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(640px,calc(100vw-32px))] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl focus:outline-none">
-            {detailLoading || !selectedLot ? (
-              <div className="flex items-center justify-center py-16">
-                <LoadingState label="正在載入批號詳情…" />
+        onCancel={closeDetail}
+        title={
+          selectedLot ? (
+            <div className="flex flex-wrap items-center gap-3 pr-8">
+              <div>
+                <Title level={4} style={{ margin: 0 }}>
+                  批號詳情
+                </Title>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  {selectedLot.internal_lot_no}
+                </Text>
               </div>
-            ) : (
-              <>
-                {/* 標題區 */}
-                <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-                  <div>
-                    <Dialog.Title className="text-lg font-semibold text-slate-900">
-                      批號詳情
-                    </Dialog.Title>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {selectedLot.internal_lot_no}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <StatusBadge value={selectedLot.lot_status} />
-                    <Dialog.Close asChild>
-                      <button
-                        type="button"
-                        aria-label="關閉"
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </Dialog.Close>
-                  </div>
-                </div>
-
-                {/* 內容區 */}
-                <div className="space-y-6 px-6 py-5">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">內部批號</p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selectedLot.internal_lot_no}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">物料 ID</p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selectedLot.material_id}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">庫存數量</p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selectedLot.qty_on_hand}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">狀態</p>
-                      <p className="mt-1">
-                        <StatusBadge value={selectedLot.lot_status} />
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">建立日期</p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {new Date(selectedLot.created_at).toLocaleString("zh-TW")}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-500">來源收料單 ID</p>
-                      <p className="mt-1 text-sm font-medium text-slate-900">
-                        {selectedLot.receipt_id ?? "—"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+              <StatusBadge value={selectedLot.lot_status} />
+            </div>
+          ) : (
+            "批號詳情"
+          )
+        }
+        width={640}
+        footer={null}
+        destroyOnHidden
+        styles={{ body: { maxHeight: "70vh", overflowY: "auto" } }}
+      >
+        {detailLoading || !selectedLot ? (
+          <LoadingState label="正在載入批號詳情…" />
+        ) : (
+          <Descriptions size="small" column={1} bordered>
+            <Descriptions.Item label="內部批號">{selectedLot.internal_lot_no}</Descriptions.Item>
+            <Descriptions.Item label="物料 ID">{selectedLot.material_id}</Descriptions.Item>
+            <Descriptions.Item label="庫存數量">{selectedLot.qty_on_hand}</Descriptions.Item>
+            <Descriptions.Item label="狀態">
+              <StatusBadge value={selectedLot.lot_status} />
+            </Descriptions.Item>
+            <Descriptions.Item label="建立日期">
+              {new Date(selectedLot.created_at).toLocaleString("zh-TW")}
+            </Descriptions.Item>
+            <Descriptions.Item label="來源收料單 ID">
+              {selectedLot.receipt_id ?? "—"}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
     </section>
   );
 }

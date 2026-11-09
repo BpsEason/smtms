@@ -202,11 +202,11 @@ export function AuditLogPage() {
         >
           <form
             onSubmit={submitFilters}
-            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+            className="flex flex-wrap items-end gap-3"
           >
             <FormField label="操作者帳號">
               <input
-                className={inputClass}
+                className={`${inputClass} min-w-[140px]`}
                 value={draft.actor_username}
                 onChange={(event) => {
                   setDraft((prev) => ({
@@ -219,7 +219,7 @@ export function AuditLogPage() {
             </FormField>
             <FormField label="操作類型">
               <select
-                className={inputClass}
+                className={`${inputClass} min-w-[120px]`}
                 value={draft.action}
                 onChange={(event) => {
                   setDraft((prev) => ({
@@ -238,7 +238,7 @@ export function AuditLogPage() {
             </FormField>
             <FormField label="資源類型">
               <input
-                className={inputClass}
+                className={`${inputClass} min-w-[140px]`}
                 value={draft.resource_type}
                 onChange={(event) => {
                   setDraft((prev) => ({
@@ -252,7 +252,7 @@ export function AuditLogPage() {
             </FormField>
             <FormField label="開始時間">
               <input
-                className={inputClass}
+                className={`${inputClass} min-w-[180px]`}
                 type="datetime-local"
                 value={draft.start_at}
                 onChange={(event) => {
@@ -266,7 +266,7 @@ export function AuditLogPage() {
             </FormField>
             <FormField label="結束時間">
               <input
-                className={inputClass}
+                className={`${inputClass} min-w-[180px]`}
                 type="datetime-local"
                 value={draft.end_at}
                 onChange={(event) => {
@@ -278,7 +278,7 @@ export function AuditLogPage() {
                 }}
               />
             </FormField>
-            <div className="flex gap-2 sm:col-span-2 xl:col-span-5">
+            <div className="flex gap-2 pb-0.5">
               <button type="submit" className={buttonClass}>
                 套用篩選
               </button>

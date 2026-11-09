@@ -1,5 +1,16 @@
-import * as Dialog from '@radix-ui/react-dialog';
-import { X } from 'lucide-react';
+import {
+  Button,
+  Descriptions,
+  Divider,
+  Empty,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Timeline,
+  Typography,
+  Upload,
+} from "antd";
 import {
   FormField,
   StatusBadge,
@@ -9,6 +20,9 @@ import {
 } from "../../components/ui";
 import type { NonconformanceDetailProps } from "./types";
 import { SEVERITY_OPTIONS } from "./constants";
+
+const { Text, Title } = Typography;
+const { TextArea } = Input;
 
 export function NonconformanceDetail({
   selectedItem,
@@ -30,330 +44,277 @@ export function NonconformanceDetail({
 }: NonconformanceDetailProps) {
   if (!selectedItem) return null;
 
-  // 獲取目前的調查內容，優先使用RHF表單中的最新值，確保用戶輸入後能即時反映
   const formInvestigation = getEditValues("investigation") || "";
   const selectedItemInvestigation = selectedItem.investigation || "";
-  // 使用表單中的值（如果有），否則使用selectedItem中的值
   const currentInvestigation = formInvestigation || selectedItemInvestigation;
-  const hasInvestigation = currentInvestigation && currentInvestigation.trim().length > 0;
-  const hasDispositions = selectedItem.dispositions && selectedItem.dispositions.length > 0;
+  const hasInvestigation = Boolean(currentInvestigation && currentInvestigation.trim().length > 0);
+  const hasDispositions = Boolean(selectedItem.dispositions && selectedItem.dispositions.length > 0);
   const canClose = hasInvestigation && hasDispositions;
 
-  // 渲染狀態轉換按鈕
   const renderStatusButtons = () => {
     if (!canEditSelected) return null;
 
     if (selectedItem.status === "open") {
       return (
-        <button
-          className={buttonClass}
-          disabled={isLoading}
-          onClick={() => onStatusTransition("investigating")}
-        >
+        <Button type="primary" loading={isLoading} onClick={() => onStatusTransition("investigating")}>
           開始調查
-        </button>
+        </Button>
       );
     }
 
     if (selectedItem.status === "investigating") {
       return (
-        <button
-          className={buttonClass}
-          disabled={isLoading}
-          onClick={() => onStatusTransition("pending_confirmation")}
-        >
+        <Button type="primary" loading={isLoading} onClick={() => onStatusTransition("pending_confirmation")}>
           送待確認
-        </button>
+        </Button>
       );
     }
 
     if (selectedItem.status === "pending_confirmation") {
-      // 檢查是否滿足結案條件：需要有調查內容和至少一筆處置記錄
       return (
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <button
-              className={secondaryButtonClass}
-              disabled={isLoading}
-              onClick={() => onStatusTransition("investigating")}
-            >
+        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Space wrap>
+            <Button disabled={isLoading} onClick={() => onStatusTransition("investigating")}>
               退回調查
-            </button>
-            <button
-              className={buttonClass}
-              disabled={isLoading || !canClose}
+            </Button>
+            <Button
+              type="primary"
+              loading={isLoading}
+              disabled={!canClose}
+              title={
+                !canClose
+                  ? !hasInvestigation
+                    ? "需要先填寫調查內容"
+                    : "需要先新增至少一筆處置記錄"
+                  : undefined
+              }
               onClick={() => onStatusTransition("closed")}
-              title={!canClose ? (
-                !hasInvestigation ? "需要先填寫調查內容" : "需要先新增至少一筆處置記錄"
-              ) : ""}
             >
               結案
-            </button>
-          </div>
+            </Button>
+          </Space>
           {!canClose && (
-            <p className="text-sm text-amber-600">
+            <Text type="warning">
               {!hasInvestigation && "請先填寫調查內容；"}
               {!hasDispositions && "請先新增至少一筆處置記錄；"}
               完成後才能結案
-            </p>
+            </Text>
           )}
-        </div>
+        </Space>
       );
     }
 
     return null;
   };
 
-  // 渲染編輯表單
-  const renderEditForm = () => {
-    if (!canEditSelected) {
-      return (
-        <div className="space-y-4">
-          <div>
-            <h4 className="font-semibold mb-1">異常描述</h4>
-            <p className="whitespace-pre-wrap text-sm">{selectedItem.description}</p>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="grid gap-3 md:grid-cols-2">
-        <FormField label="案件標題" error={editErrors.title?.message}>
-          <input
-            className={inputClass}
-            maxLength={200}
-            {...registerEdit("title")}
-          />
-        </FormField>
-
-        <FormField label="嚴重程度" error={editErrors.severity?.message}>
-          <select
-            className={inputClass}
-            {...registerEdit("severity")}
-          >
-            {SEVERITY_OPTIONS.map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-        </FormField>
-
-        <div className="md:col-span-2">
-          <FormField label="異常描述" error={editErrors.description?.message}>
-            <textarea
-              rows={3}
-              className={inputClass}
-              {...registerEdit("description")}
-            />
-          </FormField>
-        </div>
-      </div>
-    );
-  };
-
-  // 渲染處置記錄表單
-  const renderDispositionForm = () => {
-    if (!canEditSelected) return null;
-
-    return (
-      <form
-        className="grid gap-3 border-t pt-4 md:grid-cols-3"
-        onSubmit={onAddDisposition}
-      >
-        <FormField label="處置內容" error={dispositionErrors.content?.message}>
-          <input
-            className={inputClass}
-            {...registerDisposition("content")}
-          />
-        </FormField>
-
-        <FormField label="處置結果" error={dispositionErrors.result?.message}>
-          <input
-            className={inputClass}
-            {...registerDisposition("result")}
-          />
-        </FormField>
-
-        <FormField label="執行時間" error={dispositionErrors.executed_at?.message}>
-          <input
-            type="datetime-local"
-            className={inputClass}
-            {...registerDisposition("executed_at")}
-          />
-        </FormField>
-
-        <button
-          type="submit"
-          className={buttonClass}
-          disabled={isLoading}
-        >
-          新增處置紀錄
-        </button>
-      </form>
-    );
-  };
-
-  // 渲染附件上傳區
-  const renderAttachmentUpload = () => {
-    if (!canEditSelected) return null;
-
-    return (
-        <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
-          上傳附件（PDF／PNG／JPEG）
-          <input
-            className="sr-only"
-            type="file"
-            accept=".pdf,.png,.jpg,.jpeg"
-            onChange={(e) => onUploadAttachment(e.target.files?.[0])}
-          />
-        </label>
-    );
-  };
-
   return (
-    <Dialog.Root open={!!selectedItem} onOpenChange={(open) => {
-      if (!open) onClose();
-    }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/35" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(900px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 max-h-[90vh] overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl focus:outline-none">
-          <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-start justify-between gap-4">
-            <div>
-              <Dialog.Title className="text-lg font-semibold text-slate-950">{`${selectedItem.case_no} · ${selectedItem.title}`}</Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs text-slate-500">{`發現 ${new Date(selectedItem.found_at).toLocaleString()} · 發現人 ID ${selectedItem.found_by_user_id}`}</Dialog.Description>
-            </div>
-            <button 
-              type="button" 
-              aria-label="關閉" 
-              disabled={isLoading} 
-              onClick={onClose} 
-              className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="p-5">
-            <div className="space-y-5">
-              {/* 基本資訊標籤 */}
-              <div className="flex flex-wrap items-center gap-3">
-                <StatusBadge value={selectedItem.status} />
-                <span>來源：{selectedItem.source}</span>
-                <span>嚴重程度：{selectedItem.severity}</span>
-                <span>不良數量：{selectedItem.defect_qty ?? "未填"}</span>
+    <Modal
+      open={!!selectedItem}
+      onCancel={() => {
+        if (!isLoading) onClose();
+      }}
+      title={
+        <div>
+          <Title level={4} style={{ margin: 0 }}>
+            {selectedItem.case_no} · {selectedItem.title}
+          </Title>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            發現 {new Date(selectedItem.found_at).toLocaleString()} · 發現人 ID{" "}
+            {selectedItem.found_by_user_id}
+          </Text>
+        </div>
+      }
+      width={900}
+      footer={null}
+      destroyOnHidden
+      maskClosable={!isLoading}
+      keyboard={!isLoading}
+      styles={{ body: { maxHeight: "70vh", overflowY: "auto" } }}
+    >
+      <Space direction="vertical" size={20} style={{ width: "100%" }}>
+        {/* 基本資訊 */}
+        <Space wrap size="middle">
+          <StatusBadge value={selectedItem.status} />
+          <Text>來源：{selectedItem.source}</Text>
+          <Text>嚴重程度：{selectedItem.severity}</Text>
+          <Text>不良數量：{selectedItem.defect_qty ?? "未填"}</Text>
+        </Space>
+
+        <Descriptions size="small" column={2} bordered>
+          <Descriptions.Item label="供應商">{selectedItem.supplier_id ?? "—"}</Descriptions.Item>
+          <Descriptions.Item label="物料">{selectedItem.material_id ?? "—"}</Descriptions.Item>
+          <Descriptions.Item label="收料紀錄">{selectedItem.receipt_id ?? "—"}</Descriptions.Item>
+          <Descriptions.Item label="供應商批號">{selectedItem.supplier_lot_id ?? "—"}</Descriptions.Item>
+          <Descriptions.Item label="內部批號">{selectedItem.internal_lot_id ?? "—"}</Descriptions.Item>
+          <Descriptions.Item label="IQC">{selectedItem.iqc_record_id ?? "—"}</Descriptions.Item>
+        </Descriptions>
+
+        {/* 編輯／唯讀內容 */}
+        <form onSubmit={onSaveInvestigation} noValidate>
+          {canEditSelected ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <FormField label="案件標題" error={editErrors.title?.message}>
+                <input className={inputClass} maxLength={200} {...registerEdit("title")} />
+              </FormField>
+              <FormField label="嚴重程度" error={editErrors.severity?.message}>
+                <select className={inputClass} {...registerEdit("severity")}>
+                  {SEVERITY_OPTIONS.map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <div className="md:col-span-2">
+                <FormField label="異常描述" error={editErrors.description?.message}>
+                  <textarea rows={3} className={inputClass} {...registerEdit("description")} />
+                </FormField>
               </div>
-
-              {/* 關聯ID資訊 */}
-              <p className="text-xs text-slate-500">
-                關聯 ID：供應商 {selectedItem.supplier_id ?? "—"} · 物料{" "}
-                {selectedItem.material_id ?? "—"} · 收料紀錄{" "}
-                {selectedItem.receipt_id ?? "—"} · 供應商批號{" "}
-                {selectedItem.supplier_lot_id ?? "—"} · 內部批號{" "}
-                {selectedItem.internal_lot_id ?? "—"} · IQC{" "}
-                {selectedItem.iqc_record_id ?? "—"}
+            </div>
+          ) : (
+            <div>
+              <Text strong>異常描述</Text>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                {selectedItem.description}
               </p>
+            </div>
+          )}
 
-              {/* 編輯表單與調查內容 - 使用 react-hook-form 管理 */}
-              <form onSubmit={onSaveInvestigation} noValidate>
-                {renderEditForm()}
+          <Divider orientation="left" plain>
+            調查內容
+          </Divider>
 
-                {/* 調查內容區 */}
-                <div className="grid gap-3 md:grid-cols-[1fr_auto] mt-3">
-                  <FormField label="調查內容" error={editErrors.investigation?.message}>
-                    {!canEditSelected ? (
-                      <p className="whitespace-pre-wrap text-sm">{selectedItem.investigation || "無調查內容"}</p>
-                    ) : (
-                      <textarea
-                        className={inputClass}
-                        rows={3}
-                        aria-label="調查內容"
-                        placeholder="調查內容"
-                        disabled={!canEditSelected}
-                        {...registerEdit("investigation")}
-                      />
-                    )}
-                  </FormField>
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+            <FormField label="調查內容" error={editErrors.investigation?.message}>
+              {!canEditSelected ? (
+                <p className="whitespace-pre-wrap text-sm">
+                  {selectedItem.investigation || "無調查內容"}
+                </p>
+              ) : (
+                <textarea
+                  className={inputClass}
+                  rows={3}
+                  aria-label="調查內容"
+                  placeholder="調查內容"
+                  {...registerEdit("investigation")}
+                />
+              )}
+            </FormField>
+            {canEditSelected && (
+              <button type="submit" className={`${buttonClass} self-end`} disabled={isLoading}>
+                儲存調查
+              </button>
+            )}
+          </div>
+        </form>
 
-                  {canEditSelected && (
-                    <button
-                      type="submit"
-                      className={`${buttonClass} self-end`}
-                      disabled={isLoading}
-                    >
-                      儲存調查
-                    </button>
+        {/* 狀態操作 */}
+        {renderStatusButtons()}
+
+        <Divider orientation="left" plain>
+          圍堵與處置紀錄
+        </Divider>
+
+        {canEditSelected && (
+          <form className="grid gap-3 md:grid-cols-3" onSubmit={onAddDisposition}>
+            <FormField label="處置內容" error={dispositionErrors.content?.message}>
+              <input className={inputClass} {...registerDisposition("content")} />
+            </FormField>
+            <FormField label="處置結果" error={dispositionErrors.result?.message}>
+              <input className={inputClass} {...registerDisposition("result")} />
+            </FormField>
+            <FormField label="執行時間" error={dispositionErrors.executed_at?.message}>
+              <input type="datetime-local" className={inputClass} {...registerDisposition("executed_at")} />
+            </FormField>
+            <button type="submit" className={buttonClass} disabled={isLoading}>
+              新增處置紀錄
+            </button>
+          </form>
+        )}
+
+        {selectedItem.dispositions?.length ? (
+          <Timeline
+            items={selectedItem.dispositions.map((d) => ({
+              children: (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {new Date(d.executed_at).toLocaleString()} · 負責人 ID {d.owner_user_id}
+                  </Text>
+                  <div>
+                    {d.content} — {d.result}
+                  </div>
+                </div>
+              ),
+            }))}
+          />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無處置紀錄" />
+        )}
+
+        <Divider orientation="left" plain>
+          附件
+        </Divider>
+
+        {canEditSelected && (
+          <label className={secondaryButtonClass + " cursor-pointer inline-flex"}>
+            上傳附件（PDF／PNG／JPEG）
+            <input
+              className="sr-only"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg"
+              onChange={(e) => onUploadAttachment(e.target.files?.[0])}
+            />
+          </label>
+        )}
+
+        {selectedItem.attachments?.length ? (
+          <Space direction="vertical" size={4}>
+            {selectedItem.attachments.map((a) => (
+              <Space key={a.id}>
+                <Button type="link" onClick={() => onDownloadAttachment(a.id, a.original_filename)}>
+                  {a.original_filename}
+                </Button>
+                {canModify && (
+                  <Button type="link" danger onClick={() => onRemoveAttachment(a.id)}>
+                    刪除
+                  </Button>
+                )}
+              </Space>
+            ))}
+          </Space>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無附件" />
+        )}
+
+        <Divider orientation="left" plain>
+          案件歷程
+        </Divider>
+
+        {selectedItem.history?.length ? (
+          <Timeline
+            items={selectedItem.history.map((h) => ({
+              children: (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {new Date(h.created_at).toLocaleString()} · 使用者 {h.actor_user_id}
+                  </Text>
+                  <div>{h.action}</div>
+                  {h.before_data && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-xs text-slate-500">變更前後資料</summary>
+                      <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-2 text-xs">
+                        {h.before_data} → {h.after_data}
+                      </pre>
+                    </details>
                   )}
                 </div>
-              </form>
-
-              {/* 狀態轉換按鈕 */}
-              {renderStatusButtons()}
-
-              {/* 處置記錄表單 */}
-              {renderDispositionForm()}
-
-              {/* 處置記錄列表 */}
-              <div>
-                <h3 className="mb-2 font-semibold">圍堵與處置紀錄</h3>
-                {selectedItem.dispositions?.map((d) => (
-                  <p key={d.id} className="border-t py-2 text-sm">
-                    {new Date(d.executed_at).toLocaleString()} · {d.content} —{" "}
-                    {d.result}（負責人 ID {d.owner_user_id}）
-                  </p>
-                ))}
-              </div>
-
-              {/* 附件上傳 */}
-              {renderAttachmentUpload()}
-
-              {/* 附件列表 */}
-              <div>
-                <h3 className="mb-2 font-semibold">附件</h3>
-                {selectedItem.attachments?.map((a) => (
-                  <span
-                    key={a.id}
-                    className="mr-3 inline-flex items-center gap-2"
-                  >
-                    <button
-                      className="text-sm text-sky-700 underline"
-                      onClick={() => onDownloadAttachment(a.id, a.original_filename)}
-                    >
-                      {a.original_filename}
-                    </button>
-                    {canModify && (
-                      <button
-                        aria-label={`刪除附件 ${a.original_filename}`}
-                        className="text-xs text-rose-700 underline"
-                        onClick={() => onRemoveAttachment(a.id)}
-                      >
-                        刪除
-                      </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-
-              {/* 案件歷程 */}
-              <div>
-                <h3 className="mb-2 font-semibold">案件歷程</h3>
-                {selectedItem.history?.map((h) => (
-                  <p key={h.id} className="border-t py-2 text-xs text-slate-600">
-                    {new Date(h.created_at).toLocaleString()} · 使用者{" "}
-                    {h.actor_user_id} · {h.action}
-                    {h.before_data && (
-                      <details className="mt-1">
-                        <summary>變更前後資料</summary>
-                        <pre className="overflow-auto">
-                          {h.before_data} → {h.after_data}
-                        </pre>
-                      </details>
-                    )}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+              ),
+            }))}
+          />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無歷程" />
+        )}
+      </Space>
+    </Modal>
   );
 }
