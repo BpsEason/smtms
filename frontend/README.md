@@ -338,13 +338,14 @@ const createSupplierMutation = useMutation({
 ### 環境需求
 
 - Node.js `^20.19.0`、`^22.12.0` 或 `>=24.0.0`
-- npm
+- pnpm（建議透過 Corepack 管理，版本以 `package.json` 的 `packageManager` 為準）
 
 ### 安裝依賴
 
 ```powershell
 Set-Location .\frontend
-npm install
+corepack enable
+pnpm install --frozen-lockfile
 ```
 
 ### 環境變數
@@ -370,7 +371,7 @@ Set-Content -Path .env.local -Value 'VITE_API_BASE_URL=http://localhost:8000'
 ### 啟動開發伺服器
 
 ```powershell
-npm run dev
+pnpm run dev
 ```
 
 預設網址：
@@ -380,10 +381,10 @@ npm run dev
 ### 常用指令
 
 ```powershell
-npm test       # 執行 Vitest
-npm run lint   # 執行 Oxlint
-npm run build  # TypeScript 檢查與 Vite Build
-npm run preview
+pnpm test -- --run       # 執行 Vitest
+pnpm run lint            # 執行 Oxlint
+pnpm run build           # TypeScript 檢查與 Vite Build
+pnpm run preview
 ```
 
 ---
@@ -394,7 +395,7 @@ npm run preview
 
 1. 依照後端 README 啟動 MySQL、Redis 與 FastAPI。
 2. 確認後端 API 可正常連線，例如 `http://localhost:8000`。
-3. 進入 `frontend` 目錄執行 `npm run dev`。
+3. 進入 `frontend` 目錄執行 `pnpm run dev`。
 4. 開啟 `http://localhost:5173`。
 5. 後端 OpenAPI 文件預設為 `http://localhost:8000/docs`。
 
@@ -573,7 +574,7 @@ API 錯誤統一經由：
 
 | 狀況 | 處理方式 |
 |---|---|
-| 找不到 npm script | 確認目前位於 `frontend` 目錄 |
+| 找不到 pnpm script | 確認目前位於 `frontend` 目錄，並已透過 Corepack 啟用 pnpm |
 | 無法連線 API | 檢查後端埠號、`VITE_API_BASE_URL` 與 Vite Proxy |
 | CORS 錯誤 | 確認後端 `CORS_ORIGINS` 包含目前前端 Origin |
 | 登入後被導回登入頁 | 檢查 Token、`/auth/me` 回應及後端 Redis 狀態 |
@@ -601,7 +602,7 @@ API 錯誤統一經由：
 
 正式部署建議使用靜態檔案方式：
 
-1. 執行 `npm run build`。
+1. 執行 `pnpm run build`。
 2. 產生前端靜態檔案至 `dist/`。
 3. 使用 Nginx 或其他 Web Server 提供靜態檔案。
 4. 設定正確的 API Origin。
