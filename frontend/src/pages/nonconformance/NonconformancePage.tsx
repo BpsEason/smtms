@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api, ApiError } from "../../api";
+import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
+import { api } from "../../api";
+import { formatErrorMessage } from "../../lib/error";
 import {
   ErrorState,
   PageHeader,
   buttonClass,
 } from "../../components/ui";
-import type { UserProfile, Nonconformance } from "../../types";
+import type { UserProfile, Nonconformance, NonconformanceCreatePayload, NonconformanceUpdatePayload, NonconformanceDispositionPayload } from "../../types";
 import { NonconformanceCreateForm } from "./NonconformanceCreateForm";
 import { NonconformanceList } from "./NonconformanceList";
 import { NonconformanceDetail } from "./NonconformanceDetail";
@@ -25,7 +27,7 @@ import {
 // 輔助函數：驗證ID欄位（必須是正整數，空字串視為未填）
 const idFieldSchema = z.string().refine(
   (val) => {
-    if (val === "") return true; // 空字串視為未填，通過驗證
+    if (val === "") return true;
     const num = Number(val);
     return !isNaN(num) && Number.isInteger(num) && num > 0;
   },
@@ -35,10 +37,9 @@ const idFieldSchema = z.string().refine(
 // 輔助函數：驗證defect_qty欄位（必須是非負數，最多4位小數，空字串視為未填）
 const defectQtySchema = z.string().refine(
   (val) => {
-    if (val === "") return true; // 空字串視為未填，通過驗證
+    if (val === "") return true;
     const num = Number(val);
     if (isNaN(num) || num < 0) return false;
-    // 檢查是否最多4位小數
     const decimalParts = val.split(".");
     if (decimalParts.length > 1 && decimalParts[1].length > 4) return false;
     return true;
@@ -86,22 +87,12 @@ const nonconformanceEditSchema = z.object({
 export type NonconformanceEditFormData = z.infer<typeof nonconformanceEditSchema>;
 
 // ============ 主要頁面元件 ============
-export function NonconformancePage({
+function NonconformancePageInner({
   profile,
 }: {
   profile: UserProfile | null;
 }) {
   const [searchParams] = useSearchParams();
-
-  // ============ 狀態管理 - 按用途分組 ============
-  
-  // === 伺服器資料狀態 ===
-  // 案件列表
-  const [nonconformanceList, setNonconformanceList] = useState<Nonconformance[]>([]);
-  // 目前選中的案件
-  const [selectedItem, setSelectedItem] = useState<Nonconformance | null>(null);
-  // 列表載入狀態
-  const [isListLoading, setIsListLoading] = useState(false);
 
   // === 使用者篩選條件 ===
   const [filters, setFilters] = useState<Filters>({
@@ -111,6 +102,9 @@ export function NonconformancePage({
     supplier_id: "",
     lot_no: "",
   });
+
+  // === 選中的案件 ID ===
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   // === 新增表單狀態 - 使用 react-hook-form 管理 ===
   const {
@@ -125,8 +119,7 @@ export function NonconformancePage({
     },
   });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  
-  // 當模態框打開/關閉或編輯狀態改變時重設表單
+
   useEffect(() => {
     if (isCreateModalOpen) {
       reset({
@@ -141,7 +134,7 @@ export function NonconformancePage({
     handleSubmit: handleSubmitEdit,
     reset: resetEdit,
     getValues: getEditValues,
-    formState: { errors: editErrors, isSubmitting: isEditSubmitting },
+    formState: { errors: editErrors },
   } = useForm<NonconformanceEditFormData>({
     resolver: zodResolver(nonconformanceEditSchema),
     defaultValues: {
@@ -157,7 +150,7 @@ export function NonconformancePage({
     register: registerDisposition,
     handleSubmit: handleSubmitDisposition,
     reset: resetDisposition,
-    formState: { errors: dispositionErrors, isSubmitting: isDispositionSubmitting },
+    formState: { errors: dispositionErrors },
   } = useForm<DispositionFormData>({
     resolver: zodResolver(dispositionSchema),
     defaultValues: {
@@ -167,113 +160,161 @@ export function NonconformancePage({
 
   // === UI 狀態 ===
   const [errorMessage, setErrorMessage] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
 
-  // ============ 衍生值（由既有狀態直接計算） ============
+  // ============ TanStack Query：遠端資料 ============
+
+  const listQuery = useQuery<Nonconformance[]>({
+    queryKey: ["nonconformances", filters],
+    queryFn: async () => {
+      const result = await api.listNonconformances(filters);
+      return result.items;
+    },
+    retry: 0,
+    staleTime: 30 * 1000,
+  });
+
+  const detailQuery = useQuery<Nonconformance>({
+    queryKey: ["nonconformance", selectedId],
+    queryFn: async () => api.getNonconformance(selectedId!),
+    enabled: !!selectedId,
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
+
+  const nonconformanceList = listQuery.data ?? [];
+  const isListLoading = listQuery.isLoading;
+  const selectedItem = selectedId ? detailQuery.data ?? null : null;
+  const isDetailLoading = detailQuery.isLoading;
+
+  // ============ 衍生值 ============
   const canModify = Boolean(profile?.permissions.includes("nonconformance:write"));
-  
-  // 選中案件是否可編輯（有寫入權限且未結案）
-  const canEditSelected = Boolean(canModify && selectedItem && selectedItem.status !== "closed");
-  
-  // ============ API 操作方法 ============
-  
-  // 載入案件列表
-  const loadNonconformanceList = useCallback(async () => {
-    if (isListLoading) return;
-    
-    setIsListLoading(true);
-    try {
-      const result = await api.listNonconformances({ ...filters });
-      setNonconformanceList(result.items);
-      setErrorMessage("");
-    } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "案件載入失敗");
-    } finally {
-      setIsListLoading(false);
-    }
-  }, [filters, isListLoading]);
+  const canEditSelected = Boolean(canModify && selectedId && selectedItem && selectedItem.status !== "closed");
 
-  // 載入單一案件詳情
-  const loadSelectedItem = async (id: number) => {
-    try {
-      const detail = await api.getNonconformance(id);
-      setSelectedItem(detail);
+  const queryError =
+    listQuery.error ? formatErrorMessage(listQuery.error) :
+    detailQuery.error ? formatErrorMessage(detailQuery.error) : "";
+
+  // ============ Mutations：寫入操作 ============
+
+  const createMutation = useMutation({
+    mutationFn: (payload: NonconformanceCreatePayload) => api.createNonconformance(payload),
+    onSuccess: (created) => {
+      void listQuery.refetch();
+      setSelectedId(created.id);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: NonconformanceUpdatePayload }) =>
+      api.updateNonconformance(id, payload),
+    onSuccess: () => {
+      void detailQuery.refetch();
+      void listQuery.refetch();
+    },
+  });
+
+  const dispositionMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: NonconformanceDispositionPayload }) =>
+      api.addNonconformanceDisposition(id, payload),
+    onSuccess: () => {
+      void detailQuery.refetch();
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: ({ id, file }: { id: number; file: File }) =>
+      api.uploadNonconformanceAttachment(id, file),
+    onSuccess: () => {
+      void detailQuery.refetch();
+    },
+  });
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: ({ id, attachmentId }: { id: number; attachmentId: number }) =>
+      api.deleteNonconformanceAttachment(id, attachmentId),
+    onSuccess: () => {
+      void detailQuery.refetch();
+    },
+  });
+
+  const isSaving =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    dispositionMutation.isPending ||
+    uploadMutation.isPending ||
+    deleteAttachmentMutation.isPending;
+
+  // 當選中案件改變時，重設編輯表單
+  useEffect(() => {
+    if (selectedItem) {
       resetEdit({
-        title: detail.title,
-        description: detail.description,
-        severity: detail.severity,
-        investigation: detail.investigation ?? "",
+        title: selectedItem.title,
+        description: selectedItem.description,
+        severity: selectedItem.severity,
+        investigation: selectedItem.investigation ?? "",
       });
       setErrorMessage("");
-    } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "案件資料載入失敗");
     }
-  };
+  }, [selectedItem, resetEdit]);
 
-  // 清除選中的案件，關閉詳細視窗
+  // ============ API 操作方法 ============
+
   const clearSelectedItem = () => {
-    setSelectedItem(null);
+    setSelectedId(null);
+    setErrorMessage("");
   };
 
-  // 建立新案件 - react-hook-form 版本
+  const updateFilters = <K extends keyof Filters>(field: K, value: Filters[K]) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  // 建立新案件
   const onSubmit = async (formData: NonconformanceCreateFormData) => {
     setErrorMessage("");
-
+    const data: Record<string, unknown> = {
+      ...formData,
+      found_at: new Date(formData.found_at).toISOString(),
+    };
+    const allNumericFields = [...NUMERIC_FIELD_NAMES, "defect_qty"];
+    for (const key of allNumericFields) {
+      const value = formData[key as keyof NonconformanceCreateFormData];
+      data[key] = value ? Number(value) : null;
+    }
     try {
-      const data: Record<string, unknown> = {
-        ...formData,
-        found_at: new Date(formData.found_at).toISOString(),
-      };
-
-      // 處理所有數字欄位，包括ID欄位和defect_qty
-      const allNumericFields = [...NUMERIC_FIELD_NAMES, "defect_qty"];
-      for (const key of allNumericFields) {
-        const value = formData[key as keyof NonconformanceCreateFormData];
-        data[key] = value ? Number(value) : null;
-      }
-
-      const created = await api.createNonconformance(data);
+      await createMutation.mutateAsync(data as NonconformanceCreatePayload);
       setIsCreateModalOpen(false);
-      await loadNonconformanceList();
-      await loadSelectedItem(created.id);
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "建立失敗");
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
   // 儲存調查內容與編輯的基本資訊
   const handleSaveInvestigation = async (formData: NonconformanceEditFormData) => {
     if (!selectedItem) return;
-    setIsSaving(true);
-
+    setErrorMessage("");
     try {
-      await api.updateNonconformance(selectedItem.id, {
-        investigation: formData.investigation,
-        title: formData.title,
-        description: formData.description,
-        severity: formData.severity,
+      await updateMutation.mutateAsync({
+        id: selectedItem.id,
+        payload: {
+          investigation: formData.investigation,
+          title: formData.title,
+          description: formData.description,
+          severity: formData.severity,
+        },
       });
-      await loadSelectedItem(selectedItem.id);
-      await loadNonconformanceList();
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "更新失敗");
-    } finally {
-      setIsSaving(false);
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
   // 轉換案件狀態
   const handleStatusTransition = async (newStatus: string) => {
     if (!selectedItem) return;
-    
-    // 從表單中獲取最新的調查內容 - 使用 getValues 方法
     const currentInvestigation = getEditValues("investigation") || "";
-    
-    // 結案前預檢查，提前提示使用者需要完成的項目
+
     if (newStatus === "closed") {
       const hasInvestigation = currentInvestigation && currentInvestigation.trim().length > 0;
       const hasDispositions = selectedItem.dispositions && selectedItem.dispositions.length > 0;
-      
       if (!hasInvestigation || !hasDispositions) {
         const missing = [];
         if (!hasInvestigation) missing.push("調查內容");
@@ -282,67 +323,53 @@ export function NonconformancePage({
         return;
       }
     }
-    
-    setIsSaving(true);
 
     try {
-      await api.updateNonconformance(selectedItem.id, { 
-        status: newStatus, 
-        investigation: currentInvestigation 
+      await updateMutation.mutateAsync({
+        id: selectedItem.id,
+        payload: { status: newStatus, investigation: currentInvestigation },
       });
-      await loadSelectedItem(selectedItem.id);
-      await loadNonconformanceList();
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "狀態更新失敗");
-    } finally {
-      setIsSaving(false);
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
-  // 新增處置記錄 - react-hook-form 版本
+  // 新增處置記錄
   const onSubmitDisposition = async (formData: DispositionFormData) => {
     if (!selectedItem || !profile) return;
-    setIsSaving(true);
-
+    setErrorMessage("");
     try {
-      await api.addNonconformanceDisposition(selectedItem.id, {
-        ...formData,
-        owner_user_id: profile.id,
-        executed_at: new Date(formData.executed_at).toISOString(),
+      await dispositionMutation.mutateAsync({
+        id: selectedItem.id,
+        payload: {
+          ...formData,
+          owner_user_id: profile.id,
+          executed_at: new Date(formData.executed_at).toISOString(),
+        },
       });
-
-      resetDisposition({
-        ...createBlankDisposition(),
-      });
-      await loadSelectedItem(selectedItem.id);
+      resetDisposition({ ...createBlankDisposition() });
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "處置紀錄新增失敗");
-    } finally {
-      setIsSaving(false);
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
   // 上傳附件
   const handleUploadAttachment = async (file?: File) => {
     if (!selectedItem || !file) return;
-
+    setErrorMessage("");
     try {
-      await api.uploadNonconformanceAttachment(selectedItem.id, file);
-      await loadSelectedItem(selectedItem.id);
+      await uploadMutation.mutateAsync({ id: selectedItem.id, file });
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "附件上傳失敗");
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
   // 下載附件
   const handleDownloadAttachment = async (attachmentId: number, filename: string) => {
     if (!selectedItem) return;
-
+    setErrorMessage("");
     try {
-      const blob = await api.downloadNonconformanceAttachment(
-        selectedItem.id,
-        attachmentId,
-      );
+      const blob = await api.downloadNonconformanceAttachment(selectedItem.id, attachmentId);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -350,39 +377,25 @@ export function NonconformancePage({
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "附件下載失敗");
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
   // 刪除附件
   const handleRemoveAttachment = async (attachmentId: number) => {
-    if (
-      !selectedItem ||
-      !window.confirm("確定刪除這個案件附件？刪除動作會留下案件歷程。")
-    )
+    if (!selectedItem || !window.confirm("確定刪除這個案件附件？刪除動作會留下案件歷程。"))
       return;
-
+    setErrorMessage("");
     try {
-      await api.deleteNonconformanceAttachment(selectedItem.id, attachmentId);
-      await loadSelectedItem(selectedItem.id);
+      await deleteAttachmentMutation.mutateAsync({ id: selectedItem.id, attachmentId });
     } catch (e) {
-      setErrorMessage(e instanceof ApiError ? e.details : "附件刪除失敗");
+      setErrorMessage(formatErrorMessage(e));
     }
   };
 
-  // ============ 表單更新的通用處理函數 ============
-  const updateFilters = <K extends keyof Filters,>(field: K, value: Filters[K]) => {
-    setFilters(prev => ({ ...prev, [field]: value }));
-  };
+  // ============ 主渲染 ============
+  const displayError = errorMessage || queryError;
 
-
-
-  // ============ 生命週期 ============
-  useEffect(() => {
-    void loadNonconformanceList();
-  }, [loadNonconformanceList]);
-
-  // ============ 主渲染 - 頁面組成結構清晰可見 ============
   return (
     <section className="space-y-6">
       <PageHeader
@@ -401,9 +414,9 @@ export function NonconformancePage({
           ) : undefined
         }
       />
-      
-      {errorMessage && <ErrorState message={errorMessage} onRetry={() => void loadNonconformanceList()} />}
-      
+
+      {displayError && <ErrorState message={displayError} onRetry={() => void listQuery.refetch()} />}
+
       <NonconformanceCreateForm
         isOpen={isCreateModalOpen}
         isLoading={isLoading}
@@ -416,15 +429,15 @@ export function NonconformancePage({
       <NonconformanceList
         nonconformanceList={nonconformanceList}
         filters={filters}
-        errorMessage={errorMessage}
+        errorMessage={displayError}
         isListLoading={isListLoading}
         onUpdateFilters={updateFilters}
-        onSelectItem={loadSelectedItem}
+        onSelectItem={setSelectedId}
       />
-      
+
       <NonconformanceDetail
         selectedItem={selectedItem}
-        isLoading={isSaving || isDispositionSubmitting || isEditSubmitting}
+        isLoading={isSaving || isDetailLoading}
         canEditSelected={canEditSelected}
         canModify={canModify}
         registerEdit={registerEdit}
@@ -441,5 +454,15 @@ export function NonconformancePage({
         onClose={clearSelectedItem}
       />
     </section>
+  );
+}
+
+// 匯出的包裝元件：為獨立測試與未提供 QueryClientProvider 的場景自行建立 QueryClient
+export function NonconformancePage({ profile }: { profile: UserProfile | null }) {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <NonconformancePageInner profile={profile} />
+    </QueryClientProvider>
   );
 }

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Descriptions, Modal, Typography } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
-import { getErrorMessage } from "../../lib/data";
+import { formatErrorMessage } from "../../lib/error";
 import {
   DataTable,
   EmptyState,
@@ -27,74 +28,48 @@ import { Pagination } from "./components/SharedComponents";
 const { Text, Title } = Typography;
 
 export function InternalLotsPage({ profile: _profile }: { profile: UserProfile | null }) {
-  const [lots, setLots] = useState<PaginatedResponse<InternalLot> | null>(null);
   const [lotQuery, setLotQuery] = useState("");
   const [lotStatus, setLotStatus] = useState("");
   const [lotPage, setLotPage] = useState(1);
   const [selectedLotId, setSelectedLotId] = useState<number | null>(null);
-  const [selectedLot, setSelectedLot] = useState<InternalLot | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
-  const loadInternalLots = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await api.listInternalLots({
+  const {
+    data: lots,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery<PaginatedResponse<InternalLot>>({
+    queryKey: ["internal-lots", lotQuery, lotStatus, lotPage],
+    queryFn: async () =>
+      api.listInternalLots({
         keyword: lotQuery || undefined,
         status: lotStatus || undefined,
         page: lotPage,
         page_size: 50,
-      });
-      setLots(response);
-    } catch (err) {
-      setLots(null);
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [lotQuery, lotStatus, lotPage]);
+      }),
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
-  useEffect(() => {
-    const timer = window.setTimeout(
-      () => {
-        void loadInternalLots();
-      },
-      lotQuery ? 250 : 0,
-    );
-    return () => window.clearTimeout(timer);
-  }, [loadInternalLots, lotQuery]);
-
-  useEffect(() => {
-    if (selectedLotId === null) {
-      setSelectedLot(null);
-      return;
-    }
-
-    let active = true;
-    setDetailLoading(true);
-    api
-      .getInternalLot(selectedLotId)
-      .then((lot) => {
-        if (active) setSelectedLot(lot);
-      })
-      .catch((err) => {
-        if (active) setError(getErrorMessage(err));
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedLotId]);
+  const {
+    data: selectedLot,
+    isLoading: detailLoading,
+    error: detailQueryError,
+  } = useQuery<InternalLot>({
+    queryKey: ["internal-lot", selectedLotId],
+    queryFn: async () => api.getInternalLot(selectedLotId!),
+    enabled: !!selectedLotId,
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
   const closeDetail = () => {
     setSelectedLotId(null);
-    setSelectedLot(null);
   };
+
+  const displayError =
+    (queryError ? formatErrorMessage(queryError) : "") ||
+    (detailQueryError ? formatErrorMessage(detailQueryError) : "");
 
   return (
     <section>
@@ -104,9 +79,9 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
         description="管理已建立的內部物料批號，追蹤庫存與使用狀態。"
       />
 
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void loadInternalLots()} />
+          <ErrorState message={displayError} onRetry={() => void refetch()} />
         </div>
       )}
 
@@ -135,8 +110,8 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
 
           {loading ? (
             <LoadingState label="正在載入內部批號..." />
-          ) : error ? (
-            <ErrorState message={error} onRetry={() => void loadInternalLots()} />
+          ) : displayError ? (
+            <ErrorState message={displayError} onRetry={() => void refetch()} />
           ) : !lots?.items.length ? (
             <EmptyState title="目前沒有內部批號" />
           ) : (

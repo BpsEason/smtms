@@ -3,6 +3,7 @@ import type {
   PaginatedResponse,
   IQCRecord,
   IQCCreatePayload,
+  IQCUpdatePayload,
   QualityReview,
   QualityReviewDecisionPayload,
 } from "../types";
@@ -24,7 +25,7 @@ export async function createIQC(payload: IQCCreatePayload) {
 
 export async function updateIQC(
   iqcId: number,
-  payload: Record<string, unknown>,
+  payload: IQCUpdatePayload,
 ) {
   return request<IQCRecord>(`/api/v1/iqc/${iqcId}`, {
     method: "PATCH",

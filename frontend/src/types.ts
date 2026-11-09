@@ -20,6 +20,38 @@ export type Nonconformance = {
   attachments?: { id: number; original_filename: string; media_type: string; size_bytes: number; sha256: string }[];
 };
 
+export type NonconformanceCreatePayload = {
+  case_no: string;
+  title: string;
+  description: string;
+  source: string;
+  severity: string;
+  found_at: string;
+  supplier_id: number | null;
+  material_id: number | null;
+  receipt_id: number | null;
+  supplier_lot_id: number | null;
+  internal_lot_id: number | null;
+  iqc_record_id: number | null;
+  owner_user_id: number | null;
+  defect_qty: number | null;
+};
+
+export type NonconformanceUpdatePayload = {
+  title?: string;
+  description?: string;
+  severity?: string;
+  investigation?: string;
+  status?: string;
+};
+
+export type NonconformanceDispositionPayload = {
+  content: string;
+  result: string;
+  executed_at: string;
+  owner_user_id: number;
+};
+
 export type PaginatedResponse<T> = {
   items: T[];
   total: number;
@@ -199,6 +231,15 @@ export type SupplierMaterialCreatePayload = {
   is_preferred?: boolean;
 };
 
+export type SupplierMaterial = {
+  id: number;
+  supplier_id: number;
+  material_id: number;
+  supplier_material_code: string | null;
+  is_preferred: boolean;
+  created_at: string;
+};
+
 export type Receipt = {
   id: number;
   supplier_id: number;
@@ -259,6 +300,12 @@ export type IQCRecord = {
   reviewed_at: string | null;
   review_decision_note: string | null;
   created_at: string;
+};
+
+export type IQCUpdatePayload = {
+  inspection_result?: IQCRecord["inspection_result"];
+  release_status?: IQCRecord["release_status"];
+  remarks?: string | null;
 };
 
 export type QualityReview = {

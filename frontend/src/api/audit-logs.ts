@@ -1,10 +1,10 @@
 import { request, requestBlob, buildQueryString } from "./client";
-import type { AuditLog } from "../types";
+import type { AuditLog, PaginatedResponse } from "../types";
 
 export async function listAuditLogs(
   params?: Record<string, string | number | undefined | null>,
 ) {
-  return request<{ items: AuditLog[]; page: number; page_size: number }>(
+  return request<PaginatedResponse<AuditLog>>(
     `/api/v1/audit-logs${buildQueryString(params ?? {})}`,
   );
 }

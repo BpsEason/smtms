@@ -9,6 +9,7 @@ import type {
   SupplierDocumentAttachment,
   SupplierImportPreview,
   SupplierImportResult,
+  SupplierMaterial,
   SupplierMaterialCreatePayload,
 } from "../types";
 
@@ -167,7 +168,7 @@ export async function createSupplierMaterial(
   supplierId: number,
   payload: SupplierMaterialCreatePayload,
 ) {
-  return request(`/api/v1/suppliers/${supplierId}/materials`, {
+  return request<SupplierMaterial>(`/api/v1/suppliers/${supplierId}/materials`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { RefreshCw, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { formatErrorMessage } from "../lib/error";
 import { buildTraceabilityPageCsv } from "../lib/traceabilityCsv";
@@ -37,9 +38,23 @@ export function TraceabilityPage() {
   const [value, setValue] = useState("");
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState<{ key: Identifier; value: string } | null>(null);
-  const [result, setResult] = useState<PaginatedResponse<TraceabilityReceipt> | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const {
+    data: result,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery<PaginatedResponse<TraceabilityReceipt>>({
+    queryKey: ["traceability", query?.key, query?.value, page],
+    queryFn: async () => {
+      if (!query) throw new Error("未設定查詢條件");
+      return api.searchTraceability({ [query.key]: query.value, page, page_size: 20 });
+    },
+    enabled: !!query,
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
   const runSearch = async (event?: FormEvent<HTMLFormElement>, nextPage = 1) => {
     event?.preventDefault();
@@ -49,26 +64,14 @@ export function TraceabilityPage() {
       setError("請輸入一個追溯識別值。");
       return;
     }
-    setLoading(true);
     setError("");
-    try {
-      const rows = await api.searchTraceability({
-        [searchKey]: searchValue,
-        page: nextPage,
-        page_size: 20,
-      });
-      setQuery({ key: searchKey, value: searchValue });
-      setPage(nextPage);
-      setResult(rows);
-    } catch (err) {
-      setResult(null);
-      setError(formatErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+    setPage(nextPage);
+    setQuery({ key: searchKey, value: searchValue });
   };
 
   const pages = Math.max(1, Math.ceil((result?.total ?? 0) / (result?.page_size ?? 20)));
+
+  const displayError = error || (queryError ? formatErrorMessage(queryError) : "");
 
   const exportCurrentPage = () => {
     if (!result) return;
@@ -133,8 +136,8 @@ export function TraceabilityPage() {
           <button
             type="button"
             className={secondaryButtonClass}
-            disabled={loading || !query}
-            onClick={() => void runSearch(undefined, page)}
+            disabled={!query || loading}
+            onClick={() => void refetch()}
           >
             <RefreshCw className="h-4 w-4" />
             重新整理
@@ -142,9 +145,9 @@ export function TraceabilityPage() {
         </form>
       </Panel>
 
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void runSearch()} />
+          <ErrorState message={displayError} onRetry={() => void refetch()} />
         </div>
       )}
 
@@ -269,7 +272,7 @@ export function TraceabilityPage() {
                 <button
                   type="button"
                   className={secondaryButtonClass}
-                  disabled={page <= 1 || loading}
+                  disabled={page <= 1 || loading || !query}
                   onClick={() => void runSearch(undefined, page - 1)}
                 >
                   上一頁
@@ -277,7 +280,7 @@ export function TraceabilityPage() {
                 <button
                   type="button"
                   className={secondaryButtonClass}
-                  disabled={page >= pages || loading}
+                  disabled={page >= pages || loading || !query}
                   onClick={() => void runSearch(undefined, page + 1)}
                 >
                   下一頁
@@ -285,7 +288,7 @@ export function TraceabilityPage() {
               </div>
             </div>
           </div>
-        ) : error ? null : (
+        ) : displayError ? null : (
           <EmptyState
             title="尚未執行追溯查詢"
             description="選擇識別條件並輸入識別值，即可查詢完整資料鏈。"

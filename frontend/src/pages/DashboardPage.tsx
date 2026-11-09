@@ -1,5 +1,6 @@
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   ClipboardCheck,
@@ -33,9 +34,6 @@ import type {
   UserProfile,
 } from "../types";
 
-/**
- * 台灣日期格式設定
- */
 const taiwanDateFormatter = new Intl.DateTimeFormat("zh-TW", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -54,129 +52,104 @@ function formatTaiwanDate(value: string): string {
 }
 
 export function DashboardPage({ profile }: { profile: UserProfile | null }) {
-  const [receipts, setReceipts] = useState<PaginatedResponse<Receipt> | null>(
-    null,
-  );
-  const [lots, setLots] = useState<PaginatedResponse<InternalLot> | null>(null);
-  const [iqc, setIqc] = useState<PaginatedResponse<IQCRecord> | null>(null);
-  const [pending, setPending] = useState<PaginatedResponse<IQCRecord> | null>(
-    null,
-  );
-  const [errors, setErrors] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-
   const can = useCallback(
     (permission: string) => Boolean(profile?.permissions.includes(permission)),
     [profile],
   );
 
-  const load = useCallback(async () => {
-    if (!profile) return;
+  const receiptsQuery = useQuery<PaginatedResponse<Receipt>>({
+    queryKey: ["dashboard", "receipts"],
+    queryFn: async () => api.listReceipts({ page: 1, page_size: 8 }),
+    enabled: can("receipts:read"),
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
-    const requests = [
-      can("receipts:read")
-        ? api
-            .listReceipts({ page: 1, page_size: 8 })
-            .then(setReceipts)
-            .catch((error) =>
-              setErrors((current) => [
-                ...current,
-                `收料紀錄：${formatErrorMessage(error)}`,
-              ]),
-            )
-        : Promise.resolve(),
+  const lotsQuery = useQuery<PaginatedResponse<InternalLot>>({
+    queryKey: ["dashboard", "lots"],
+    queryFn: async () => api.listInternalLots({ page: 1, page_size: 1 }),
+    enabled: can("materials:read"),
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
-      can("materials:read")
-        ? api
-            .listInternalLots({ page: 1, page_size: 1 })
-            .then(setLots)
-            .catch((error) =>
-              setErrors((current) => [
-                ...current,
-                `內部批號：${formatErrorMessage(error)}`,
-              ]),
-            )
-        : Promise.resolve(),
+  const iqcQuery = useQuery<PaginatedResponse<IQCRecord>>({
+    queryKey: ["dashboard", "iqc"],
+    queryFn: async () => api.listIQCRecords({ page: 1, page_size: 1 }),
+    enabled: can("iqc:read"),
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
-      can("iqc:read")
-        ? api
-            .listIQCRecords({ page: 1, page_size: 1 })
-            .then(setIqc)
-            .catch((error) =>
-              setErrors((current) => [
-                ...current,
-                `IQC 紀錄：${formatErrorMessage(error)}`,
-              ]),
-            )
-        : Promise.resolve(),
-
-      can("iqc:read")
-        ? api
-            .listIQCRecords({
-              review_status: "pending",
-              page: 1,
-              page_size: 1,
-            })
-            .then(setPending)
-            .catch((error) =>
-              setErrors((current) => [
-                ...current,
-                `待審核項目：${formatErrorMessage(error)}`,
-              ]),
-            )
-        : Promise.resolve(),
-    ];
-
-    await Promise.all(requests);
-    setLoading(false);
-  }, [can, profile]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [load]);
+  const pendingQuery = useQuery<PaginatedResponse<IQCRecord>>({
+    queryKey: ["dashboard", "pending"],
+    queryFn: async () =>
+      api.listIQCRecords({ review_status: "pending", page: 1, page_size: 1 }),
+    enabled: can("iqc:read"),
+    retry: 1,
+    staleTime: 30 * 1000,
+  });
 
   const handleRefresh = () => {
-    setLoading(true);
-    setErrors([]);
-    void load();
+    void Promise.all([
+      receiptsQuery.refetch(),
+      lotsQuery.refetch(),
+      iqcQuery.refetch(),
+      pendingQuery.refetch(),
+    ]);
   };
+
+  const loading =
+    receiptsQuery.isLoading ||
+    lotsQuery.isLoading ||
+    iqcQuery.isLoading ||
+    pendingQuery.isLoading;
+
+  const errors: string[] = [];
+  if (receiptsQuery.error)
+    errors.push(`收料紀錄：${formatErrorMessage(receiptsQuery.error)}`);
+  if (lotsQuery.error)
+    errors.push(`內部批號：${formatErrorMessage(lotsQuery.error)}`);
+  if (iqcQuery.error)
+    errors.push(`IQC 紀錄：${formatErrorMessage(iqcQuery.error)}`);
+  if (pendingQuery.error)
+    errors.push(`待審核項目：${formatErrorMessage(pendingQuery.error)}`);
 
   const metrics = [
     can("receipts:read") &&
-      receipts && {
+      receiptsQuery.data && {
         label: "收料紀錄",
-        value: receipts.total,
+        value: receiptsQuery.data.total,
         detail: "收料查詢回傳的紀錄總數",
       },
 
     can("materials:read") &&
-      lots && {
+      lotsQuery.data && {
         label: "內部批號",
-        value: lots.total,
+        value: lotsQuery.data.total,
         detail: "內部批號紀錄總數",
       },
 
     can("iqc:read") &&
-      iqc && {
+      iqcQuery.data && {
         label: "IQC 紀錄",
-        value: iqc.total,
+        value: iqcQuery.data.total,
         detail: "進料檢驗紀錄總數",
       },
 
     can("iqc:read") &&
-      pending && {
+      pendingQuery.data && {
         label: "待審核",
-        value: pending.total,
+        value: pendingQuery.data.total,
         detail: "品保審核狀態為待審核的紀錄數",
       },
   ].filter(
     (item): item is { label: string; value: number; detail: string } =>
       Boolean(item),
   );
+
+  const receipts = receiptsQuery.data;
+  const pending = pendingQuery.data;
 
   return (
     <section>

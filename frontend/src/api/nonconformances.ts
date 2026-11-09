@@ -2,6 +2,9 @@ import { request, requestBlob, buildQueryString } from "./client";
 import type {
   PaginatedResponse,
   Nonconformance,
+  NonconformanceCreatePayload,
+  NonconformanceUpdatePayload,
+  NonconformanceDispositionPayload,
 } from "../types";
 
 export async function listNonconformances(
@@ -17,7 +20,7 @@ export async function getNonconformance(id: number) {
 }
 
 export async function createNonconformance(
-  payload: Record<string, unknown>,
+  payload: NonconformanceCreatePayload,
 ) {
   return request<Nonconformance>(`/api/v1/nonconformances`, {
     method: "POST",
@@ -27,7 +30,7 @@ export async function createNonconformance(
 
 export async function updateNonconformance(
   id: number,
-  payload: Record<string, unknown>,
+  payload: NonconformanceUpdatePayload,
 ) {
   return request<Nonconformance>(`/api/v1/nonconformances/${id}`, {
     method: "PATCH",
@@ -37,7 +40,7 @@ export async function updateNonconformance(
 
 export async function addNonconformanceDisposition(
   id: number,
-  payload: Record<string, unknown>,
+  payload: NonconformanceDispositionPayload,
 ) {
   return request<Nonconformance>(
     `/api/v1/nonconformances/${id}/dispositions`,

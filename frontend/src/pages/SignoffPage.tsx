@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ClipboardSignature, RefreshCw } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
+import { formatErrorMessage } from '../lib/error'
 import { getErrorMessage } from '../lib/data'
 import {
   ConfirmDialog,
@@ -30,55 +32,62 @@ function reviewLabel(value: string) {
 }
 
 export function SignoffPage({ profile }: { profile: UserProfile | null }) {
-  const [records, setRecords] = useState<PaginatedResponse<IQCRecord> | null>(null)
   const [reviewFilter, setReviewFilter] = useState('pending')
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const selectedIdRef = useRef<number | null>(null)
-  const [history, setHistory] = useState<QualityReview[] | null>(null)
   const [decision, setDecision] = useState({ note: '', reason: '' })
-  const [loading, setLoading] = useState(true)
-  const [historyLoading, setHistoryLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   const canApprove = Boolean(profile?.permissions.some((permission) => ['quality:review', 'quality:approve'].includes(permission)))
   const canReturn = Boolean(profile?.permissions.some((permission) => ['quality:review', 'quality:return'].includes(permission)))
-  const selectedRecord = records?.items.find((item) => item.id === selectedId) ?? null
-  const showError = useCallback((err: unknown) => setError(getErrorMessage(err)), [])
 
-  const load = useCallback(async (filter = reviewFilter, targetPage = page) => {
-    setLoading(true)
-    setError('')
-    try {
-      const response = await api.listIQCRecords({ review_status: filter || undefined, page: targetPage, page_size: 20 })
-      setRecords(response)
-      const current = selectedIdRef.current
-      const next = current !== null && response.items.some((item) => item.id === current) ? current : response.items[0]?.id ?? null
-      selectedIdRef.current = next
-      setSelectedId(next)
-      if (next !== current) {
-        setHistory(null)
-        setHistoryLoading(next !== null)
-      }
-    } catch (err) {
-      setRecords(null)
-      setError(getErrorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [reviewFilter, page])
+  const recordsQuery = useQuery<PaginatedResponse<IQCRecord>>({
+    queryKey: ['iqc-records', reviewFilter, page],
+    queryFn: async () => api.listIQCRecords({ review_status: reviewFilter || undefined, page, page_size: 20 }),
+    retry: 1,
+    staleTime: 30 * 1000,
+  })
 
-  useEffect(() => { void load() }, [load])
+  const historyQuery = useQuery<PaginatedResponse<QualityReview>>({
+    queryKey: ['quality-reviews', selectedId],
+    queryFn: async () => api.listQualityReviews(selectedId!),
+    enabled: !!selectedId,
+    retry: 1,
+    staleTime: 30 * 1000,
+  })
+
+  const records = recordsQuery.data
+  const history = historyQuery.data?.items ?? null
+
+  const approveMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: { decision_note?: string; reason?: string } }) =>
+      api.approveQualityReview(id, payload),
+  })
+
+  const returnMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: { decision_note?: string; reason?: string } }) =>
+      api.returnQualityReview(id, payload),
+  })
+
   useEffect(() => {
-    if (selectedId === null) return
-    let active = true
-    api.listQualityReviews(selectedId)
-      .then((result) => { if (active) setHistory(result.items) })
-      .catch((err) => { if (active) showError(err) })
-      .finally(() => { if (active) setHistoryLoading(false) })
-    return () => { active = false }
-  }, [selectedId, showError])
+    if (recordsQuery.isLoading) return
+    if (!records?.items.length) {
+      setSelectedId(null)
+      return
+    }
+    const current = selectedIdRef.current
+    const next = current !== null && records.items.some((item) => item.id === current)
+      ? current
+      : records.items[0].id
+    selectedIdRef.current = next
+    if (next !== current) {
+      setSelectedId(next)
+    }
+  }, [records, recordsQuery.isLoading])
+
+  const selectedRecord = records?.items.find((item) => item.id === selectedId) ?? null
 
   const submit = async (kind: 'approve' | 'return') => {
     if (!selectedRecord) return
@@ -87,22 +96,25 @@ export function SignoffPage({ profile }: { profile: UserProfile | null }) {
     const payload = { decision_note: decision.note.trim() || undefined, reason: kind === 'return' ? decision.reason.trim() || undefined : undefined }
     if (kind === 'return' && !payload.reason) { setError('退回時必須填寫退回理由。'); return }
     try {
-      if (kind === 'approve') await api.approveQualityReview(selectedRecord.id, payload)
-      else await api.returnQualityReview(selectedRecord.id, payload)
+      if (kind === 'approve') await approveMutation.mutateAsync({ id: selectedRecord.id, payload })
+      else await returnMutation.mutateAsync({ id: selectedRecord.id, payload })
       setSuccess(kind === 'approve' ? `IQC-${selectedRecord.id} 已核准，簽核歷程已保存。` : `IQC-${selectedRecord.id} 已退回，簽核歷程已保存。`)
       setDecision({ note: '', reason: '' })
       const resultFilter = kind === 'approve' ? 'approved' : 'returned'
       setReviewFilter(resultFilter)
       setPage(1)
-      await load(resultFilter, 1)
-      const next = await api.listQualityReviews(selectedRecord.id)
-      setHistory(next.items)
+      await historyQuery.refetch()
     } catch (err) {
       setError(getErrorMessage(err))
     }
   }
 
   const totalPages = Math.max(1, Math.ceil((records?.total ?? 0) / (records?.page_size ?? 20)))
+
+  const loading = recordsQuery.isLoading
+  const historyLoading = historyQuery.isLoading
+
+  const displayError = error || (recordsQuery.error ? formatErrorMessage(recordsQuery.error) : '')
 
   return (
     <section>
@@ -111,9 +123,9 @@ export function SignoffPage({ profile }: { profile: UserProfile | null }) {
         title="品保簽核"
         description="檢視待簽核的進料檢驗（IQC）紀錄，執行核准或退回。簽核結果由後端驗證並保存完整歷程。"
       />
-      {error && (
+      {displayError && (
         <div className="mb-4">
-          <ErrorState message={error} onRetry={() => void load()} />
+          <ErrorState message={displayError} onRetry={() => void recordsQuery.refetch()} />
         </div>
       )}
       {success && (
@@ -136,8 +148,7 @@ export function SignoffPage({ profile }: { profile: UserProfile | null }) {
                     ? `內部批號 ${selectedRecord.internal_lot_id}`
                     : selectedRecord.receipt_id
                       ? `收料單 ${selectedRecord.receipt_id}`
-                      : '—')
-                }
+                      : '—')}
               />
               <Detail label="抽樣數量" value={selectedRecord.sample_qty} />
               <Detail
@@ -277,7 +288,7 @@ export function SignoffPage({ profile }: { profile: UserProfile | null }) {
           title="待簽核清單"
           description={`共 ${records?.total ?? '—'} 筆 · 點選紀錄以檢視內容並簽核`}
           action={
-            <button type="button" className={secondaryButtonClass} onClick={() => void load()}>
+            <button type="button" className={secondaryButtonClass} onClick={() => void recordsQuery.refetch()}>
               <RefreshCw className="h-4 w-4" />
               重新整理
             </button>
@@ -319,11 +330,7 @@ export function SignoffPage({ profile }: { profile: UserProfile | null }) {
                   <TableRow
                     key={record.id}
                     onClick={() => {
-                      if (selectedId !== record.id) {
-                        selectedIdRef.current = record.id
-                        setHistory(null)
-                        setHistoryLoading(true)
-                      }
+                      selectedIdRef.current = record.id
                       setSelectedId(record.id)
                       setDecision({ note: '', reason: '' })
                       setSuccess('')
