@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Button, Descriptions, Divider, Empty, Modal, Space, Typography } from "antd";
+import { Descriptions, Divider, Empty, Modal, Space, Typography } from "antd";
 import { statusLabel } from "../../../lib/status";
 import {
   ConfirmDialog,
@@ -121,7 +121,7 @@ export function ReceiptDetailDialog({
 
           {canWrite && Number(selectedReceipt.qty_remaining) > 0 && (
             <>
-              <Divider orientation="left" plain>
+              <Divider titlePlacement="start" plain>
                 拆分內部批號
               </Divider>
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -189,7 +189,7 @@ export function ReceiptDetailDialog({
 
           {trace && (
             <>
-              <Divider orientation="left" plain>
+              <Divider titlePlacement="start" plain>
                 來源與品質追溯
               </Divider>
 

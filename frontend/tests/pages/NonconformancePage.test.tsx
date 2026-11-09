@@ -29,7 +29,7 @@ describe("NonconformancePage", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><NonconformancePage profile={profile} /></MemoryRouter>);
     await user.click(await screen.findByRole("button", { name: "NC-100" }));
-    expect(await screen.findByText("NC-100 · Surface crack", { selector: "h2" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "NC-100 · Surface crack" })).toBeTruthy();
     // 使用getByDisplayValue來檢查textarea中的值，因為RHF會將值綁定到表單元素上
     const investigationTextarea = screen.getByLabelText("調查內容");
     expect(investigationTextarea).toHaveValue("Lot review");
@@ -84,11 +84,12 @@ describe("NonconformancePage", () => {
 
     render(<MemoryRouter><NonconformancePage profile={profile} /></MemoryRouter>);
     await user.click(await screen.findByRole("button", { name: "NC-100" }));
-    
-    // 檢查結案按鈕是否被禁用
-    const closeButton = screen.getByRole("button", { name: "結案" });
+    await screen.findByRole("heading", { name: "NC-100 · Surface crack" });
+
+    // 檢查結案按鈕是否被禁用（AntD 按鈕在 jsdom 下可存取名稱可能含空白分隔）
+    const closeButton = await screen.findByRole("button", { name: /結\s*案/ });
     expect(closeButton).toBeDisabled();
-    
+
     // 檢查是否顯示提示訊息
     expect(await screen.findByText("請先填寫調查內容；請先新增至少一筆處置記錄；完成後才能結案")).toBeTruthy();
   });
@@ -114,14 +115,15 @@ describe("NonconformancePage", () => {
 
     render(<MemoryRouter><NonconformancePage profile={profile} /></MemoryRouter>);
     await user.click(await screen.findByRole("button", { name: "NC-100" }));
-    
-    // 檢查結案按鈕是否啟用
-    const closeButton = screen.getByRole("button", { name: "結案" });
+    await screen.findByRole("heading", { name: "NC-100 · Surface crack" });
+
+    // 檢查結案按鈕是否啟用（AntD 按鈕在 jsdom 下可存取名稱可能含空白分隔）
+    const closeButton = await screen.findByRole("button", { name: /結\s*案/ });
     expect(closeButton).not.toBeDisabled();
-    
+
     // 嘗試點擊結案按鈕
     await user.click(closeButton);
-    
+
     // 驗證API是否被呼叫
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/nonconformances/1"),

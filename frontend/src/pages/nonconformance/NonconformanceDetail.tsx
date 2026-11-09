@@ -3,13 +3,10 @@ import {
   Descriptions,
   Divider,
   Empty,
-  Input,
   Modal,
-  Select,
   Space,
   Timeline,
   Typography,
-  Upload,
 } from "antd";
 import {
   FormField,
@@ -22,7 +19,6 @@ import type { NonconformanceDetailProps } from "./types";
 import { SEVERITY_OPTIONS } from "./constants";
 
 const { Text, Title } = Typography;
-const { TextArea } = Input;
 
 export function NonconformanceDetail({
   selectedItem,
@@ -180,7 +176,7 @@ export function NonconformanceDetail({
             </div>
           )}
 
-          <Divider orientation="left" plain>
+          <Divider titlePlacement="start" plain>
             調查內容
           </Divider>
 
@@ -211,7 +207,7 @@ export function NonconformanceDetail({
         {/* 狀態操作 */}
         {renderStatusButtons()}
 
-        <Divider orientation="left" plain>
+        <Divider titlePlacement="start" plain>
           圍堵與處置紀錄
         </Divider>
 
@@ -251,7 +247,7 @@ export function NonconformanceDetail({
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無處置紀錄" />
         )}
 
-        <Divider orientation="left" plain>
+        <Divider titlePlacement="start" plain>
           附件
         </Divider>
 
@@ -286,7 +282,7 @@ export function NonconformanceDetail({
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無附件" />
         )}
 
-        <Divider orientation="left" plain>
+        <Divider titlePlacement="start" plain>
           案件歷程
         </Divider>
 

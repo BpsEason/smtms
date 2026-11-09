@@ -43,6 +43,7 @@ export function AdminLayout({ profile, onLogout }: { profile: UserProfile; onLog
       logo={<Activity size={20} />}
       layout="side"
       siderMenuType="group"
+      defaultCollapsed={false}
       location={{ pathname: location.pathname }}
       route={{ path: '/', routes: menuData as any }}
       menuItemRender={(item, defaultDom) => (
