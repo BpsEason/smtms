@@ -20,6 +20,9 @@ class _FakeRedis:
     async def set(self, key: str, value: str, ex: int) -> bool:
         return True
 
+    async def close(self) -> None:
+        return None
+
 
 @pytest.fixture(scope="session")
 def engine():

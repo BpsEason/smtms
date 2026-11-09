@@ -27,6 +27,9 @@ class FakeRedis:
     async def set(self, key: str, value: str, ex: int) -> bool:
         return True
 
+    async def close(self) -> None:
+        return None
+
 
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:
     response = client.post(

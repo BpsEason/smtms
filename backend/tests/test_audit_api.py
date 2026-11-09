@@ -26,6 +26,9 @@ class FakeRedis:
     async def set(self, key: str, value: str, ex: int) -> bool:
         return True
 
+    async def close(self) -> None:
+        return None
+
 
 @pytest.fixture
 def audit_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:

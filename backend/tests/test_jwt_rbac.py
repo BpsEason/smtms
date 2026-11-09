@@ -38,6 +38,9 @@ class FakeRedis:
         self.revoked.add(key)
         return True
 
+    async def close(self) -> None:
+        return None
+
 
 @pytest.fixture
 def auth_environment(
@@ -378,6 +381,9 @@ def test_redis_outage_fails_closed_and_health_remains_available(
 
         def ping(self) -> bool:
             raise OSError("redis connection refused")
+
+        async def close(self) -> None:
+            return None
 
     monkeypatch.setattr(
         redis_module,
