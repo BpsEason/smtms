@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     document_storage_dir: str = Field(default="var/documents")
     document_max_file_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    log_level: str = Field(default="INFO")
+    sql_echo: bool = Field(default=False)
 
     @field_validator("database_url", mode="before")
     @classmethod

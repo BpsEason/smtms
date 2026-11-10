@@ -248,6 +248,62 @@ CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci
 
 目前文件記錄的驗收結果：前端 Vitest **32 項通過**（5 個測試檔），Audit Log 頁面測試 **3 項通過**，production build 通過；後端驗收相關測試 **42 項中 1 項略過，其餘通過**，另有 Audit Log 交易一致性／敏感欄位遮蔽與 CSV 安全單元測試 **2 項通過**。Audit Log API 的 Windows TestClient 權限及串流端對端測試、真實 MySQL／Redis 與大量資料吞吐仍待整合環境驗收。詳見[驗收標準](docs/07_ACCEPTANCE.md)與[目前實作狀態](docs/06_CURRENT_STATE.md)。
 
+## 統一 Logging
+
+本專案使用 Python 標準庫 `logging` 模組，所有日誌輸出至 stdout，由 Docker 直接收集。
+
+### 設定 Log Level
+
+- 預設等級：`INFO`
+- 透過環境變數 `LOG_LEVEL` 設定，可選值：`DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`
+- 範例：`LOG_LEVEL=DEBUG`（開發環境啟用詳細追蹤）
+- 也可在執行時動態調整：`from app.core.logging import set_log_level; set_log_level("DEBUG")`
+
+### 查看 Docker 日誌
+
+```powershell
+# 查看後端容器日誌
+docker compose logs backend
+
+# 持續追蹤即時日誌
+docker compose logs -f backend
+```
+
+日誌格式：`時間 | 等級 | 模組 | 訊息`，例如：
+```
+2026-11-10 08:33:04 | INFO     | app.main | SMTMS backend is running
+```
+
+### 在程式中使用 Logging
+
+```python
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+logger.info("一般資訊")
+logger.warning("警告事項")
+logger.error("錯誤訊息")
+logger.exception("例外（包含完整 traceback）")
+```
+
+### SQLAlchemy 日誌
+
+- 透過環境變數 `SQL_ECHO` 控制是否輸出 SQL 語句
+- 預設 `false`（正式環境不啟用）
+- 開發環境可設定 `SQL_ECHO=true` 進行調試
+
+### VS Code Debugger 除錯
+
+1. 在 `backend/.vscode/launch.json` 中選擇 "Python: FastAPI" 設定
+2. 設定斷點於感興趣的程式碼行
+3. 按 F5 啟動伺服器並進入除錯模式
+4. 或在測試中設定斷點，以 `uv run pytest tests/test_xxx.py -v` 執行除錯
+
+### 資訊安全
+
+日誌中會自動遮蔽以下敏感資訊：`password`、`token`、`secret`、`authorization`、`cookie`、`jwt`、`refresh_token`、`access_token`。
+
 ## 專案結構
 
 ```text
