@@ -39,6 +39,9 @@ class FakeRedis:
     async def close(self) -> None:
         return None
 
+    async def aclose(self) -> None:
+        return None
+
 
 def _headers(client: TestClient, username: str, password: str = PASSWORD) -> dict[str, str]:
     response = client.post("/api/v1/auth/login", json={"username": username, "password": password})

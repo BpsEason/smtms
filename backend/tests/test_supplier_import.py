@@ -32,6 +32,9 @@ class FakeRedis:
     async def close(self) -> None:
         return None
 
+    async def aclose(self) -> None:
+        return None
+
 
 def workbook_bytes(rows: list[dict[str, object]], headers: tuple[str, ...] | None = None) -> bytes:
     columns = headers or supplier_import.TEMPLATE_HEADERS

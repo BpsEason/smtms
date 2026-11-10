@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
@@ -168,7 +168,7 @@ def create_iqc_record(
         inspector_user_id=current_user.id,
         sample_qty=payload.sample_qty,
         inspection_result=payload.inspection_result,
-        inspection_date=payload.inspection_date or datetime.utcnow(),
+        inspection_date=payload.inspection_date or datetime.now(UTC),
         release_status=payload.release_status,
         remarks=payload.remarks,
     )

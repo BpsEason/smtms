@@ -26,7 +26,7 @@ def _parse_upload(file: UploadFile) -> supplier_import.ParsedWorkbook:
         return supplier_import.parse_supplier_workbook(content)
     except supplier_import.ImportFormatError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="；".join(error.message for error in exc.errors),
         ) from exc
 

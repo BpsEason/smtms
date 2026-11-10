@@ -218,7 +218,7 @@ def create_role(
     name = payload.name.strip()
     if not name:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Role name cannot be blank",
         )
     if db.scalar(select(RoleORM.id).where(RoleORM.name == name)):
@@ -253,7 +253,7 @@ def update_role(
         new_name = changes["name"].strip()
         if not new_name:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Role name cannot be blank",
             )
         if role.name == SUPPLIER_ROLE_NAME and new_name != role.name:
@@ -401,7 +401,7 @@ def _validate_internal_username(username: str) -> str:
     value = username.strip()
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", value):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="帳號僅能使用英文字母、數字、句點、底線及連字號。",
         )
     return value
@@ -410,7 +410,7 @@ def _validate_internal_username(username: str) -> str:
 def _validate_internal_password(password: str) -> None:
     if len(password.encode("utf-8")) > 72:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="password must be at most 72 UTF-8 bytes",
         )
 

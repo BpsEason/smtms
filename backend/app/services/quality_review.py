@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -70,7 +70,7 @@ def record_review_decision(
         reviewed_by_user_id=current_user.id,
         decision_note=decision_note.strip() if decision_note else None,
         reason=reason.strip() if reason else None,
-        reviewed_at=datetime.utcnow(),
+        reviewed_at=datetime.now(UTC),
     )
     record.review_status = normalized
     record.reviewed_by_user_id = current_user.id

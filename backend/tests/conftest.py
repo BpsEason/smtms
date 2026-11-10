@@ -23,6 +23,9 @@ class _FakeRedis:
     async def close(self) -> None:
         return None
 
+    async def aclose(self) -> None:
+        return None
+
 
 @pytest.fixture(scope="session")
 def engine():

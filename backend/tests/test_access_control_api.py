@@ -42,6 +42,9 @@ class FakeRedis:
     async def close(self) -> None:
         return None
 
+    async def aclose(self) -> None:
+        return None
+
 
 @pytest.fixture(scope="session")
 def access_password_hash() -> str:
