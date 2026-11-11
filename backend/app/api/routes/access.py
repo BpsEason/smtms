@@ -233,9 +233,10 @@ def _integrity_conflict_detail(exc: IntegrityError) -> str:
     """Map DB integrity failures by actual constraint/index name when known."""
     parts: list[str] = []
     orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None) if orig is not None else None
     for candidate in (
-        getattr(orig, "diag", None) and getattr(orig.diag, "constraint_name", None),
-        getattr(orig, "diag", None) and getattr(orig.diag, "column_name", None),
+        getattr(diag, "constraint_name", None) if diag is not None else None,
+        getattr(diag, "column_name", None) if diag is not None else None,
         getattr(orig, "args", None),
         orig,
         exc,
