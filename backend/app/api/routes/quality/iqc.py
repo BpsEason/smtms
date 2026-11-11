@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import (
     AuthenticatedUser,
@@ -108,7 +108,10 @@ def list_iqc_records(
 
     total = db.scalar(count_statement) or 0
     records = db.scalars(
-        statement.order_by(IQCRecordORM.id).offset((page - 1) * page_size).limit(page_size)
+        statement.options(selectinload(IQCRecordORM.internal_lot))
+        .order_by(IQCRecordORM.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     ).all()
     return PaginatedResponse[IQCRecordResponse](
         items=[IQCRecordResponse.model_validate(item) for item in records],
@@ -303,7 +306,11 @@ def update_iqc_record(
 
 
 def _get_iqc_record(db: Session, iqc_id: int) -> IQCRecordORM:
-    record = db.get(IQCRecordORM, iqc_id)
+    record = db.scalar(
+        select(IQCRecordORM)
+        .options(selectinload(IQCRecordORM.internal_lot))
+        .where(IQCRecordORM.id == iqc_id)
+    )
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IQC record not found")
     return record

@@ -276,6 +276,95 @@ def get_dashboard_todos(
             iqc_stmt = iqc_stmt.where(_supplier_iqc_condition(current_user))
 
         iqc_rows = db.execute(iqc_stmt).all()
+
+        # 收集需要補查的 internal_lot_id（receipt_id 為 None 但有 internal_lot_id）
+        internal_lot_ids = {
+            row.internal_lot_id
+            for row in iqc_rows
+            if row.receipt_id is None and row.internal_lot_id is not None
+        }
+        internal_lots_map: dict[int, InternalMaterialLotORM] = {}
+        if internal_lot_ids:
+            internal_lots = db.execute(
+                select(InternalMaterialLotORM).where(
+                    InternalMaterialLotORM.id.in_(internal_lot_ids)
+                )
+            ).scalars().all()
+            internal_lots_map = {lot.id: lot for lot in internal_lots}
+
+        # 從 internal_lots 收集需要補查的 receipt_id 和 supplier_lot_id
+        receipt_ids_from_lot = {
+            lot.receipt_id
+            for lot in internal_lots_map.values()
+            if lot.receipt_id is not None
+        }
+        supplier_lot_ids_from_lot = {
+            lot.supplier_lot_id
+            for lot in internal_lots_map.values()
+            if lot.supplier_lot_id is not None
+        }
+        receipts_from_lot_map: dict[int, MaterialReceiptORM] = {}
+        if receipt_ids_from_lot:
+            receipts = db.execute(
+                select(MaterialReceiptORM).where(
+                    MaterialReceiptORM.id.in_(receipt_ids_from_lot)
+                )
+            ).scalars().all()
+            receipts_from_lot_map = {r.id: r for r in receipts}
+        supplier_lots_from_lot_map: dict[int, SupplierLotORM] = {}
+        if supplier_lot_ids_from_lot:
+            supplier_lots = db.execute(
+                select(SupplierLotORM).where(
+                    SupplierLotORM.id.in_(supplier_lot_ids_from_lot)
+                )
+            ).scalars().all()
+            supplier_lots_from_lot_map = {sl.id: sl for sl in supplier_lots}
+
+        # 收集所有需要補查的 supplier_id 和 material_id
+        supplier_ids = {
+            row.supplier_id
+            for row in iqc_rows
+            if row.supplier_id is not None and row.supplier_code is None
+        }
+        # 從 internal_lot 的 receipt/supplier_lot 可能新增的 supplier_id
+        for lot in internal_lots_map.values():
+            if lot.receipt_id and lot.receipt_id in receipts_from_lot_map:
+                receipt = receipts_from_lot_map[lot.receipt_id]
+                if receipt.supplier_id is not None:
+                    supplier_ids.add(receipt.supplier_id)
+            if lot.supplier_lot_id and lot.supplier_lot_id in supplier_lots_from_lot_map:
+                sl = supplier_lots_from_lot_map[lot.supplier_lot_id]
+                if sl.supplier_id is not None:
+                    supplier_ids.add(sl.supplier_id)
+        suppliers_map: dict[int, SupplierORM] = {}
+        if supplier_ids:
+            suppliers = db.execute(
+                select(SupplierORM).where(SupplierORM.id.in_(supplier_ids))
+            ).scalars().all()
+            suppliers_map = {s.id: s for s in suppliers}
+
+        material_ids = {
+            row.material_id
+            for row in iqc_rows
+            if row.material_id is not None and row.material_code is None
+        }
+        # 從 internal_lot 的 receipt/supplier_lot 可能新增的 material_id
+        for lot in internal_lots_map.values():
+            if lot.receipt_id and lot.receipt_id in receipts_from_lot_map:
+                receipt = receipts_from_lot_map[lot.receipt_id]
+                if receipt.material_id is not None:
+                    material_ids.add(receipt.material_id)
+            if lot.supplier_lot_id and lot.supplier_lot_id in supplier_lots_from_lot_map:
+                sl = supplier_lots_from_lot_map[lot.supplier_lot_id]
+                if sl.material_id is not None:
+                    material_ids.add(sl.material_id)
+        materials_map: dict[int, MaterialORM] = {}
+        if material_ids:
+            materials = db.execute(
+                select(MaterialORM).where(MaterialORM.id.in_(material_ids))
+            ).scalars().all()
+            materials_map = {m.id: m for m in materials}
+
         pending_iqc_items = []
         for row in iqc_rows:
             iqc_id = row.id
@@ -296,28 +385,30 @@ def get_dashboard_todos(
 
             # 如果有 internal_lot 但沒有 receipt，嘗試從 internal_lot 取得 supplier/material
             if receipt_id is None and internal_lot_id is not None:
-                internal_lot = db.get(InternalMaterialLotORM, internal_lot_id)
+                internal_lot = internal_lots_map.get(internal_lot_id)
                 if internal_lot:
                     if internal_lot.receipt_id:
-                        receipt = db.get(MaterialReceiptORM, internal_lot.receipt_id)
-                        if receipt:
-                            receipt_no = receipt.receipt_no
-                            supplier_id = receipt.supplier_id
-                            material_id = receipt.material_id
+                        receipt_from_lot = receipts_from_lot_map.get(internal_lot.receipt_id)
+                        if receipt_from_lot:
+                            receipt_no = receipt_from_lot.receipt_no
+                            supplier_id = receipt_from_lot.supplier_id
+                            material_id = receipt_from_lot.material_id
                     elif internal_lot.supplier_lot_id:
-                        supplier_lot = db.get(SupplierLotORM, internal_lot.supplier_lot_id)
+                        supplier_lot = supplier_lots_from_lot_map.get(
+                            internal_lot.supplier_lot_id
+                        )
                         if supplier_lot:
                             supplier_id = supplier_lot.supplier_id
                             material_id = supplier_lot.material_id
 
             # 取得 supplier/material 資訊
             if supplier_id is not None and supplier_code is None:
-                supplier = db.get(SupplierORM, supplier_id)
+                supplier = suppliers_map.get(supplier_id)
                 if supplier:
                     supplier_code = supplier.supplier_code
                     supplier_name = supplier.supplier_name
             if material_id is not None and material_code is None:
-                material = db.get(MaterialORM, material_id)
+                material = materials_map.get(material_id)
                 if material:
                     material_code = material.material_code
                     material_name = material.material_name
@@ -360,6 +451,25 @@ def get_dashboard_todos(
             nc_stmt = nc_stmt.where(NonconformanceORM.supplier_id == current_user.supplier_id)
 
         nc_rows = db.execute(nc_stmt).all()
+
+        # 收集所有需要補查的 supplier_id 和 material_id
+        nc_supplier_ids = {row[5] for row in nc_rows if row[5] is not None}
+        nc_material_ids = {row[6] for row in nc_rows if row[6] is not None}
+
+        nc_suppliers_map: dict[int, SupplierORM] = {}
+        if nc_supplier_ids:
+            suppliers = db.execute(
+                select(SupplierORM).where(SupplierORM.id.in_(nc_supplier_ids))
+            ).scalars().all()
+            nc_suppliers_map = {s.id: s for s in suppliers}
+
+        nc_materials_map: dict[int, MaterialORM] = {}
+        if nc_material_ids:
+            materials = db.execute(
+                select(MaterialORM).where(MaterialORM.id.in_(nc_material_ids))
+            ).scalars().all()
+            nc_materials_map = {m.id: m for m in materials}
+
         open_nc_items = []
         for nc_row in nc_rows:
             nc_id = nc_row[0]
@@ -377,12 +487,12 @@ def get_dashboard_todos(
             material_name = None
 
             if supplier_id is not None:
-                supplier = db.get(SupplierORM, supplier_id)
+                supplier = nc_suppliers_map.get(supplier_id)
                 if supplier:
                     supplier_code = supplier.supplier_code
                     supplier_name = supplier.supplier_name
             if material_id is not None:
-                material = db.get(MaterialORM, material_id)
+                material = nc_materials_map.get(material_id)
                 if material:
                     material_code = material.material_code
                     material_name = material.material_name

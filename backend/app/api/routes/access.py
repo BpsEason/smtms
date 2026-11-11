@@ -67,48 +67,74 @@ def _role_or_404(db: Session, role_id: int) -> RoleORM:
     return role
 
 
-def _role_permission_codes(db: Session, role_id: int) -> list[str]:
-    codes = db.scalars(
-        select(PermissionORM.code)
-        .join(RolePermissionORM, RolePermissionORM.permission_id == PermissionORM.id)
-        .where(RolePermissionORM.role_id == role_id)
+def _role_permission_codes_batch(db: Session, role_ids: list[int]) -> dict[int, list[str]]:
+    if not role_ids:
+        return {}
+    rows = db.execute(
+        select(RolePermissionORM.role_id, PermissionORM.code)
+        .join(PermissionORM, PermissionORM.id == RolePermissionORM.permission_id)
+        .where(RolePermissionORM.role_id.in_(role_ids))
     ).all()
-    return sorted({normalize_permission_code(code) for code in codes})
+    result: dict[int, list[str]] = {role_id: [] for role_id in role_ids}
+    for role_id, code in rows:
+        result[role_id].append(normalize_permission_code(code))
+    for role_id in result:
+        result[role_id] = sorted(set(result[role_id]))
+    return result
 
 
-def _role_user_count(db: Session, role_id: int) -> int:
-    return (
-        db.scalar(
-            select(func.count()).select_from(UserRoleORM).where(UserRoleORM.role_id == role_id)
-        )
-        or 0
-    )
+def _role_user_counts_batch(db: Session, role_ids: list[int]) -> dict[int, int]:
+    if not role_ids:
+        return {}
+    rows = db.execute(
+        select(UserRoleORM.role_id, func.count(UserRoleORM.user_id))
+        .where(UserRoleORM.role_id.in_(role_ids))
+        .group_by(UserRoleORM.role_id)
+    ).all()
+    result = dict.fromkeys(role_ids, 0)
+    for role_id, count in rows:
+        result[role_id] = count
+    return result
 
 
-def _role_summary(db: Session, role: RoleORM) -> RoleSummary:
+def _user_roles_batch(db: Session, user_ids: list[int]) -> dict[int, list[str]]:
+    if not user_ids:
+        return {}
+    rows = db.execute(
+        select(UserRoleORM.user_id, RoleORM.name)
+        .join(RoleORM, RoleORM.id == UserRoleORM.role_id)
+        .where(UserRoleORM.user_id.in_(user_ids))
+        .order_by(RoleORM.name)
+    ).all()
+    result: dict[int, list[str]] = {user_id: [] for user_id in user_ids}
+    for user_id, name in rows:
+        result[user_id].append(name)
+    return result
+
+
+def _role_summary(
+    db: Session,
+    role: RoleORM,
+    permissions_map: dict[int, list[str]],
+    user_counts_map: dict[int, int],
+) -> RoleSummary:
     return RoleSummary(
         id=role.id,
         name=role.name,
         description=role.description,
-        permissions=_role_permission_codes(db, role.id),
-        user_count=_role_user_count(db, role.id),
+        permissions=permissions_map.get(role.id, []),
+        user_count=user_counts_map.get(role.id, 0),
         is_system=role.name == SUPPLIER_ROLE_NAME,
     )
 
 
-def _user_summary(db: Session, user: UserORM) -> UserSummary:
-    names = db.scalars(
-        select(RoleORM.name)
-        .join(UserRoleORM, UserRoleORM.role_id == RoleORM.id)
-        .where(UserRoleORM.user_id == user.id)
-        .order_by(RoleORM.name)
-    ).all()
+def _user_summary(db: Session, user: UserORM, roles_map: dict[int, list[str]]) -> UserSummary:
     return UserSummary(
         id=user.id,
         username=user.username,
         email=user.email,
         is_active=user.is_active,
-        roles=list(names),
+        roles=roles_map.get(user.id, []),
     )
 
 
@@ -206,7 +232,10 @@ def list_roles(
     _user: AuthenticatedUser = Depends(require_permission(MANAGE_PERMISSION)),
 ) -> list[RoleSummary]:
     roles = db.scalars(select(RoleORM).order_by(RoleORM.name)).all()
-    return [_role_summary(db, role) for role in roles]
+    role_ids = [role.id for role in roles]
+    permissions_map = _role_permission_codes_batch(db, role_ids)
+    user_counts_map = _role_user_counts_batch(db, role_ids)
+    return [_role_summary(db, role, permissions_map, user_counts_map) for role in roles]
 
 
 @router.post("/roles", response_model=RoleSummary, status_code=status.HTTP_201_CREATED)
@@ -237,7 +266,9 @@ def create_role(
             detail="Role name already exists",
         ) from exc
     db.refresh(role)
-    return _role_summary(db, role)
+    permissions_map = _role_permission_codes_batch(db, [role.id])
+    user_counts_map = _role_user_counts_batch(db, [role.id])
+    return _role_summary(db, role, permissions_map, user_counts_map)
 
 
 @router.patch("/roles/{role_id}", response_model=RoleSummary)
@@ -280,7 +311,9 @@ def update_role(
             detail="Role name already exists",
         ) from exc
     db.refresh(role)
-    return _role_summary(db, role)
+    permissions_map = _role_permission_codes_batch(db, [role.id])
+    user_counts_map = _role_user_counts_batch(db, [role.id])
+    return _role_summary(db, role, permissions_map, user_counts_map)
 
 
 @router.put("/roles/{role_id}/permissions", response_model=RoleSummary)
@@ -322,7 +355,9 @@ def set_role_permissions(
         db.add(RolePermissionORM(role_id=role.id, permission_id=permission_id))
 
     _commit_keeping_one_manager(db)
-    return _role_summary(db, role)
+    permissions_map = _role_permission_codes_batch(db, [role.id])
+    user_counts_map = _role_user_counts_batch(db, [role.id])
+    return _role_summary(db, role, permissions_map, user_counts_map)
 
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -337,7 +372,8 @@ def delete_role(
             status_code=status.HTTP_409_CONFLICT,
             detail="系統的供應商入口角色不可刪除。",
         )
-    if _role_user_count(db, role.id):
+    user_counts_map = _role_user_counts_batch(db, [role.id])
+    if user_counts_map.get(role.id, 0) > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Role is still assigned to users",
@@ -355,7 +391,9 @@ def list_internal_users(
     users = db.scalars(
         select(UserORM).where(UserORM.supplier_id.is_(None)).order_by(UserORM.username)
     ).all()
-    return [_user_summary(db, user) for user in users]
+    user_ids = [user.id for user in users]
+    roles_map = _user_roles_batch(db, user_ids)
+    return [_user_summary(db, user, roles_map) for user in users]
 
 
 @router.post("/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)
@@ -394,7 +432,8 @@ def create_internal_user(
             detail="Username already exists",
         ) from exc
     db.refresh(user)
-    return _user_summary(db, user)
+    roles_map = _user_roles_batch(db, [user.id])
+    return _user_summary(db, user, roles_map)
 
 
 def _validate_internal_username(username: str) -> str:
@@ -468,7 +507,8 @@ def set_user_roles(
     roles = _resolve_assignable_roles(db, payload.role_ids)
     _replace_user_roles(db, user, roles)
     _commit_keeping_one_manager(db)
-    return _user_summary(db, user)
+    roles_map = _user_roles_batch(db, [user.id])
+    return _user_summary(db, user, roles_map)
 
 
 @router.patch("/users/{user_id}", response_model=UserSummary)
@@ -514,4 +554,5 @@ def update_internal_user(
             detail="Username already exists",
         ) from exc
     db.refresh(user)
-    return _user_summary(db, user)
+    roles_map = _user_roles_batch(db, [user.id])
+    return _user_summary(db, user, roles_map)
