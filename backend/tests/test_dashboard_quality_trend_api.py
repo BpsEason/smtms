@@ -72,10 +72,22 @@ def quality_trend_environment(
 
             perm_codes = ["suppliers:read", "materials:read", "receipts:read", "iqc:read"]
             permissions = {code: PermissionORM(code=code, name=code) for code in perm_codes}
-            session.add_all([admin_role, supplier_role, no_perm_role, iqc_only_role, *permissions.values()])
+            session.add_all(
+                [
+                    admin_role,
+                    supplier_role,
+                    no_perm_role,
+                    iqc_only_role,
+                    *permissions.values(),
+                ]
+            )
 
-            sup_a = SupplierORM(supplier_code="TREND-A", supplier_name="Trend Supplier A", status="active")
-            sup_b = SupplierORM(supplier_code="TREND-B", supplier_name="Trend Supplier B", status="active")
+            sup_a = SupplierORM(
+                supplier_code="TREND-A", supplier_name="Trend Supplier A", status="active"
+            )
+            sup_b = SupplierORM(
+                supplier_code="TREND-B", supplier_name="Trend Supplier B", status="active"
+            )
             mat = MaterialORM(
                 material_code="TREND-MAT",
                 material_name="Trend Material",
@@ -129,7 +141,9 @@ def quality_trend_environment(
                     RolePermissionORM(role_id=supplier_role.id, permission_id=permissions[code].id)
                 )
             session.add(
-                RolePermissionORM(role_id=iqc_only_role.id, permission_id=permissions["iqc:read"].id)
+                RolePermissionORM(
+                    role_id=iqc_only_role.id, permission_id=permissions["iqc:read"].id
+                )
             )
 
             session.add_all(
@@ -345,9 +359,27 @@ def test_quality_trend_supplier_isolation(quality_trend_environment) -> None:
 
     points = {point["year_month"]: point for point in body}
     # 供應商 A 只能看到自己的紀錄：2026-01 (3筆), 2026-02 (2筆 pending), 2026-03 (1筆 failed)
-    assert points["2026-01"] == {"year_month": "2026-01", "total": 3, "passed": 2, "failed": 1, "pass_rate": 0.6667}
-    assert points["2026-02"] == {"year_month": "2026-02", "total": 2, "passed": 0, "failed": 0, "pass_rate": 0}
-    assert points["2026-03"] == {"year_month": "2026-03", "total": 1, "passed": 0, "failed": 1, "pass_rate": 0}
+    assert points["2026-01"] == {
+        "year_month": "2026-01",
+        "total": 3,
+        "passed": 2,
+        "failed": 1,
+        "pass_rate": 0.6667,
+    }
+    assert points["2026-02"] == {
+        "year_month": "2026-02",
+        "total": 2,
+        "passed": 0,
+        "failed": 0,
+        "pass_rate": 0,
+    }
+    assert points["2026-03"] == {
+        "year_month": "2026-03",
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "pass_rate": 0,
+    }
     # 不洩漏供應商 B 的 2026-01 資料
     assert len(points) == 3
 

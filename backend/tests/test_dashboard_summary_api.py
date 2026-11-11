@@ -7,8 +7,8 @@ from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.main import app
 from app.models.quality import (
-    IQCRecordORM,
     InternalMaterialLotORM,
+    IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
     NonconformanceORM,
@@ -125,7 +125,13 @@ def dashboard_environment(
             )
             for perm in permissions.values():
                 session.add(RolePermissionORM(role_id=admin_role.id, permission_id=perm.id))
-            for code in ("suppliers:read", "materials:read", "receipts:read", "iqc:read", "nonconformance:read"):
+            for code in (
+                "suppliers:read",
+                "materials:read",
+                "receipts:read",
+                "iqc:read",
+                "nonconformance:read",
+            ):
                 session.add(
                     RolePermissionORM(role_id=supplier_role.id, permission_id=permissions[code].id)
                 )
@@ -326,7 +332,7 @@ def _make_single_perm_user(
         with TestSession() as session:
             yield session
 
-    original_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
 
     with TestSession.begin() as session:
@@ -397,7 +403,9 @@ def test_dashboard_summary_supplier_scoped_and_no_leak(dashboard_environment) ->
 def test_dashboard_summary_only_receipts_permission(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client, headers = _make_single_perm_user(db_session, monkeypatch, "only-receipts", "receipts:read")
+    client, headers = _make_single_perm_user(
+        db_session, monkeypatch, "only-receipts", "receipts:read"
+    )
     try:
         response = client.get("/api/v1/dashboard/summary", headers=headers)
         assert response.status_code == 200, response.text
@@ -410,7 +418,9 @@ def test_dashboard_summary_only_receipts_permission(
 def test_dashboard_summary_only_materials_permission(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client, headers = _make_single_perm_user(db_session, monkeypatch, "only-materials", "materials:read")
+    client, headers = _make_single_perm_user(
+        db_session, monkeypatch, "only-materials", "materials:read"
+    )
     try:
         response = client.get("/api/v1/dashboard/summary", headers=headers)
         assert response.status_code == 200, response.text
@@ -460,7 +470,9 @@ def test_dashboard_summary_unauthorized(dashboard_environment) -> None:
 def test_dashboard_summary_does_not_query_unauthorized_blocks(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client, headers = _make_single_perm_user(db_session, monkeypatch, "only-receipts-q", "receipts:read")
+    client, headers = _make_single_perm_user(
+        db_session, monkeypatch, "only-receipts-q", "receipts:read"
+    )
     statements: list[str] = []
 
     def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):

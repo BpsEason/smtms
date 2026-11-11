@@ -117,8 +117,9 @@ export function TraceabilityPage() {
             </select>
           </FormField>
 
-          <FormField label="識別值">
+          <FormField label="識別值" htmlFor="trace-identifier-value">
             <input
+              id="trace-identifier-value"
               className={inputClass}
               value={value}
               onChange={(event) => setValue(event.target.value)}

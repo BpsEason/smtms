@@ -227,6 +227,12 @@ function installApiMock(
       }
       if (url.includes("/api/v1/iqc"))
         return response(page(savedIqc ? [savedIqc] : []));
+      if (url.endsWith("/api/v1/dashboard/summary"))
+        return response({});
+      if (url.endsWith("/api/v1/dashboard/todos"))
+        return response({ pending_iqc: [], open_nc: [] });
+      if (url.includes("/api/v1/dashboard/quality-trend"))
+        return response([]);
       if (url.endsWith("/api/v1/auth/logout"))
         return response({ message: "Successfully logged out" });
       return response(page([]));
@@ -336,6 +342,14 @@ function installSignoffMock() {
         );
         return response(page(items));
       }
+      if (url.endsWith("/api/v1/dashboard/summary"))
+        return response({
+          iqc: { total: 0, pending_review: 0, passed: 0, failed: 0 },
+        });
+      if (url.endsWith("/api/v1/dashboard/todos"))
+        return response({ pending_iqc: [], open_nc: [] });
+      if (url.includes("/api/v1/dashboard/quality-trend"))
+        return response([]);
       return response(page([]));
     },
   );
@@ -662,6 +676,12 @@ describe("SMTMS application", () => {
           permissions: ["receipts:read", "materials:read", "iqc:read"],
         });
       if (url.includes("/api/v1/traceability")) return response(page([trace]));
+      if (url.endsWith("/api/v1/dashboard/summary"))
+        return response({});
+      if (url.endsWith("/api/v1/dashboard/todos"))
+        return response({ pending_iqc: [], open_nc: [] });
+      if (url.includes("/api/v1/dashboard/quality-trend"))
+        return response([]);
       return response(page([]));
     });
 
