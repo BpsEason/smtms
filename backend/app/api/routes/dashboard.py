@@ -45,9 +45,7 @@ def _supplier_receipt_ids_subquery(current_user: AuthenticatedUser):
 
 
 def _supplier_lot_ids_subquery(current_user: AuthenticatedUser):
-    return select(SupplierLotORM.id).where(
-        SupplierLotORM.supplier_id == current_user.supplier_id
-    )
+    return select(SupplierLotORM.id).where(SupplierLotORM.supplier_id == current_user.supplier_id)
 
 
 def _supplier_internal_lot_condition(current_user: AuthenticatedUser):
@@ -113,22 +111,16 @@ def get_dashboard_summary(
             func.count(InternalMaterialLotORM.id),
         ).group_by(InternalMaterialLotORM.lot_status)
         if is_supplier:
-            lot_status_stmt = lot_status_stmt.where(
-                _supplier_internal_lot_condition(current_user)
-            )
+            lot_status_stmt = lot_status_stmt.where(_supplier_internal_lot_condition(current_user))
         lot_by_status = {
             lot_status: int(count) for lot_status, count in db.execute(lot_status_stmt).all()
         }
-        response.internal_lots = InternalLotSummary(
-            total=lot_total, by_lot_status=lot_by_status
-        )
+        response.internal_lots = InternalLotSummary(total=lot_total, by_lot_status=lot_by_status)
 
     if can_iqc:
         iqc_stmt = select(
             func.count(IQCRecordORM.id),
-            func.coalesce(
-                func.sum(case((IQCRecordORM.review_status == "pending", 1), else_=0)), 0
-            ),
+            func.coalesce(func.sum(case((IQCRecordORM.review_status == "pending", 1), else_=0)), 0),
             func.coalesce(
                 func.sum(case((IQCRecordORM.inspection_result == "passed", 1), else_=0)), 0
             ),
@@ -149,12 +141,8 @@ def get_dashboard_summary(
     if can_nonconformance:
         nc_stmt = select(
             func.count(NonconformanceORM.id),
-            func.coalesce(
-                func.sum(case((NonconformanceORM.status == "closed", 1), else_=0)), 0
-            ),
-            func.coalesce(
-                func.sum(case((NonconformanceORM.status != "closed", 1), else_=0)), 0
-            ),
+            func.coalesce(func.sum(case((NonconformanceORM.status == "closed", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((NonconformanceORM.status != "closed", 1), else_=0)), 0),
         ).select_from(NonconformanceORM)
         if is_supplier:
             nc_stmt = nc_stmt.where(NonconformanceORM.supplier_id == current_user.supplier_id)
@@ -290,23 +278,21 @@ def get_dashboard_todos(
         iqc_rows = db.execute(iqc_stmt).all()
         pending_iqc_items = []
         for row in iqc_rows:
-            (
-                iqc_id,
-                receipt_id,
-                internal_lot_id,
-                inspection_result,
-                review_status,
-                created_at,
-                receipt_no,
-                supplier_id,
-                material_id,
-                _supplier_lot_no,
-                internal_lot_no,
-                supplier_code,
-                supplier_name,
-                material_code,
-                material_name,
-            ) = row
+            iqc_id = row.id
+            receipt_id = row.receipt_id
+            internal_lot_id = row.internal_lot_id
+            inspection_result = row.inspection_result
+            review_status = row.review_status
+            created_at = row.created_at
+            receipt_no = row.receipt_no
+            supplier_id = row.supplier_id
+            material_id = row.material_id
+            _supplier_lot_no = row.supplier_lot_no
+            internal_lot_no = row.internal_lot_no
+            supplier_code = row.supplier_code
+            supplier_name = row.supplier_name
+            material_code = row.material_code
+            material_name = row.material_name
 
             # 如果有 internal_lot 但沒有 receipt，嘗試從 internal_lot 取得 supplier/material
             if receipt_id is None and internal_lot_id is not None:
@@ -375,8 +361,15 @@ def get_dashboard_todos(
 
         nc_rows = db.execute(nc_stmt).all()
         open_nc_items = []
-        for row in nc_rows:
-            nc_id, case_no, title, nc_status, severity, supplier_id, material_id, found_at = row
+        for nc_row in nc_rows:
+            nc_id = nc_row[0]
+            case_no = nc_row[1]
+            title = nc_row[2]
+            nc_status = nc_row[3]
+            severity = nc_row[4]
+            supplier_id = nc_row[5]
+            material_id = nc_row[6]
+            found_at = nc_row[7]
 
             supplier_code = None
             supplier_name = None
