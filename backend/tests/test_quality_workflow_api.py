@@ -12,7 +12,6 @@ from app.models.quality import (
     MaterialORM,
     MaterialReceiptORM,
     NonconformanceAttachmentORM,
-    NonconformanceORM,
     QualityReviewORM,
     SupplierLotORM,
     SupplierMaterialORM,
@@ -2179,7 +2178,6 @@ def test_nonconformance_attachment_upload_commit_failure_removes_file(
     from types import SimpleNamespace
 
     import sqlalchemy.orm as orm
-
     from app.services import document_storage
 
     monkeypatch.setattr(

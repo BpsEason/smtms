@@ -386,7 +386,8 @@ def test_must_change_password_blocks_protected_endpoints(isolation_environment) 
         headers=headers,
     )
     assert changed.status_code == 200
-    assert client.get("/api/v1/suppliers", headers=headers).status_code == 200
+    new_headers = _headers(client, "portal-pending", "Brand-New-Password-2026!")
+    assert client.get("/api/v1/suppliers", headers=new_headers).status_code == 200
 
 
 def test_change_password_only_affects_the_caller(isolation_environment) -> None:

@@ -14,10 +14,13 @@ from sqlalchemy.pool import StaticPool
 class _FakeRedis:
     """測試用 Redis Mock。"""
 
+    _store: dict[str, str] = {}
+
     async def exists(self, key: str) -> int:
-        return 0
+        return 1 if key in self._store else 0
 
     async def set(self, key: str, value: str, ex: int) -> bool:
+        self._store[key] = value
         return True
 
     async def close(self) -> None:

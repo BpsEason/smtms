@@ -7,11 +7,12 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 
 import pytest
-from app.core import config
+from app.core import config, redis_client as redis_module
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.main import app
 from app.models.user import RefreshTokenORM, UserORM
+from conftest import _FakeRedis
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -35,6 +36,11 @@ def auth_test_client(
         config,
         "get_settings",
         lambda: config.Settings(secret_key="a" * 32),
+    )
+    monkeypatch.setattr(
+        redis_module,
+        "get_redis_client",
+        lambda: _FakeRedis(),
     )
 
     # 所有 Session 共用 db_session 的外層交易。

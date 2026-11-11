@@ -446,7 +446,8 @@ def test_first_login_password_change_flow(import_environment) -> None:
         headers=portal,
     )
     assert changed.status_code == 200
-    assert client.get("/api/v1/auth/me", headers=portal).json()["must_change_password"] is False
+    portal_new = _headers(client, "portal-user", "Another-Password-2026!")
+    assert client.get("/api/v1/auth/me", headers=portal_new).json()["must_change_password"] is False
     assert (
         client.post(
             "/api/v1/auth/login",

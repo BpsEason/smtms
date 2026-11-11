@@ -379,10 +379,10 @@ def test_redis_outage_fails_closed_and_health_remains_available(
     }
 
     class BrokenRedis:
-        def exists(self, key: str) -> int:
+        async def exists(self, key: str) -> int:
             raise OSError("redis connection refused")
 
-        def ping(self) -> bool:
+        async def ping(self) -> bool:
             raise OSError("redis connection refused")
 
         async def close(self) -> None:
