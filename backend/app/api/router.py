@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from app.api.routes.access import router as access_router
 from app.api.routes.audit import router as audit_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.health import router as health_router
 from app.api.routes.materials import router as materials_router
 from app.api.routes.nonconformances import router as nonconformances_router
@@ -28,6 +29,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(auth_router, prefix=settings.api_v1_str)
     app.include_router(access_router, prefix=settings.api_v1_str)
     app.include_router(audit_router, prefix=settings.api_v1_str)
+    app.include_router(dashboard_router, prefix=settings.api_v1_str)
     app.include_router(suppliers_router, prefix=settings.api_v1_str)
     app.include_router(materials_router, prefix=settings.api_v1_str)
     app.include_router(quality_router, prefix=settings.api_v1_str)

@@ -417,3 +417,77 @@ export type SupplierImportResult = {
   errors: SupplierImportRowError[];
   accounts: SupplierImportCreatedAccount[];
 };
+
+export type DashboardReceiptSummary = {
+  total: number;
+};
+
+export type DashboardInternalLotSummary = {
+  total: number;
+  by_lot_status: Record<string, number>;
+};
+
+export type DashboardIQCSummary = {
+  total: number;
+  pending_review: number;
+  passed: number;
+  failed: number;
+};
+
+export type DashboardNonconformanceSummary = {
+  total: number;
+  open: number;
+  closed: number;
+};
+
+export type DashboardSummary = {
+  receipts?: DashboardReceiptSummary;
+  internal_lots?: DashboardInternalLotSummary;
+  iqc?: DashboardIQCSummary;
+  nonconformances?: DashboardNonconformanceSummary;
+};
+
+export type PendingIQCItem = {
+  type: "pending_iqc";
+  id: number;
+  internal_lot_no: string | null;
+  receipt_no: string | null;
+  supplier_code: string | null;
+  supplier_name: string | null;
+  material_code: string | null;
+  material_name: string | null;
+  inspection_result: string;
+  review_status: string;
+  created_at: string;
+  detail_path: string;
+};
+
+export type OpenNCItem = {
+  type: "open_nc";
+  id: number;
+  case_no: string;
+  title: string;
+  status: string;
+  severity: string;
+  supplier_code: string | null;
+  supplier_name: string | null;
+  material_code: string | null;
+  material_name: string | null;
+  found_at: string;
+  detail_path: string;
+};
+
+export type DashboardTodos = {
+  pending_iqc: PendingIQCItem[];
+  open_nc: OpenNCItem[];
+};
+
+export type QualityTrendPoint = {
+  year_month: string;
+  total: number;
+  passed: number;
+  failed: number;
+  pass_rate: number;
+};
+
+export type QualityTrendResponse = QualityTrendPoint[];

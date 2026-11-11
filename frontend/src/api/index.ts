@@ -1,4 +1,4 @@
-export {
+﻿export {
   ApiError,
   readToken,
   saveToken,
@@ -20,6 +20,7 @@ import * as traceability from "./traceability";
 import * as auditLogs from "./audit-logs";
 import * as roles from "./roles";
 import * as users from "./users";
+import * as dashboard from "./dashboard";
 
 export const api = {
   ...auth,
@@ -34,4 +35,6 @@ export const api = {
   ...auditLogs,
   ...roles,
   ...users,
+  ...dashboard,
 };
+

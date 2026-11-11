@@ -8,6 +8,7 @@ import {
 } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, clearToken, readToken, saveToken } from "./api";
+import { queryClient } from "./lib/queryClient";
 import { AdminLayout } from "./components/AdminLayout";
 import {
   buttonClass,
@@ -108,6 +109,8 @@ function AppShell() {
     setToken(null);
     setProfile(null);
     setCheckingSession(false);
+    // 清除所有 Query 快取，避免账号切換時顯示前一位使用者的資料。
+    queryClient.clear();
   }, []);
 
   const refreshProfile = useCallback(async () => {
