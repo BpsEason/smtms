@@ -11,13 +11,17 @@ from app.models.quality import (
     IQCRecordORM,
     MaterialORM,
     MaterialReceiptORM,
+    NonconformanceAttachmentORM,
+    NonconformanceORM,
     QualityReviewORM,
     SupplierLotORM,
     SupplierMaterialORM,
     SupplierORM,
 )
 from app.models.user import PermissionORM, RoleORM, RolePermissionORM, UserORM, UserRoleORM
+from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -1986,3 +1990,317 @@ def test_lot_trace_permission_and_supplier_isolation(quality_environment) -> Non
         headers=limited_headers,
     )
     assert trace_no_perm.status_code == 403
+
+
+def test_nonconformance_update_iqc_link_validation(quality_environment) -> None:
+    client, TestSession = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    # IQC referencing only an internal lot (the IQC record itself has no receipt).
+    iqc_internal_only = client.post(
+        "/api/v1/iqc",
+        json={
+            "internal_lot_id": 1,
+            "sample_qty": "1",
+            "inspection_result": "failed",
+            "release_status": "rejected",
+        },
+        headers=headers,
+    )
+    assert iqc_internal_only.status_code == 201, iqc_internal_only.text
+    iqc_internal_only_id = iqc_internal_only.json()["id"]
+
+    # IQC referencing only a receipt (no internal lot).
+    iqc_receipt_only = client.post(
+        "/api/v1/iqc",
+        json={
+            "receipt_id": 1,
+            "sample_qty": "1",
+            "inspection_result": "failed",
+            "release_status": "rejected",
+        },
+        headers=headers,
+    )
+    assert iqc_receipt_only.status_code == 201, iqc_receipt_only.text
+    iqc_receipt_only_id = iqc_receipt_only.json()["id"]
+
+    # IQC referencing both internal lot and receipt.
+    iqc_both = client.post(
+        "/api/v1/iqc",
+        json={
+            "internal_lot_id": 1,
+            "receipt_id": 1,
+            "sample_qty": "1",
+            "inspection_result": "failed",
+            "release_status": "rejected",
+        },
+        headers=headers,
+    )
+    assert iqc_both.status_code == 201, iqc_both.text
+    iqc_both_id = iqc_both.json()["id"]
+
+    seq = 0
+
+    def create_case(**extra):
+        nonlocal seq
+        seq += 1
+        payload = {
+            "case_no": f"NC-UPD-{seq}",
+            "title": "T",
+            "description": "D",
+            "source": "other",
+            "severity": "low",
+            "found_at": "2026-10-20T10:00:00Z",
+        }
+        payload.update(extra)
+        return client.post("/api/v1/nonconformances", json=payload, headers=headers)
+
+    # Scenario 1 & 2: switch iqc_record_id to an IQC whose internal lot matches the
+    # case's existing internal lot, without sending internal_lot_id -> allowed, and the
+    # existing internal_lot_id is preserved (no auto-overwrite of existing data).
+    case = create_case(iqc_record_id=iqc_both_id)
+    assert case.status_code == 201, case.text
+    case_id = case.json()["id"]
+    assert case.json()["internal_lot_id"] == 1
+
+    patched = client.patch(
+        f"/api/v1/nonconformances/{case_id}",
+        json={"iqc_record_id": iqc_internal_only_id},
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["iqc_record_id"] == iqc_internal_only_id
+    assert patched.json()["internal_lot_id"] == 1
+
+    # Scenario 1 reject: switch iqc_record_id to an IQC with an internal lot, but the
+    # case has no internal lot and none is sent -> rejected (incomplete association).
+    case2 = create_case()
+    assert case2.status_code == 201, case2.text
+    case2_id = case2.json()["id"]
+
+    rejected = client.patch(
+        f"/api/v1/nonconformances/{case2_id}",
+        json={"iqc_record_id": iqc_internal_only_id},
+        headers=headers,
+    )
+    assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.text
+    assert "internal lot" in rejected.json()["detail"]
+
+    # Scenario 3: build a second internal lot under a different supplier lot, then an
+    # IQC on it. Switching the case to that IQC must be rejected (inconsistent lot).
+    with TestSession.begin() as session:
+        supplier_lot_2 = SupplierLotORM(
+            supplier_id=1,
+            material_id=1,
+            supplier_lot_no="LOT-200",
+            qty_received=100,
+            uom="pcs",
+            qc_status="received",
+            manufacturing_date=datetime(2026, 8, 1),
+            expiry_date=datetime(2027, 8, 1),
+        )
+        session.add(supplier_lot_2)
+        session.flush()
+        receipt_2 = MaterialReceiptORM(
+            supplier_id=1,
+            material_id=1,
+            supplier_lot_id=supplier_lot_2.id,
+            receipt_no="REC-200",
+            received_at=datetime(2026, 10, 1, 9, 30),
+            received_by_user_id=1,
+            qty_received=50,
+            qty_remaining=50,
+            status="received",
+        )
+        session.add(receipt_2)
+        session.flush()
+        internal_lot_2 = InternalMaterialLotORM(
+            material_id=1,
+            supplier_lot_id=supplier_lot_2.id,
+            receipt_id=receipt_2.id,
+            internal_lot_no="ILT-200",
+            qty_on_hand=50,
+            qty_reserved=0,
+            uom="pcs",
+            lot_status="available",
+        )
+        session.add(internal_lot_2)
+        session.flush()
+        internal_lot_2_id = internal_lot_2.id
+
+    iqc_diff_lot = client.post(
+        "/api/v1/iqc",
+        json={
+            "internal_lot_id": internal_lot_2_id,
+            "sample_qty": "1",
+            "inspection_result": "failed",
+            "release_status": "rejected",
+        },
+        headers=headers,
+    )
+    assert iqc_diff_lot.status_code == 201, iqc_diff_lot.text
+    iqc_diff_lot_id = iqc_diff_lot.json()["id"]
+
+    mismatch = client.patch(
+        f"/api/v1/nonconformances/{case_id}",
+        json={"iqc_record_id": iqc_diff_lot_id},
+        headers=headers,
+    )
+    assert mismatch.status_code == status.HTTP_400_BAD_REQUEST, mismatch.text
+
+    # Scenario 5: IQC references only a receipt, case has no receipt and none sent ->
+    # rejected (incomplete association).
+    case3 = create_case()
+    assert case3.status_code == 201, case3.text
+    case3_id = case3.json()["id"]
+
+    rejected_receipt = client.patch(
+        f"/api/v1/nonconformances/{case3_id}",
+        json={"iqc_record_id": iqc_receipt_only_id},
+        headers=headers,
+    )
+    assert rejected_receipt.status_code == status.HTTP_400_BAD_REQUEST, rejected_receipt.text
+    assert "receipt" in rejected_receipt.json()["detail"]
+
+    # Scenario 6: updating a non-link field keeps the existing IQC link valid.
+    kept = client.patch(
+        f"/api/v1/nonconformances/{case_id}",
+        json={"title": "updated title"},
+        headers=headers,
+    )
+    assert kept.status_code == status.HTTP_200_OK, kept.text
+    assert kept.json()["title"] == "updated title"
+    assert kept.json()["iqc_record_id"] == iqc_internal_only_id
+
+
+def test_nonconformance_attachment_upload_commit_failure_removes_file(
+    quality_environment, monkeypatch, tmp_path
+) -> None:
+    from types import SimpleNamespace
+
+    import sqlalchemy.orm as orm
+
+    from app.services import document_storage
+
+    monkeypatch.setattr(
+        document_storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            document_storage_dir=str(tmp_path),
+            document_max_file_bytes=1024 * 1024,
+        ),
+    )
+
+    removed_keys = []
+    real_remove = document_storage.remove_attachment
+
+    def recording_remove(key):
+        removed_keys.append(key)
+        return real_remove(key)
+
+    monkeypatch.setattr(document_storage, "remove_attachment", recording_remove)
+
+    client, TestSession = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    created = client.post(
+        "/api/v1/nonconformances",
+        json={
+            "case_no": "NC-ATT-FAIL-1",
+            "title": "T",
+            "description": "D",
+            "source": "other",
+            "severity": "low",
+            "found_at": "2026-10-20T10:00:00Z",
+        },
+        headers=headers,
+    )
+    assert created.status_code == status.HTTP_201_CREATED, created.text
+    case_id = created.json()["id"]
+
+    image = b"\x89PNG\r\n\x1a\n" + b"evidence"
+
+    from fastapi import HTTPException
+
+    def raising_commit(self):
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "simulated DB commit failure")
+
+    monkeypatch.setattr(orm.Session, "commit", raising_commit)
+
+    uploaded = client.post(
+        f"/api/v1/nonconformances/{case_id}/attachments",
+        files={"file": ("evidence.png", image, "image/png")},
+        headers=headers,
+    )
+    assert uploaded.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, uploaded.text
+
+    # File cleanup was attempted and no attachment row was persisted.
+    assert removed_keys, "remove_attachment should be invoked on commit failure"
+    with TestSession() as session:
+        row = session.scalar(
+            select(NonconformanceAttachmentORM).where(
+                NonconformanceAttachmentORM.nonconformance_id == case_id
+            )
+        )
+    assert row is None
+
+
+def test_nonconformance_attachment_delete_file_failure_rolls_back_db(
+    quality_environment, monkeypatch, tmp_path
+) -> None:
+    from types import SimpleNamespace
+
+    from app.services import document_storage
+
+    monkeypatch.setattr(
+        document_storage,
+        "get_settings",
+        lambda: SimpleNamespace(
+            document_storage_dir=str(tmp_path),
+            document_max_file_bytes=1024 * 1024,
+        ),
+    )
+
+    client, TestSession = quality_environment
+    headers = _headers(client, "quality-admin", "Quality-Test-Password-2026!")
+
+    created = client.post(
+        "/api/v1/nonconformances",
+        json={
+            "case_no": "NC-ATT-DEL-1",
+            "title": "T",
+            "description": "D",
+            "source": "other",
+            "severity": "low",
+            "found_at": "2026-10-20T10:00:00Z",
+        },
+        headers=headers,
+    )
+    assert created.status_code == status.HTTP_201_CREATED, created.text
+    case_id = created.json()["id"]
+
+    image = b"\x89PNG\r\n\x1a\n" + b"evidence"
+    uploaded = client.post(
+        f"/api/v1/nonconformances/{case_id}/attachments",
+        files={"file": ("evidence.png", image, "image/png")},
+        headers=headers,
+    )
+    assert uploaded.status_code == status.HTTP_201_CREATED, uploaded.text
+    attachment_id = uploaded.json()["id"]
+
+    def failing_remove(key):
+        raise OSError("simulated disk error")
+
+    monkeypatch.setattr(document_storage, "remove_attachment", failing_remove)
+
+    deleted = client.delete(
+        f"/api/v1/nonconformances/{case_id}/attachments/{attachment_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, deleted.text
+
+    # File removal failure is surfaced as an error and the DB delete is rolled back,
+    # so neither an orphan file nor a silently lost record is left behind.
+    with TestSession() as session:
+        row = session.get(NonconformanceAttachmentORM, attachment_id)
+    assert row is not None
