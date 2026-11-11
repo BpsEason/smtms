@@ -16,6 +16,10 @@ export async function listIQCRecords(
   );
 }
 
+export async function getIQCRecord(iqcId: number) {
+  return request<IQCRecord>(`/api/v1/iqc/${iqcId}`);
+}
+
 export async function createIQC(payload: IQCCreatePayload) {
   return request<IQCRecord>(`/api/v1/iqc`, {
     method: "POST",
