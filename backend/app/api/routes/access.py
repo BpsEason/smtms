@@ -20,6 +20,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -163,7 +164,7 @@ def _management_grants(db: Session) -> set[int]:
 
 
 @contextmanager
-def _management_mutex(db: Session) -> Iterator[None]:
+def _management_mutex(db: Session) -> Iterator[Connection | None]:
     """Serialize management writes so the last-manager check cannot race.
 
     MySQL (the production engine) uses a named advisory lock: the invariant
@@ -171,11 +172,20 @@ def _management_mutex(db: Session) -> Iterator[None]:
     matched rows alone cannot prevent a lost update. The lock is connection
     scoped and therefore released explicitly. Other dialects (the test suite
     runs on SQLite) have no advisory lock and keep the same code path.
+
+    GET_LOCK / RELEASE_LOCK must run on the same physical connection. The
+    underlying connection is acquired once here so commit/rollback inside the
+    guarded block do not swap it out while the advisory lock is held.
+    The connection is yielded so the caller can commit on it directly, avoiding
+    Session.commit() which would close the connection before RELEASE_LOCK runs.
     """
-    if db.get_bind().dialect.name != "mysql":
-        yield
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "mysql":
+        yield None
         return
-    acquired = db.execute(
+
+    conn = db.connection()
+    acquired = conn.execute(
         text("SELECT GET_LOCK(:name, :timeout)"),
         {"name": MANAGE_LOCK_NAME, "timeout": MANAGE_LOCK_TIMEOUT_SECONDS},
     ).scalar()
@@ -185,10 +195,15 @@ def _management_mutex(db: Session) -> Iterator[None]:
             detail="其他權限管理操作正在進行中，請稍後再試。",
         )
     try:
-        yield
+        yield conn
     finally:
-        db.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": MANAGE_LOCK_NAME})
-        db.commit()
+        # Advisory locks are connection-scoped; RELEASE_LOCK must always run on
+        # the same connection and must not persist/alter business transactions.
+        try:
+            conn.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": MANAGE_LOCK_NAME})
+        finally:
+            if conn.in_transaction():
+                conn.rollback()
 
 
 def _commit_keeping_one_manager(db: Session) -> None:
@@ -196,9 +211,9 @@ def _commit_keeping_one_manager(db: Session) -> None:
 
     The lock, the check and the commit share one transaction boundary: pending
     writes are flushed inside the mutex and the manager set is re-read as a
-    current read. A refusal rolls the whole change back.
+    current read. A refusal rolls the whole change back. Success commits once.
     """
-    with _management_mutex(db):
+    with _management_mutex(db) as conn:
         db.flush()
         if not _management_grants(db):
             db.rollback()
@@ -206,7 +221,62 @@ def _commit_keeping_one_manager(db: Session) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="操作會移除最後一位具備使用者管理權限的管理員，已拒絕。",
             )
-        db.commit()
+        if conn is not None:
+            # Commit on the connection directly to avoid Session.commit() closing
+            # the connection before the mutex's finally block runs RELEASE_LOCK.
+            conn.commit()
+        else:
+            db.commit()
+
+
+def _integrity_conflict_detail(exc: IntegrityError) -> str:
+    """Map DB integrity failures by actual constraint/index name when known."""
+    parts: list[str] = []
+    orig = getattr(exc, "orig", None)
+    for candidate in (
+        getattr(orig, "diag", None) and getattr(orig.diag, "constraint_name", None),
+        getattr(orig, "diag", None) and getattr(orig.diag, "column_name", None),
+        getattr(orig, "args", None),
+        orig,
+        exc,
+    ):
+        if candidate is None:
+            continue
+        if isinstance(candidate, (tuple, list)):
+            parts.extend(str(item) for item in candidate if item is not None)
+        else:
+            parts.append(str(candidate))
+    raw = " ".join(parts)
+
+    constraint_match = re.search(
+        r"(?:for key ['\"](?P<key>[^'\"]+)['\"]"
+        r"|constraint(?: failed)?[: ]['\"]?(?P<constraint>[A-Za-z0-9_.:-]+)"
+        r"|unique constraint ['\"](?P<unique>[^'\"]+)['\"]"
+        r"|duplicate key name ['\"](?P<dup>[^'\"]+)['\"])",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    identifier = ""
+    if constraint_match:
+        identifier = next(
+            (value for value in constraint_match.groupdict().values() if value), ""
+        ).lower()
+
+    haystack = f"{identifier} {raw}".lower()
+    if any(token in haystack for token in ("email", "uq_users_email", "ix_users_email")):
+        if "email" in identifier or "uq_users_email" in haystack or "users.email" in haystack:
+            return "Email already exists"
+    if any(
+        token in identifier or token in haystack
+        for token in ("username", "uq_users_username", "ix_users_username")
+    ):
+        if (
+            "username" in identifier
+            or "uq_users_username" in haystack
+            or "users.username" in haystack
+        ):
+            return "Username already exists"
+    return "資料衝突，請檢查輸入內容。"
 
 
 @router.get("/permissions", response_model=list[PermissionSummary])
@@ -291,6 +361,11 @@ def update_role(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="系統的供應商入口角色不可重新命名。",
+            )
+        if role.name != SUPPLIER_ROLE_NAME and new_name == SUPPLIER_ROLE_NAME:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="一般角色不可改名為系統保留的供應商入口角色名稱。",
             )
         if new_name != role.name and db.scalar(
             select(RoleORM.id).where(RoleORM.name == new_name, RoleORM.id != role.id)
@@ -429,7 +504,7 @@ def create_internal_user(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already exists",
+            detail=_integrity_conflict_detail(exc),
         ) from exc
     db.refresh(user)
     roles_map = _user_roles_batch(db, [user.id])
@@ -447,6 +522,11 @@ def _validate_internal_username(username: str) -> str:
 
 
 def _validate_internal_password(password: str) -> None:
+    if password == "":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="password cannot be empty",
+        )
     if len(password.encode("utf-8")) > 72:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -533,11 +613,22 @@ def update_internal_user(
         user.username = username
 
     if "email" in changes:
+        # Email uniqueness is enforced only if the DB has a unique constraint.
+        # Without a confirmed Model/Migration rule, do not invent application-level
+        # uniqueness here; IntegrityError is mapped below when the DB rejects it.
         user.email = str(changes["email"]) if changes["email"] is not None else None
 
     if "password" in changes:
         password = changes["password"]
-        if password is not None and password != "":
+        # null / omitted: leave hash unchanged. Empty string is invalid (422).
+        if password is None:
+            pass
+        elif password == "":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="password cannot be empty",
+            )
+        else:
             _validate_internal_password(password)
             user.password_hash = get_password_hash(password)
 
@@ -551,7 +642,7 @@ def update_internal_user(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already exists",
+            detail=_integrity_conflict_detail(exc),
         ) from exc
     db.refresh(user)
     roles_map = _user_roles_batch(db, [user.id])

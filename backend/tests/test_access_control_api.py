@@ -802,6 +802,106 @@ def test_management_guard_reads_current_committed_state_for_mysql() -> None:
     assert "FOR UPDATE" in sql.upper()
 
 
+def test_management_mutex_mysql_uses_same_connection_and_releases_without_committing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeDialect:
+        name = "mysql"
+
+    class FakeBind:
+        dialect = FakeDialect()
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self._in_tx = False
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            if "GET_LOCK" in sql:
+                events.append(f"get_lock:{params['name']}")
+                return type("R", (), {"scalar": lambda self: 1})()
+            if "RELEASE_LOCK" in sql:
+                events.append(f"release_lock:{params['name']}")
+                return type("R", (), {"scalar": lambda self: 1})()
+            raise AssertionError(f"unexpected sql: {sql}")
+
+        def in_transaction(self) -> bool:
+            return self._in_tx
+
+        def rollback(self) -> None:
+            events.append("rollback")
+
+    class FakeSession:
+        def __init__(self, conn: FakeConnection) -> None:
+            self._conn = conn
+
+        def get_bind(self):
+            return FakeBind()
+
+        def connection(self):
+            events.append("connection")
+            return self._conn
+
+    conn = FakeConnection()
+    db = FakeSession(conn)
+
+    with access_module._management_mutex(db):  # type: ignore[arg-type]
+        conn._in_tx = True
+        events.append("work")
+
+    assert events == [
+        "connection",
+        f"get_lock:{access_module.MANAGE_LOCK_NAME}",
+        "work",
+        f"release_lock:{access_module.MANAGE_LOCK_NAME}",
+        "rollback",
+    ]
+
+
+def test_management_mutex_mysql_always_releases_lock_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class FakeDialect:
+        name = "mysql"
+
+    class FakeBind:
+        dialect = FakeDialect()
+
+    class FakeConnection:
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            if "GET_LOCK" in sql:
+                calls.append("get")
+                return type("R", (), {"scalar": lambda self: 1})()
+            if "RELEASE_LOCK" in sql:
+                calls.append("release")
+                return type("R", (), {"scalar": lambda self: 1})()
+            raise AssertionError(sql)
+
+        def in_transaction(self) -> bool:
+            return False
+
+        def rollback(self) -> None:
+            calls.append("rollback")
+
+    class FakeSession:
+        def get_bind(self):
+            return FakeBind()
+
+        def connection(self):
+            return FakeConnection()
+
+    with pytest.raises(RuntimeError):
+        with access_module._management_mutex(FakeSession()):  # type: ignore[arg-type]
+            raise RuntimeError("boom")
+
+    assert calls == ["get", "release"]
+
+
 @pytest.mark.skipif(
     not MYSQL_TEST_URL,
     reason=("set SMTMS_TEST_MYSQL_URL to a dedicated *_test database to run the real MySQL test"),
@@ -1062,6 +1162,69 @@ def test_patch_user_duplicate_username_conflict(
     )
 
     assert updated.status_code == 409
+    assert updated.json()["detail"] == "Username already exists"
+
+
+def test_patch_user_duplicate_email_conflict_returns_correct_error(
+    access_environment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    original_commit = access_module._commit_keeping_one_manager
+
+    def raise_email_integrity(db: Session) -> None:
+        try:
+            raise Exception(
+                "Duplicate entry 'dup@example.com' for key 'users.uq_users_email'"
+            )
+        except Exception as orig:
+            raise Exception from orig
+
+    class _FakeOrig(Exception):
+        pass
+
+    def commit_with_email_conflict(db: Session) -> None:
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+
+        if db.new or db.dirty or db.deleted:
+            orig = _FakeOrig(
+                "Duplicate entry 'dup@example.com' for key 'users.uq_users_email'"
+            )
+            raise SAIntegrityError(
+                "UPDATE users ...",
+                {"email": "dup@example.com"},
+                orig,
+            )
+        original_commit(db)
+
+    monkeypatch.setattr(access_module, "_commit_keeping_one_manager", commit_with_email_conflict)
+
+    updated = client.patch(
+        f"/api/v1/users/{ids['user_staff']}",
+        json={"email": "dup@example.com"},
+        headers=headers,
+    )
+
+    assert updated.status_code == 409, updated.text
+    assert updated.json()["detail"] == "Email already exists"
+
+
+def test_update_role_cannot_rename_regular_role_to_supplier_reserved_name(
+    access_environment,
+) -> None:
+    client, _, ids = access_environment
+    headers = _headers(client, "admin-one")
+
+    response = client.patch(
+        f"/api/v1/roles/{ids['role_reader']}",
+        json={"name": SUPPLIER_ROLE_NAME},
+        headers=headers,
+    )
+
+    assert response.status_code == 409, response.text
+    assert "保留" in response.json()["detail"]
 
 
 def test_patch_user_null_username_rejected(
