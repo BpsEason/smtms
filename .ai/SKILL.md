@@ -57,6 +57,15 @@ last_updated: 2026-11-04
 3. **驗證結果**：執行的測試及通過／失敗數量。
 4. **待處理事項**：尚未解決的問題（若無則省略）。
 
+## 2.2 API 安全規範觸發與執行（引用 `.ai/security_principles.md`）
+
+- **唯一來源**：`.ai/security_principles.md` 為 API 安全原則唯一來源（Single Source of Truth）；本 Skill 僅引用並要求執行，不重複複製完整內容。
+- **觸發條件**：新增、修改或重構 API（FastAPI 路由/依賴注入、Request/Response Schema、認證授權、權限檢查、供應商資料隔離、序列化、CORS/Rate Limiting/JWT 相關設定）時，實作前必須讀取 `.ai/security_principles.md` 與任務相關規範。
+- **實作前檢查**：確認 Endpoint 權限要求、供應商資料隔離規則、Request Schema 輸入白名單、Response Model 不洩漏敏感資料，以及 JWT/CORS/CSRF/Rate Limiting 是否涉及本次修改。
+- **實作中要求**：沿用既有 `require_permission()` / `require_role()`；保留 `ensure_supplier_access()` 與供應商資料範圍限制；不允許一般使用者透過 Request Schema 修改敏感欄位；不直接暴露未經控制的 ORM 資料；不得繞過既有 JWT 撤銷與 Refresh Token Rotation；不得破壞既有 RBAC。
+- **完成後檢查**：檢查權限控制、供應商資料隔離、輸入與輸出欄位；補充必要的安全回歸測試；回報實際執行的測試結果。未驗證項目不得標記為已完成，未查證疑慮不得描述為確定漏洞。
+- **優先順序與限制**：依 `.ai/security_principles.md` 區分高/中/低優先級（高：登入 API Rate Limiting、Dashboard 權限檢查一致性、Refresh Token 驗證使用者是否仍啟用；中：Update/Response 敏感欄位與供應商隔離邊界；低：Production CORS 白名單確認、其他 JWT 建議）。項目狀態可能為待改善/待驗證，不得誤標為已完成。**Token Jitter 不列為必要實作項目**；不得更換現有 JWT 架構；所有修改須維持 API 向後相容。
+
 ## 3. 技術架構摘要
 
 ### 前端技術堆疊
@@ -263,6 +272,7 @@ const handleSubmit = async () => {
 
 ## 12. 參考文件索引
 
+- [API 安全原則（唯一來源）](security_principles.md)
 - [技術架構詳細](architecture.md)
 - [業務規則詳細](business_rules.md)
 - [專案狀態詳細](project_state.md)

@@ -28,15 +28,36 @@ class FakeRedis:
 
     def __init__(self) -> None:
         self.revoked: set[str] = set()
+        self.store: dict[str, str] = {}
+        self.ttl: dict[str, int] = {}
 
     async def exists(self, key: str) -> int:
-        return int(key in self.revoked)
+        if key in self.revoked:
+            return 1
+        return 1 if key in self.store else 0
 
     async def set(self, key: str, value: str, ex: int) -> bool:
-        assert value == "1"
-        assert ex > 0
-        self.revoked.add(key)
+        if value == "1" and key.startswith("auth:revoked:"):
+            assert ex > 0
+            self.revoked.add(key)
+            return True
+        self.store[key] = value
+        self.ttl[key] = ex
         return True
+
+    async def eval(self, script: str, numkeys: int, key: str, *args):
+        assert numkeys == 1
+        ttl = int(args[1]) if len(args) > 1 else 0
+        current = int(self.store.get(key, "0"))
+        if current == 0:
+            self.ttl[key] = ttl
+        count = current + 1
+        self.store[key] = str(count)
+        remaining = self.ttl.get(key, ttl)
+        if remaining < 0:
+            self.ttl[key] = ttl
+            remaining = ttl
+        return [count, remaining]
 
     async def close(self) -> None:
         return None

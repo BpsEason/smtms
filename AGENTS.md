@@ -13,12 +13,21 @@
 ## Context 按需載入策略
 依照以下原則讀取文件，不得每次任務固定載入所有 `.ai/` 文件：
 - `.ai/instructions.md`：通用工作原則、修改限制及 Token 優化規則（任務開始時必讀）
+- `.ai/security_principles.md`：**API 安全原則唯一來源**；新增、修改或重構 API/後端路由、認證授權、Schema、序列化或安全相關設定時**必讀**
 - `.ai/architecture.md`：涉及系統架構、模組關係、跨模組修改時才讀取
 - `.ai/business_rules.md`：涉及業務流程、資料一致性、狀態轉換或業務限制時才讀取
 - `.ai/project_state.md`：需要確認目前實作狀態、已知限制或待處理問題時才讀取
 - `.ai/task_template.md`：需要撰寫或整理完整任務提示詞時才讀取
+- `.ai/SKILL.md`：需要遵循技能文件中的開發/執行規範時才讀取（與其他規範搭配使用，避免重複載入相同內容）
 - `docs/`：當任務涉及正式規格、驗收條件、領域規則或現況紀錄時，依需求讀取對應文件
 - `backend/`、`frontend/`、`docker/` 等目錄：只在與任務相關時才檢查，並依實際專案結構為準
+
+## API 安全規範觸發條件（文件整合）
+凡涉及**新增、修改或重構 API**（包含 FastAPI 路由、依賴注入、Request/Response Schema、認證授權、權限檢查、供應商資料隔離、序列化、CORS/Rate Limiting/JWT 相關設定）之任務：
+1. **實作前**：必須讀取 `.ai/security_principles.md` 與任務相關規範，確認權限要求、供應商資料隔離、輸入白名單、輸出欄位暴露風險，以及是否涉及 JWT/CORS/CSRF/Rate Limiting。
+2. **實作中**：沿用既有 `require_permission()` / `require_role()`、`ensure_supplier_access()` 與查詢層隔離；不得允許敏感欄位大量指派；不得直接暴露未經控制的 ORM 資料；不得繞過既有 JWT 撤銷與 Refresh Token Rotation；不得破壞既有 RBAC。
+3. **完成後**：檢查權限控制、供應商資料隔離、輸入/輸出欄位；補充必要的安全回歸測試；回報實際執行的測試結果。未驗證項目不得標記為已完成，未查證疑慮不得描述為確定漏洞。
+4. **優先順序與限制**：安全改善項目分為高/中/低優先級且可能為待改善/待驗證（以 `.ai/security_principles.md` 為準）；本次文件整合不代表已實作修補。**Token Jitter 不列為必要實作項目**；不得更換現有 JWT 架構；所有修改須維持 API 向後相容。
 
 ## Token 與搜尋範圍管理
 1. 先定位任務涉及的檔案、函式、路由、設定或資料表，再擴大搜尋範圍

@@ -5,12 +5,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.login_rate_limit import enforce_login_rate_limit
 from app.core.security import (
     AuthenticatedUser,
     create_access_token,
@@ -91,7 +92,12 @@ def _is_access_token_invalid_error(exc: BaseException) -> bool:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    await enforce_login_rate_limit(request, payload.username)
     user = db.scalar(select(UserORM).where(UserORM.username == payload.username))
     password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
     password_matches = verify_password(payload.password, password_hash)

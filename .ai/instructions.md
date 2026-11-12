@@ -145,6 +145,15 @@
 4. 後端驗證：Pydantic、權限、業務規則是否拒絕？
 5. 資料庫：是否發生唯一約束、外鍵或交易問題？
 
+## API 開發安全檢查流程（引用 `.ai/security_principles.md`）
+> `.ai/security_principles.md` 為 API 安全原則唯一來源（Single Source of Truth）；本節僅定義觸發時機與執行流程，不重複複製完整原則。
+
+- **觸發條件**：新增、修改或重構 API（FastAPI 路由/依賴注入、Request/Response Schema、認證授權、權限檢查、供應商資料隔離、序列化、CORS/Rate Limiting/JWT 相關設定）時，實作前必須讀取 `.ai/security_principles.md` 與任務相關規範。
+- **實作前**：確認 Endpoint 權限要求、供應商資料隔離規則、Request Schema 輸入白名單、Response Model 敏感資料暴露風險，以及本次是否涉及 JWT/CORS/CSRF/Rate Limiting。
+- **實作中**：沿用既有 `require_permission()` / `require_role()`、`ensure_supplier_access()` 與查詢層隔離；不允許一般使用者透過 Request Schema 修改敏感欄位；不直接暴露未經控制的 ORM 資料；不得繞過既有 JWT 撤銷與 Refresh Token Rotation；不得破壞既有 RBAC。
+- **完成後**：檢查權限控制、供應商資料隔離、輸入/輸出欄位；補充必要的安全回歸測試；回報實際執行的測試結果。未驗證項目不得標記為已完成，未查證疑慮不得描述為確定漏洞。
+- **改善優先順序與限制**：依 `.ai/security_principles.md` 區分高/中/低優先級與待改善/待驗證狀態；本次文件整合不代表已實作修補。**Token Jitter 不列為必要實作項目**；不得更換現有 JWT 架構；所有修改須維持 API 向後相容。
+
 ## AI Agent 執行限制
 - 不臆測不存在的欄位、API、權限或業務規則
 - 不在未確認根因時進行大範圍修改

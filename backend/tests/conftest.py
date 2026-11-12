@@ -14,14 +14,35 @@ from sqlalchemy.pool import StaticPool
 class _FakeRedis:
     """測試用 Redis Mock。"""
 
-    _store: dict[str, str] = {}
+    _shared_store: dict[str, str] = {}
+    _shared_ttl: dict[str, int] = {}
+
+    def __init__(self) -> None:
+        self._store = _FakeRedis._shared_store
+        self._ttl = _FakeRedis._shared_ttl
 
     async def exists(self, key: str) -> int:
         return 1 if key in self._store else 0
 
     async def set(self, key: str, value: str, ex: int) -> bool:
         self._store[key] = value
+        self._ttl[key] = ex
         return True
+
+    async def eval(self, script: str, numkeys: int, key: str, *args):
+        # Minimal atomic INCR+EXPIRE behavior for login rate limiting Lua script.
+        assert numkeys == 1
+        ttl = int(args[1]) if len(args) > 1 else 0
+        current = int(self._store.get(key, "0"))
+        if current == 0:
+            self._ttl[key] = ttl
+        count = current + 1
+        self._store[key] = str(count)
+        remaining = self._ttl.get(key, ttl)
+        if remaining < 0:
+            self._ttl[key] = ttl
+            remaining = ttl
+        return [count, remaining]
 
     async def close(self) -> None:
         return None
@@ -86,6 +107,8 @@ def client(
 ) -> Generator[TestClient, None, None]:
     """建立測試用 TestClient，注入資料庫與 Redis Mock。"""
 
+    _FakeRedis._shared_store.clear()
+    _FakeRedis._shared_ttl.clear()
     monkeypatch.setattr(
         redis_module,
         "get_redis_client",

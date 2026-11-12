@@ -39,6 +39,8 @@ def auth_test_client(
         "get_settings",
         lambda: config.Settings(secret_key="a" * 32),
     )
+    _FakeRedis._shared_store.clear()
+    _FakeRedis._shared_ttl.clear()
     monkeypatch.setattr(
         redis_module,
         "get_redis_client",
