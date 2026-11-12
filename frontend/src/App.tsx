@@ -10,6 +10,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, clearToken, readToken, saveToken } from "./api";
 import { queryClient } from "./lib/queryClient";
 import { AdminLayout } from "./components/AdminLayout";
+import { canAccess, type PermissionRequirement } from "./lib/permissions";
 import {
   buttonClass,
   EmptyState,
@@ -67,6 +68,44 @@ export const taiwanDateTimeFormatters = {
     hourCycle: "h23",
   }),
 };
+
+function PermissionGate({
+  profile,
+  requirement,
+  children,
+}: {
+  profile: UserProfile | null;
+  requirement: PermissionRequirement;
+  children: ReactNode;
+}) {
+  if (!canAccess(profile?.permissions, requirement)) {
+    let detail: string;
+
+    if (requirement.anyPermissions?.length) {
+      detail = `所需權限（具備任一項即可）：${requirement.anyPermissions.join("、")}`;
+    } else if (requirement.permissions?.length) {
+      detail = `所需權限：${requirement.permissions.join("、")}`;
+    } else {
+      detail = `所需權限：${requirement.permission}`;
+    }
+
+    return (
+      <section>
+        <PageHeader
+          eyebrow="權限管理"
+          title="需要存取權限"
+          description="目前帳號沒有檢視此功能的權限，請聯絡系統管理員。"
+        />
+        <EmptyState
+          title="無法存取此功能"
+          description={`${detail}。請聯絡系統管理員確認角色及權限設定。`}
+        />
+      </section>
+    );
+  }
+
+  return children;
+}
 
 function normalizePermissions(
   permissions: string[] | undefined | null,
@@ -151,6 +190,9 @@ function AppShell() {
   const handleLogin = async (username: string, password: string) => {
     const auth = await api.login(username, password);
 
+    // 清除既有 Query 快取，避免新账号沿用前一个账号的快取資料。
+    queryClient.clear();
+
     saveToken(auth.access_token);
 
     try {
@@ -214,103 +256,128 @@ function AppShell() {
         <Route
           path="suppliers"
           element={
-            <PermissionPage profile={profile} permission="suppliers:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "suppliers:read" }}
+            >
               <CatalogPages kind="suppliers" profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="materials"
           element={
-            <PermissionPage profile={profile} permission="materials:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "materials:read" }}
+            >
               <CatalogPages kind="materials" profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="receipts"
           element={
-            <PermissionPage profile={profile} permission="receipts:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "receipts:read" }}
+            >
               <ReceiptsPage profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="internal-lots"
           element={
-            <PermissionPage profile={profile} permission="materials:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "materials:read" }}
+            >
               <InternalLotsPage profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="iqc"
           element={
-            <PermissionPage profile={profile} permission="iqc:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "iqc:read" }}
+            >
               <IQCPage profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="signoff"
           element={
-            <AnyPermissionPage
+            <PermissionGate
               profile={profile}
-              permissions={[
-                "quality:review",
-                "quality:approve",
-                "quality:return",
-              ]}
+              requirement={{
+                anyPermissions: [
+                  "quality:review",
+                  "quality:approve",
+                  "quality:return",
+                ],
+              }}
             >
               <SignoffPage profile={profile} />
-            </AnyPermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="traceability"
           element={
-            <MultiPermissionPage
+            <PermissionGate
               profile={profile}
-              permissions={["receipts:read", "materials:read", "iqc:read"]}
+              requirement={{
+                permissions: ["receipts:read", "materials:read", "iqc:read"],
+              }}
             >
               <TraceabilityPage />
-            </MultiPermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="nonconformances"
           element={
-            <PermissionPage
+            <PermissionGate
               profile={profile}
-              permission="nonconformance:read"
+              requirement={{ permission: "nonconformance:read" }}
             >
               <NonconformancePage profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="admin/roles"
           element={
-            <PermissionPage profile={profile} permission="users:manage">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "users:manage" }}
+            >
               <RolesPermissionsPage profile={profile} />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
 
         <Route
           path="admin/audit-logs"
           element={
-            <PermissionPage profile={profile} permission="audit:read">
+            <PermissionGate
+              profile={profile}
+              requirement={{ permission: "audit:read" }}
+            >
               <AuditLogPage />
-            </PermissionPage>
+            </PermissionGate>
           }
         />
       </Route>
@@ -438,101 +505,6 @@ function ChangePasswordScreen({
       </section>
     </main>
   );
-}
-
-function PermissionPage({
-  profile,
-  permission,
-  children,
-}: {
-  profile: UserProfile | null;
-  permission: string;
-  children: ReactNode;
-}) {
-  if (!profile?.permissions.includes(permission)) {
-    return (
-      <section>
-        <PageHeader
-          eyebrow="權限管理"
-          title="需要存取權限"
-          description="目前帳號沒有檢視此功能的權限，請聯絡系統管理員。"
-        />
-
-        <EmptyState
-          title="無法存取此功能"
-          description={`所需權限：${permission}。請聯絡系統管理員確認角色及權限設定。`}
-        />
-      </section>
-    );
-  }
-
-  return children;
-}
-
-function MultiPermissionPage({
-  profile,
-  permissions,
-  children,
-}: {
-  profile: UserProfile | null;
-  permissions: string[];
-  children: ReactNode;
-}) {
-  if (
-    !permissions.every((permission) =>
-      profile?.permissions.includes(permission),
-    )
-  ) {
-    return (
-      <section>
-        <PageHeader
-          eyebrow="權限管理"
-          title="需要存取權限"
-          description="目前帳號缺少檢視此功能所需的完整權限，請聯絡系統管理員。"
-        />
-
-        <EmptyState
-          title="無法存取此功能"
-          description={`所需權限：${permissions.join("、")}。請聯絡系統管理員確認角色及權限設定。`}
-        />
-      </section>
-    );
-  }
-
-  return children;
-}
-
-function AnyPermissionPage({
-  profile,
-  permissions,
-  children,
-}: {
-  profile: UserProfile | null;
-  permissions: string[];
-  children: ReactNode;
-}) {
-  if (
-    !permissions.some((permission) =>
-      profile?.permissions.includes(permission),
-    )
-  ) {
-    return (
-      <section>
-        <PageHeader
-          eyebrow="權限管理"
-          title="需要存取權限"
-          description="目前帳號沒有檢視此功能的權限，請聯絡系統管理員。"
-        />
-
-        <EmptyState
-          title="無法存取此功能"
-          description={`所需權限（具備任一項即可）：${permissions.join("、")}。請聯絡系統管理員確認角色及權限設定。`}
-        />
-      </section>
-    );
-  }
-
-  return children;
 }
 
 export default App;

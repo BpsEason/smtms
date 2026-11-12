@@ -1,7 +1,11 @@
 import { Activity, Boxes, ClipboardCheck, ClipboardSignature, Factory, LayoutDashboard, LogOut, PackageCheck, SearchCheck, ShieldCheck, Truck, TriangleAlert, ScrollText } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-components'
+import type { MenuDataItem } from '@ant-design/pro-components'
 import type { UserProfile } from '../types'
+import { canAccess } from '../lib/permissions'
+
+type Route = Omit<MenuDataItem, 'routes'> & { routes?: Route[]; children?: Route[] }
 
 type NavItem = { group: string; label: string; to: string; icon: typeof Activity; permission: string | null; permissions?: string[]; anyPermissions?: string[] }
 
@@ -23,19 +27,23 @@ const groups = ['工作總覽', '主檔資料', '進料與追溯', '系統設定
 
 export function AdminLayout({ profile, onLogout }: { profile: UserProfile; onLogout: () => void }) {
   const location = useLocation()
-  const links = navigation.filter((item) => item.anyPermissions ? item.anyPermissions.some((permission) => profile.permissions.includes(permission)) : item.permissions ? item.permissions.every((permission) => profile.permissions.includes(permission)) : item.permission === null || profile.permissions.includes(item.permission))
+  const links = navigation.filter((item) =>
+    canAccess(profile.permissions, item),
+  )
 
-  const menuData = groups.map((group) => {
-    const items = links.filter((item) => item.group === group)
-    if (!items.length) return null
-    return {
-      name: group,
-      children: items.map((item) => {
-        const Icon = item.icon
-        return { key: item.to, path: item.to, name: item.label, icon: <Icon size={16} /> }
-      }),
-    }
-  }).filter(Boolean) as any
+  const menuData = groups
+    .map((group) => {
+      const items = links.filter((item) => item.group === group)
+      if (!items.length) return null
+      return {
+        name: group,
+        children: items.map((item) => {
+          const Icon = item.icon
+          return { key: item.to, path: item.to, name: item.label, icon: <Icon size={16} /> }
+        }),
+      }
+    })
+    .filter((group): group is NonNullable<typeof group> => group != null) as MenuDataItem[]
 
   return (
     <ProLayout
@@ -45,7 +53,7 @@ export function AdminLayout({ profile, onLogout }: { profile: UserProfile; onLog
       siderMenuType="group"
       defaultCollapsed={false}
       location={{ pathname: location.pathname }}
-      route={{ path: '/', routes: menuData as any }}
+      route={{ path: '/', routes: menuData as Route[] }}
       menuItemRender={(item, defaultDom) => (
         <NavLink to={item.path || '/'}>
           {defaultDom}
