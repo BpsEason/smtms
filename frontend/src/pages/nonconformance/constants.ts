@@ -1,4 +1,5 @@
 import type { CreateForm, DispositionForm } from "./types";
+import type { IQCRecord } from "../../types";
 
 export const nowLocal = () => {
   const now = new Date();
@@ -66,4 +67,22 @@ export const createBlankDisposition = (): DispositionForm => ({
   content: "",
   result: "",
   executed_at: nowLocal(),
+});
+
+// 從 IQC 檢驗資料建立表單資料（映射相關欄位）
+export const createFormFromIQC = (iqc: IQCRecord): CreateForm => ({
+  case_no: "",
+  title: `IQC檢驗異常 - ${iqc.internal_lot_no ?? `批號${iqc.internal_lot_id ?? iqc.id}`}`,
+  description: `來源：IQC檢驗紀錄 #${iqc.id}${iqc.remarks ? `\n備註：${iqc.remarks}` : ""}`,
+  source: "iqc",
+  severity: "medium",
+  found_at: nowLocal(),
+  supplier_id: "",
+  material_id: "",
+  receipt_id: iqc.receipt_id?.toString() ?? "",
+  supplier_lot_id: "",
+  internal_lot_id: iqc.internal_lot_id?.toString() ?? "",
+  iqc_record_id: iqc.id.toString(),
+  defect_qty: "",
+  owner_user_id: "",
 });

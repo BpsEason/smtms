@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
+import { getIQCRecord } from "../../api/iqc";
 import { formatErrorMessage } from "../../lib/error";
 import {
   ErrorState,
   PageHeader,
   buttonClass,
 } from "../../components/ui";
-import type { UserProfile, Nonconformance, NonconformanceCreatePayload, NonconformanceUpdatePayload, NonconformanceDispositionPayload } from "../../types";
+import type { UserProfile, Nonconformance, NonconformanceCreatePayload, NonconformanceUpdatePayload, NonconformanceDispositionPayload, IQCRecord } from "../../types";
 import { NonconformanceCreateForm } from "./NonconformanceCreateForm";
 import { NonconformanceList } from "./NonconformanceList";
 import { NonconformanceDetail } from "./NonconformanceDetail";
@@ -19,6 +20,7 @@ import type { Filters } from "./types";
 import {
   createBlankForm,
   createBlankDisposition,
+  createFormFromIQC,
   NUMERIC_FIELD_NAMES,
   SOURCE_OPTIONS,
   SEVERITY_OPTIONS,
@@ -119,13 +121,15 @@ function NonconformancePageInner({
     },
   });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const isAutoOpeningRef = useRef(false);
 
   useEffect(() => {
-    if (isCreateModalOpen) {
+    if (isCreateModalOpen && !isAutoOpeningRef.current) {
       reset({
         ...createBlankForm(searchParams.get("iqc_id") ?? ""),
       });
     }
+    isAutoOpeningRef.current = false;
   }, [isCreateModalOpen, reset, searchParams]);
 
   // === 編輯表單狀態 - 使用 react-hook-form 管理 ===
@@ -181,6 +185,17 @@ function NonconformancePageInner({
     staleTime: 30 * 1000,
   });
 
+  // === IQC 資料查詢（用於從 IQC 建立異常單）===
+  const iqcIdParam = searchParams.get("iqc_id");
+  const iqcId = iqcIdParam ? Number(iqcIdParam) : null;
+  const iqcQuery = useQuery<IQCRecord>({
+    queryKey: ["iqc", iqcId],
+    queryFn: async () => getIQCRecord(iqcId!),
+    enabled: !!iqcId,
+    retry: 0,
+    staleTime: 30 * 1000,
+  });
+
   const nonconformanceList = listQuery.data ?? [];
   const isListLoading = listQuery.isLoading;
   const selectedItem = selectedId ? detailQuery.data ?? null : null;
@@ -192,7 +207,46 @@ function NonconformancePageInner({
 
   const queryError =
     listQuery.error ? formatErrorMessage(listQuery.error) :
-    detailQuery.error ? formatErrorMessage(detailQuery.error) : "";
+    detailQuery.error ? formatErrorMessage(detailQuery.error) :
+    iqcQuery.error ? formatErrorMessage(iqcQuery.error) : "";
+
+  // === 自動從 IQC 建立異常單 ===
+  const iqcHandledRef = useRef(false);
+
+  useEffect(() => {
+    const iqcIdParam = searchParams.get("iqc_id");
+    const hasIqcId = !!iqcIdParam;
+    const hasPermission = canModify;
+    const iqcLoaded = iqcQuery.isSuccess && !!iqcQuery.data;
+    const iqcError = iqcQuery.isError;
+
+    // 已處理過、沒有 iqc_id、沒有權限、IQC 還在載入中，都不處理
+    if (iqcHandledRef.current || !hasIqcId || !hasPermission || iqcQuery.isLoading) {
+      return;
+    }
+
+    // IQC 載入失敗：顯示錯誤，不打開 Modal
+    if (iqcError) {
+      iqcHandledRef.current = true;
+      setErrorMessage(`載入 IQC 檢驗資料失敗：${formatErrorMessage(iqcQuery.error)}`);
+      return;
+    }
+
+    // IQC 載入成功：初始化表單並打開 Modal
+    if (iqcLoaded && iqcQuery.data) {
+      iqcHandledRef.current = true;
+      isAutoOpeningRef.current = true;
+      reset(createFormFromIQC(iqcQuery.data));
+      setIsCreateModalOpen(true);
+    }
+  }, [searchParams, canModify, iqcQuery.isLoading, iqcQuery.isSuccess, iqcQuery.isError, iqcQuery.error, iqcQuery.data, reset, setErrorMessage]);
+
+  // === 關閉 Modal 時重置追蹤狀態，避免 query parameter 導致重複打開 ===
+  useEffect(() => {
+    if (!isCreateModalOpen) {
+      iqcHandledRef.current = false;
+    }
+  }, [isCreateModalOpen]);
 
   // ============ Mutations：寫入操作 ============
 
