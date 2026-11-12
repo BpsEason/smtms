@@ -387,6 +387,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
                   </Text>
                   <Table
                     dataSource={lotStatusEntries.map(([status, count]) => ({ status, count }))}
+                    rowKey="status"
                     columns={[
                       { title: "批號狀態", dataIndex: "status", key: "status", render: (status: string) => <Tag color={getStatusColor(status)}>{status}</Tag> },
                       { title: "數量", dataIndex: "count", key: "count", align: "right" },
@@ -707,6 +708,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
               ) : receiptsQuery.data?.items.length ? (
                 <Table
                   dataSource={receiptsQuery.data.items.slice(0, 6)}
+                  rowKey="receipt_no"
                   columns={[
                     { title: "收料單號", dataIndex: "receipt_no", key: "receipt_no" },
                     { title: "收料日期", dataIndex: "received_at", key: "received_at", render: (v: string) => formatTaiwanDate(v) },
@@ -803,7 +805,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
           </Button>,
         ]}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         {iqcDetailQuery.isLoading ? (
           <Flex align="center" style={{ padding: "40px 0" }}>
@@ -879,7 +881,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
           </Button>,
         ]}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         {ncDetailQuery.isLoading ? (
           <Flex align="center" style={{ padding: "40px 0" }}>
