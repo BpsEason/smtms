@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from app.api.routes import access as access_module
-from app.core import redis_client as redis_module
 from app.core.security import get_password_hash, verify_password
 from app.db.base import Base
 from app.db.session import get_db
@@ -30,20 +29,6 @@ PASSWORD = "Access-Control-2026!"
 
 # Dedicated MySQL database used only by the real multi-connection test below.
 MYSQL_TEST_URL = os.getenv("SMTMS_TEST_MYSQL_URL")
-
-
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
 
 
 @pytest.fixture(scope="session")
@@ -71,6 +56,7 @@ def access_environment(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
     access_password_hash: str,
+    fake_redis,
 ) -> Generator[tuple[TestClient, sessionmaker, dict[str, int]], None, None]:
     """
     使用 conftest.py 提供的 db_session 外層交易。
@@ -83,12 +69,6 @@ def access_environment(
         bind=db_session.connection(),
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
-    )
-
-    monkeypatch.setattr(
-        redis_module,
-        "get_redis_client",
-        lambda: FakeRedis(),
     )
 
     def override_get_db() -> Generator[Session, None, None]:

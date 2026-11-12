@@ -16,8 +16,6 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from conftest import _FakeRedis
-
 
 @pytest.fixture(scope="session")
 def test_password_hash() -> str:
@@ -29,18 +27,12 @@ def auth_test_client(
     db_session: Session,
     monkeypatch,
     test_password_hash: str,
+    fake_redis,
 ):
     monkeypatch.setattr(
         config,
         "get_settings",
         lambda: config.Settings(secret_key="a" * 32),
-    )
-    _FakeRedis._shared_store.clear()
-    _FakeRedis._shared_ttl.clear()
-    monkeypatch.setattr(
-        redis_module,
-        "get_redis_client",
-        lambda: _FakeRedis(),
     )
 
     TestSession = sessionmaker(

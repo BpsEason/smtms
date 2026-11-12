@@ -25,22 +25,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from conftest import FakeRedis
+
 PASSWORD = "Supplier-Isolation-2026!"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
 
 
 def _headers(client: TestClient, username: str, password: str = PASSWORD) -> dict[str, str]:

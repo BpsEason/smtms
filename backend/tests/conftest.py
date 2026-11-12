@@ -11,27 +11,39 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 
-class _FakeRedis:
-    """測試用 Redis Mock。"""
+class FakeRedis:
+    """測試用集中式 Redis Mock。
 
-    _shared_store: dict[str, str] = {}
-    _shared_ttl: dict[str, int] = {}
+    使用 instance-level store 與 ttl 字典，確保每個測試實例互相隔離。
+    注意：本實作僅為記憶體 Mock，不具備真實時間流逝之 TTL 自動淘汰能力，
+    且 eval() 僅以 Python 模擬原子計數邏輯，不可宣稱已驗證真實 Redis Lua 引擎之原子性。
+    """
 
     def __init__(self) -> None:
-        self._store = _FakeRedis._shared_store
-        self._ttl = _FakeRedis._shared_ttl
+        self._store: dict[str, str] = {}
+        self._ttl: dict[str, int] = {}
+        self.store = self._store
+        self.ttl = self._ttl
+        self.revoked: set[str] = set()
+        self.eval_calls: list[str] = []
 
     async def exists(self, key: str) -> int:
+        if key in self.revoked:
+            return 1
         return 1 if key in self._store else 0
 
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        self._store[key] = value
-        self._ttl[key] = ex
+    async def set(self, key: str, value: str, ex: int | None = None, *args, **kwargs) -> bool:
+        if value == "1" and key.startswith("auth:revoked:"):
+            self.revoked.add(key)
+        self._store[key] = str(value)
+        if ex is not None:
+            self._ttl[key] = int(ex)
         return True
 
-    async def eval(self, script: str, numkeys: int, key: str, *args):
-        # Minimal atomic INCR+EXPIRE behavior for login rate limiting Lua script.
+    async def eval(self, script: str, numkeys: int, key: str, *args) -> list[int]:
+        # 嚴格對照 app/core/login_rate_limit.py 之 _RATE_LIMIT_LUA 腳本參數與行為
         assert numkeys == 1
+        self.eval_calls.append(script)
         ttl = int(args[1]) if len(args) > 1 else 0
         current = int(self._store.get(key, "0"))
         if current == 0:
@@ -44,11 +56,18 @@ class _FakeRedis:
             remaining = ttl
         return [count, remaining]
 
+    async def ping(self) -> bool:
+        return True
+
     async def close(self) -> None:
         return None
 
     async def aclose(self) -> None:
         return None
+
+
+# 保留向後相容別名
+_FakeRedis = FakeRedis
 
 
 @pytest.fixture(scope="session")
@@ -101,19 +120,24 @@ def db_session(engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture
-def client(
-    db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[TestClient, None, None]:
-    """建立測試用 TestClient，注入資料庫與 Redis Mock。"""
+def fake_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
+    """提供每個測試獨立的 FakeRedis 實例並注入 redis_client 模組。"""
 
-    _FakeRedis._shared_store.clear()
-    _FakeRedis._shared_ttl.clear()
+    instance = FakeRedis()
     monkeypatch.setattr(
         redis_module,
         "get_redis_client",
-        lambda: _FakeRedis(),
+        lambda: instance,
     )
+    return instance
+
+
+@pytest.fixture
+def client(
+    db_session: Session,
+    fake_redis: FakeRedis,
+) -> Generator[TestClient, None, None]:
+    """建立測試用 TestClient，注入資料庫與 Redis Mock。"""
 
     def override_get_db() -> Generator[Session, None, None]:
         yield db_session

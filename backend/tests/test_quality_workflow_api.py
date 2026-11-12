@@ -23,19 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
+from conftest import FakeRedis
 
 
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:

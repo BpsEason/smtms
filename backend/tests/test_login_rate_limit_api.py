@@ -15,41 +15,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 
-class FakeEvalRedis:
-    """Redis mock with atomic INCR+EXPIRE behavior via eval for rate limit tests."""
-
-    def __init__(self) -> None:
-        self.store: dict[str, str] = {}
-        self.ttl: dict[str, int] = {}
-        self.eval_calls: list[str] = []
-
-    async def exists(self, key: str) -> int:
-        return 1 if key in self.store else 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        self.store[key] = value
-        self.ttl[key] = ex
-        return True
-
-    async def eval(self, script: str, numkeys: int, key: str, limit: int, ttl: int):
-        assert numkeys == 1
-        self.eval_calls.append(script)
-        current = int(self.store.get(key, "0"))
-        if current == 0:
-            self.ttl[key] = int(ttl)
-        count = current + 1
-        self.store[key] = str(count)
-        return [count, self.ttl.get(key, int(ttl))]
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
+from conftest import FakeRedis
 
 
-class BrokenEvalRedis(FakeEvalRedis):
-    async def eval(self, script: str, numkeys: int, key: str, limit: int, ttl: int):
+class BrokenEvalRedis(FakeRedis):
+    async def eval(self, script: str, numkeys: int, key: str, *args):
         raise OSError("redis unavailable")
 
 
@@ -59,7 +29,12 @@ def test_password_hash() -> str:
 
 
 @pytest.fixture
-def rate_limit_env(db_session: Session, monkeypatch, test_password_hash: str):
+def rate_limit_env(
+    db_session: Session,
+    monkeypatch,
+    test_password_hash: str,
+    fake_redis: FakeRedis,
+):
     monkeypatch.setattr(
         config,
         "get_settings",
@@ -71,9 +46,6 @@ def rate_limit_env(db_session: Session, monkeypatch, test_password_hash: str):
             login_rate_limit_account_max_attempts=5,
         ),
     )
-
-    fake_redis = FakeEvalRedis()
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: fake_redis)
 
     TestSession = sessionmaker(
         bind=db_session.connection(),

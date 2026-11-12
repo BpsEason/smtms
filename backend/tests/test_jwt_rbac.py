@@ -22,64 +22,16 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-
-class FakeRedis:
-    """測試用 Redis Mock，支援 Token 撤銷狀態。"""
-
-    def __init__(self) -> None:
-        self.revoked: set[str] = set()
-        self.store: dict[str, str] = {}
-        self.ttl: dict[str, int] = {}
-
-    async def exists(self, key: str) -> int:
-        if key in self.revoked:
-            return 1
-        return 1 if key in self.store else 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        if value == "1" and key.startswith("auth:revoked:"):
-            assert ex > 0
-            self.revoked.add(key)
-            return True
-        self.store[key] = value
-        self.ttl[key] = ex
-        return True
-
-    async def eval(self, script: str, numkeys: int, key: str, *args):
-        assert numkeys == 1
-        ttl = int(args[1]) if len(args) > 1 else 0
-        current = int(self.store.get(key, "0"))
-        if current == 0:
-            self.ttl[key] = ttl
-        count = current + 1
-        self.store[key] = str(count)
-        remaining = self.ttl.get(key, ttl)
-        if remaining < 0:
-            self.ttl[key] = ttl
-            remaining = ttl
-        return [count, remaining]
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
+from conftest import FakeRedis
 
 
 @pytest.fixture
 def auth_environment(
     client: TestClient,
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
+    fake_redis: FakeRedis,
 ) -> Generator[tuple[TestClient, sessionmaker, FakeRedis], None, None]:
     """使用共用資料庫交易、TestClient 與 Redis Mock。"""
-
-    fake_redis = FakeRedis()
-    monkeypatch.setattr(
-        redis_module,
-        "get_redis_client",
-        lambda: fake_redis,
-    )
 
     # 綁定共用 db_session 的 Connection，
     # 確保額外建立的 Session 仍受外層交易 rollback 管理。

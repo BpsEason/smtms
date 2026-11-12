@@ -17,23 +17,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from conftest import FakeRedis
+
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 IMPORT_PASSWORD = "Import-Test-Password-2026!"
 FILE_URL = "/api/v1/suppliers/import/preview"
-
-
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
 
 
 def workbook_bytes(rows: list[dict[str, object]], headers: tuple[str, ...] | None = None) -> bytes:

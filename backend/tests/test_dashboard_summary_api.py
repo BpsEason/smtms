@@ -1,4 +1,4 @@
-﻿from collections.abc import Generator
+from collections.abc import Generator
 from datetime import datetime, timedelta
 
 import pytest
@@ -21,19 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
-
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
+from conftest import FakeRedis
 
 
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:
@@ -48,14 +36,13 @@ def _headers(client: TestClient, username: str, password: str) -> dict[str, str]
 @pytest.fixture
 def dashboard_environment(
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
+    fake_redis: FakeRedis,
 ) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     TestSession = sessionmaker(
         bind=db_session.connection(),
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -326,7 +313,6 @@ def _make_single_perm_user(
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -334,6 +320,9 @@ def _make_single_perm_user(
 
     app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
+
+    # Patch Redis before TestClient enters lifespan (init_redis_client).
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     with TestSession.begin() as session:
         role = RoleORM(name=f"{username}-role")
@@ -489,7 +478,6 @@ def test_dashboard_summary_must_change_password(
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -497,6 +485,9 @@ def test_dashboard_summary_must_change_password(
 
     original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
+
+    # Patch Redis before TestClient enters lifespan (init_redis_client).
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     try:
         with TestSession.begin() as session:
@@ -561,7 +552,6 @@ def test_dashboard_todos_iqc_limit_order_and_supplier_isolation(
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -569,6 +559,9 @@ def test_dashboard_todos_iqc_limit_order_and_supplier_isolation(
 
     original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
+
+    # Patch Redis before TestClient enters lifespan (init_redis_client).
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     try:
         with TestSession.begin() as session:
@@ -714,7 +707,6 @@ def test_dashboard_todos_nc_limit_order_and_supplier_isolation(
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -722,6 +714,9 @@ def test_dashboard_todos_nc_limit_order_and_supplier_isolation(
 
     original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
+
+    # Patch Redis before TestClient enters lifespan (init_redis_client).
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     try:
         with TestSession.begin() as session:

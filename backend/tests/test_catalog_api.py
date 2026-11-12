@@ -2,7 +2,6 @@ from collections.abc import Generator
 from datetime import datetime
 
 import pytest
-from app.core import redis_client as redis_module
 from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
@@ -20,20 +19,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
-
-
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
@@ -44,7 +29,7 @@ def _headers(client: TestClient, username: str, password: str) -> dict[str, str]
 
 
 @pytest.fixture
-def catalog_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:
+def catalog_environment(fake_redis) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -52,7 +37,6 @@ def catalog_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker
     )
     Base.metadata.create_all(test_engine)
     TestSession = sessionmaker(bind=test_engine, expire_on_commit=False)
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:

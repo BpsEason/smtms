@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 import pytest
 from app.api.routes.audit import _audit_csv, _filtered_statement
-from app.core import redis_client
 from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
@@ -20,28 +19,16 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
-class FakeRedis:
-    async def exists(self, _key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
-
-
 @pytest.fixture
-def audit_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:
+def audit_environment(
+    monkeypatch,
+    fake_redis,
+) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(redis_client, "get_redis_client", lambda: FakeRedis())
 
     def override_db() -> Generator[Session, None, None]:
         with sessions() as session:

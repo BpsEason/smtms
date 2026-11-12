@@ -2,7 +2,6 @@ from collections.abc import Generator
 from datetime import datetime, timezone
 
 import pytest
-from app.core import redis_client as redis_module
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.main import app
@@ -21,20 +20,6 @@ from sqlalchemy.orm import Session, sessionmaker
 UTC = timezone.utc
 
 
-class FakeRedis:
-    async def exists(self, key: str) -> int:
-        return 0
-
-    async def set(self, key: str, value: str, ex: int) -> bool:
-        return True
-
-    async def close(self) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
-
-
 def _headers(client: TestClient, username: str, password: str) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/login",
@@ -47,14 +32,13 @@ def _headers(client: TestClient, username: str, password: str) -> dict[str, str]
 @pytest.fixture
 def quality_trend_environment(
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
+    fake_redis,
 ) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     TestSession = sessionmaker(
         bind=db_session.connection(),
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -445,14 +429,13 @@ def test_quality_trend_unauthorized(quality_trend_environment) -> None:
 
 
 def test_quality_trend_seed_prefix_permission(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
+    db_session: Session, fake_redis
 ) -> None:
     TestSession = sessionmaker(
         bind=db_session.connection(),
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:
@@ -491,14 +474,13 @@ def test_quality_trend_seed_prefix_permission(
 
 
 def test_quality_trend_must_change_password(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
+    db_session: Session, fake_redis
 ) -> None:
     TestSession = sessionmaker(
         bind=db_session.connection(),
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSession() as session:

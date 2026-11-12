@@ -16,8 +16,6 @@ from app.models.user import RefreshTokenORM, UserORM
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from conftest import _FakeRedis
-
 
 @pytest.fixture(scope="session")
 def test_password_hash() -> str:
@@ -30,6 +28,7 @@ def auth_test_client(
     db_session: Session,
     monkeypatch,
     test_password_hash: str,
+    fake_redis,
 ):
     """使用共用測試資料庫，確保認證測試資料可在測試結束後回滾。"""
 
@@ -38,13 +37,6 @@ def auth_test_client(
         config,
         "get_settings",
         lambda: config.Settings(secret_key="a" * 32),
-    )
-    _FakeRedis._shared_store.clear()
-    _FakeRedis._shared_ttl.clear()
-    monkeypatch.setattr(
-        redis_module,
-        "get_redis_client",
-        lambda: _FakeRedis(),
     )
 
     # 所有 Session 共用 db_session 的外層交易。
