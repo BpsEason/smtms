@@ -124,27 +124,26 @@ export function InternalLotsPage({ profile: _profile }: { profile: UserProfile |
                     <Th>數量</Th>
                     <Th>狀態</Th>
                     <Th>建立日期</Th>
-                    <Th>操作</Th>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {lots.items.map((lot) => (
                     <TableRow key={lot.id}>
-                      <Td className="font-medium">{lot.internal_lot_no}</Td>
+                      <Td>
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-blue-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1"
+                          onClick={() => setSelectedLotId(lot.id)}
+                        >
+                          {lot.internal_lot_no}
+                        </button>
+                      </Td>
                       <Td>物料ID: {lot.material_id}</Td>
                       <Td>{lot.qty_on_hand}</Td>
                       <Td>
                         <StatusBadge value={lot.lot_status} />
                       </Td>
                       <Td>{new Date(lot.created_at).toLocaleDateString()}</Td>
-                      <Td>
-                        <button
-                          className="text-sm text-blue-600 hover:underline"
-                          onClick={() => setSelectedLotId(lot.id)}
-                        >
-                          查看詳情
-                        </button>
-                      </Td>
                     </TableRow>
                   ))}
                 </TableBody>

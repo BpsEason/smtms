@@ -324,7 +324,6 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                     <Th>數量</Th>
                     <Th>狀態</Th>
                     <Th>收料日期</Th>
-                    <Th>操作</Th>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -335,7 +334,18 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                         selectedId === receipt.id ? "bg-slate-100" : ""
                       }
                     >
-                      <Td className="font-medium">{receipt.receipt_no}</Td>
+                      <Td>
+                        <button
+                          type="button"
+                          className="text-sm font-medium text-blue-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedId(receipt.id);
+                          }}
+                        >
+                          {receipt.receipt_no}
+                        </button>
+                      </Td>
                       <Td>{receipt.supplier_name}</Td>
                       <Td>{receipt.material_name}</Td>
                       <Td>{receipt.qty_received}</Td>
@@ -344,17 +354,6 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                       </Td>
                       <Td>
                         {new Date(receipt.received_at).toLocaleDateString()}
-                      </Td>
-                      <Td>
-                        <button
-                          className="text-sm text-blue-600 hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedId(receipt.id);
-                          }}
-                        >
-                          查看詳情
-                        </button>
                       </Td>
                     </TableRow>
                   ))}
