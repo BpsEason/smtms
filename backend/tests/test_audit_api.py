@@ -280,7 +280,7 @@ def test_audit_csv_export_quotes_content_and_neutralizes_formula_injection(
 
 
 def test_audit_list_returns_total(audit_environment) -> None:
-    client, sessions = audit_environment
+    client, _sessions = audit_environment
     headers = _login(client, "auditor", "Audit-Test-Password!")
     writer = _login(client, "writer", "Writer-Test-Password!")
 
@@ -297,7 +297,11 @@ def test_audit_list_returns_total(audit_environment) -> None:
     )
     assert response.status_code == 201
 
-    list_resp = client.get("/api/v1/audit-logs", headers=headers, params={"resource_type": "materials"})
+    list_resp = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"resource_type": "materials"},
+    )
     assert list_resp.status_code == 200
     data = list_resp.json()
     assert "total" in data
@@ -361,7 +365,11 @@ def test_audit_export_row_limit(audit_environment, monkeypatch) -> None:
     resp = client.get(
         "/api/v1/audit-logs/export.csv",
         headers=headers,
-        params={"start_at": start.isoformat(), "end_at": end.isoformat(), "resource_type": "materials"},
+        params={
+            "start_at": start.isoformat(),
+            "end_at": end.isoformat(),
+            "resource_type": "materials",
+        },
     )
     assert resp.status_code == 400
     assert "超過上限" in resp.json()["detail"]

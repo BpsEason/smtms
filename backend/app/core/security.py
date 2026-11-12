@@ -233,6 +233,13 @@ def _ensure_password_changed(current_user: AuthenticatedUser) -> None:
         )
 
 
+def require_password_changed(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    _ensure_password_changed(current_user)
+    return current_user
+
+
 def require_permission(*required_permissions: str):
     def dependency(
         current_user: AuthenticatedUser = Depends(get_current_user),

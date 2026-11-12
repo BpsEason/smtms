@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, extract, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.security import AuthenticatedUser, _ensure_password_changed, get_current_user
+from app.core.security import (
+    AuthenticatedUser,
+    normalize_permission_code,
+    require_password_changed,
+)
 from app.db.session import get_db
 from app.models.quality import (
     InternalMaterialLotORM,
@@ -75,10 +79,9 @@ def _supplier_iqc_condition(current_user: AuthenticatedUser):
 @router.get("/summary", response_model=DashboardSummaryResponse, response_model_exclude_none=True)
 def get_dashboard_summary(
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_password_changed),
 ) -> DashboardSummaryResponse:
-    _ensure_password_changed(current_user)
-    granted = set(current_user.permissions)
+    granted = {normalize_permission_code(permission) for permission in current_user.permissions}
 
     can_receipts = bool(granted & RECEIPTS_PERMS)
     can_internal_lots = bool(granted & INTERNAL_LOTS_PERMS)
@@ -161,10 +164,9 @@ def get_quality_trend(
     date_from: datetime | None = Query(default=None, alias="date_from"),
     date_to: datetime | None = Query(default=None, alias="date_to"),
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_password_changed),
 ) -> list[QualityTrendPoint]:
-    _ensure_password_changed(current_user)
-    granted = set(current_user.permissions)
+    granted = {normalize_permission_code(permission) for permission in current_user.permissions}
     can_iqc = bool(granted & IQC_PERMS)
     if not can_iqc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -228,10 +230,9 @@ def get_quality_trend(
 @router.get("/todos", response_model=DashboardTodosResponse)
 def get_dashboard_todos(
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_password_changed),
 ) -> DashboardTodosResponse:
-    _ensure_password_changed(current_user)
-    granted = set(current_user.permissions)
+    granted = {normalize_permission_code(permission) for permission in current_user.permissions}
 
     can_iqc = bool(granted & IQC_PERMS)
     can_nonconformance = bool(granted & NONCONFORMANCE_PERMS)
@@ -255,7 +256,6 @@ def get_dashboard_todos(
                 MaterialReceiptORM.receipt_no,
                 MaterialReceiptORM.supplier_id,
                 MaterialReceiptORM.material_id,
-                SupplierLotORM.supplier_lot_no,
                 InternalMaterialLotORM.internal_lot_no,
                 SupplierORM.supplier_code,
                 SupplierORM.supplier_name,
@@ -274,10 +274,13 @@ def get_dashboard_todos(
         )
         if is_supplier:
             iqc_stmt = iqc_stmt.where(_supplier_iqc_condition(current_user))
+        iqc_stmt = iqc_stmt.order_by(IQCRecordORM.created_at.desc()).limit(50)
 
         iqc_rows = db.execute(iqc_stmt).all()
 
         # 收集需要補查的 internal_lot_id（receipt_id 為 None 但有 internal_lot_id）
+        # internal_lot 可能未直接關聯 receipt，需透過其 receipt_id/supplier_lot_id
+        # 反查對應供應商與物料，避免 todo 顯示缺漏。
         internal_lot_ids = {
             row.internal_lot_id
             for row in iqc_rows
@@ -376,7 +379,6 @@ def get_dashboard_todos(
             receipt_no = row.receipt_no
             supplier_id = row.supplier_id
             material_id = row.material_id
-            _supplier_lot_no = row.supplier_lot_no
             internal_lot_no = row.internal_lot_no
             supplier_code = row.supplier_code
             supplier_name = row.supplier_name
@@ -449,12 +451,17 @@ def get_dashboard_todos(
         )
         if is_supplier:
             nc_stmt = nc_stmt.where(NonconformanceORM.supplier_id == current_user.supplier_id)
+        nc_stmt = nc_stmt.order_by(NonconformanceORM.found_at.desc().nullslast()).limit(50)
 
         nc_rows = db.execute(nc_stmt).all()
 
         # 收集所有需要補查的 supplier_id 和 material_id
-        nc_supplier_ids = {row[5] for row in nc_rows if row[5] is not None}
-        nc_material_ids = {row[6] for row in nc_rows if row[6] is not None}
+        nc_supplier_ids = {
+            row.supplier_id for row in nc_rows if row.supplier_id is not None
+        }
+        nc_material_ids = {
+            row.material_id for row in nc_rows if row.material_id is not None
+        }
 
         nc_suppliers_map: dict[int, SupplierORM] = {}
         if nc_supplier_ids:
@@ -472,14 +479,14 @@ def get_dashboard_todos(
 
         open_nc_items = []
         for nc_row in nc_rows:
-            nc_id = nc_row[0]
-            case_no = nc_row[1]
-            title = nc_row[2]
-            nc_status = nc_row[3]
-            severity = nc_row[4]
-            supplier_id = nc_row[5]
-            material_id = nc_row[6]
-            found_at = nc_row[7]
+            nc_id = nc_row.id
+            case_no = nc_row.case_no
+            title = nc_row.title
+            nc_status = nc_row.status
+            severity = nc_row.severity
+            supplier_id = nc_row.supplier_id
+            material_id = nc_row.material_id
+            found_at = nc_row.found_at
 
             supplier_code = None
             supplier_name = None

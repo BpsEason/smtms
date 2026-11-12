@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.security import (
     AuthenticatedUser,
     ensure_supplier_access,
+    normalize_permission_code,
     require_any_permission,
     require_permission,
 )
@@ -65,7 +66,10 @@ def list_iqc_records(
 ):
     # Preserve supplier portal read access, but never grant it the internal
     # quality-only listing path just because a role was misconfigured.
-    if current_user.supplier_id is not None and "iqc:read" not in current_user.permissions:
+    granted_permissions = {
+        normalize_permission_code(permission) for permission in current_user.permissions
+    }
+    if current_user.supplier_id is not None and "iqc:read" not in granted_permissions:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     statement = select(IQCRecordORM)
     count_statement = select(func.count()).select_from(IQCRecordORM)

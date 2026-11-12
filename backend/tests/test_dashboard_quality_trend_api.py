@@ -442,3 +442,96 @@ def test_quality_trend_no_permission_forbidden(quality_trend_environment) -> Non
 def test_quality_trend_unauthorized(quality_trend_environment) -> None:
     client, _ = quality_trend_environment
     assert client.get("/api/v1/dashboard/quality-trend").status_code == 401
+
+
+def test_quality_trend_seed_prefix_permission(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    TestSession = sessionmaker(
+        bind=db_session.connection(),
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with TestSession() as session:
+            yield session
+
+    original_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestSession.begin() as session:
+            role = RoleORM(name="trend-seed-iqc-role")
+            perm = PermissionORM(code="seed:iqc:read", name="seed:iqc:read")
+            user = UserORM(
+                username="trend-seed-iqc",
+                email="trend-seed-iqc@example.test",
+                password_hash=get_password_hash("Trend-Password-2026!"),
+                is_active=True,
+            )
+            session.add_all([role, perm, user])
+            session.flush()
+            session.add_all(
+                [
+                    UserRoleORM(user_id=user.id, role_id=role.id),
+                    RolePermissionORM(role_id=role.id, permission_id=perm.id),
+                ]
+            )
+
+        with TestClient(app) as client:
+            headers = _headers(client, "trend-seed-iqc", "Trend-Password-2026!")
+            response = client.get("/api/v1/dashboard/quality-trend", headers=headers)
+            assert response.status_code == 200, response.text
+            assert response.json() == []
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(original_overrides)
+
+
+def test_quality_trend_must_change_password(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    TestSession = sessionmaker(
+        bind=db_session.connection(),
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    monkeypatch.setattr(redis_module, "get_redis_client", lambda: FakeRedis())
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with TestSession() as session:
+            yield session
+
+    original_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestSession.begin() as session:
+            role = RoleORM(name="trend-must-change-role")
+            perm = PermissionORM(code="iqc:read", name="iqc:read")
+            user = UserORM(
+                username="trend-must-change",
+                email="trend-must-change@example.test",
+                password_hash=get_password_hash("Trend-Password-2026!"),
+                is_active=True,
+                must_change_password=True,
+            )
+            session.add_all([role, perm, user])
+            session.flush()
+            session.add_all(
+                [
+                    UserRoleORM(user_id=user.id, role_id=role.id),
+                    RolePermissionORM(role_id=role.id, permission_id=perm.id),
+                ]
+            )
+
+        with TestClient(app) as client:
+            headers = _headers(client, "trend-must-change", "Trend-Password-2026!")
+            blocked = client.get("/api/v1/dashboard/quality-trend", headers=headers)
+            assert blocked.status_code == 403
+            assert "Password change required" in blocked.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(original_overrides)
