@@ -14,7 +14,6 @@ from app.models.user import RefreshTokenORM, UserORM
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-
 from conftest import FakeRedis
 
 

@@ -5,10 +5,12 @@ export async function loadAllPages<T>(list: (params: Record<string, string | num
   const pageSize = 100
   const first = await list({ page: 1, page_size: pageSize })
   const items = [...first.items]
+  if (items.length >= first.total) return items
   const pages = Math.ceil(first.total / pageSize)
   for (let page = 2; page <= pages; page += 1) {
     const next = await list({ page, page_size: pageSize })
     items.push(...next.items)
+    if (items.length >= first.total) break
   }
   return items
 }

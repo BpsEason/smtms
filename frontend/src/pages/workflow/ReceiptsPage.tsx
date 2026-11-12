@@ -63,19 +63,23 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
   const canTrace = ["receipts:read", "materials:read", "iqc:read"].every(
     (permission) => profile?.permissions.includes(permission),
   );
+  // 主檔資料僅在開啟建檔對話框時按需載入，避免每次進入頁面觸發全量分頁請求
   const { data: suppliers = [] } = useQuery({
     queryKey: ["suppliers", "all"],
     queryFn: () => allSuppliers(),
+    enabled: showReceiptForm,
     staleTime: 5 * 60 * 1000,
   });
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", "all"],
     queryFn: () => allMaterials(),
+    enabled: showReceiptForm,
     staleTime: 5 * 60 * 1000,
   });
   const { data: supplierLots = [] } = useQuery({
     queryKey: ["supplierLots", "all"],
     queryFn: () => allSupplierLots(),
+    enabled: showReceiptForm,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -264,10 +268,15 @@ export function ReceiptsPage({ profile }: { profile: UserProfile | null }) {
                 materials={materials}
                 supplierLots={supplierLots}
                 canCreateSupplierLots={canCreateSupplierLots}
+                resourceLoading={
+                  showReceiptForm &&
+                  (suppliers.length === 0 || materials.length === 0 || supplierLots.length === 0) &&
+                  lotSaving === false
+                }
                 isSubmitting={isSubmitting}
                 lotSaving={lotSaving}
-                onCreateSupplierLot={createSupplierLot}
                 onSubmit={createReceipt}
+                onCreateSupplierLot={createSupplierLot}
               />
             </>
           ) : undefined

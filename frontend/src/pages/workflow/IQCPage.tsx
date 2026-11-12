@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
@@ -26,10 +26,7 @@ import {
   Th,
 } from "../../components/ui";
 import { statusLabel } from "../../lib/status";
-import type {
-  InternalLot,
-  UserProfile,
-} from "./types";
+import type { InternalLot, UserProfile } from "./types";
 import { Pagination } from "./components/SharedComponents";
 
 // Zod 驗證 schema - IQC 新增表單
@@ -40,7 +37,7 @@ const iqcCreateSchema = z.object({
       const num = Number(val);
       return !isNaN(num) && num > 0;
     },
-    "抽樣數量必須大於0"
+    "抽樣數量必須大於0",
   ),
   result: z.union([z.literal("pending"), z.literal("passed"), z.literal("failed")]),
   inspectionDate: z.string().min(1, "檢驗日期時間為必填"),
@@ -51,17 +48,13 @@ export type IQCFormData = z.infer<typeof iqcCreateSchema>;
 
 export function IQCPage({ profile }: { profile: UserProfile | null }) {
   const queryClient = useQueryClient();
-  const [lots, setLots] = useState<InternalLot[]>([]);
   const [query, setQuery] = useState("");
   const [resultFilter, setResultFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [lotsLoading, setLotsLoading] = useState(true);
-  const [lotError, setLotError] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [updatedLot, setUpdatedLot] = useState<InternalLot | null>(null);
-  
-  // 使用 react-hook-form 管理 IQC 表單
+
   const {
     register,
     handleSubmit,
@@ -78,21 +71,13 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
       remarks: "",
     },
   });
-  
-  // 監聽表單欄位變化以維持原有邏輯
+
   const form = watch();
-  const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
   const canWrite = Boolean(profile?.permissions.includes("iqc:write"));
   const outcomeStatus =
-    form.result === "passed"
-      ? "released"
-      : form.result === "failed"
-        ? "rejected"
-        : "hold";
+    form.result === "passed" ? "released" : form.result === "failed" ? "rejected" : "hold";
 
-  // 僅對搜尋輸入應用防抖，分頁和篩選器立即生效
   const [debouncedQuery, setDebouncedQuery] = useState(query);
-  
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(query);
@@ -100,46 +85,40 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  // 使用 TanStack Query 管理 IQC 檢驗紀錄資料載入
   const {
     data: records,
     isLoading: loading,
     error: queryError,
     refetch,
   } = useQuery({
-    queryKey: ['iqc-records', debouncedQuery, resultFilter, page],
+    queryKey: ["iqc-records", debouncedQuery, resultFilter, page],
     queryFn: async () => {
-      const response = await api.listIQCRecords({
+      return api.listIQCRecords({
         keyword: debouncedQuery || undefined,
         result: resultFilter || undefined,
-        page: page,
+        page,
         page_size: 50,
       });
-      return response;
     },
     retry: 1,
-    staleTime: 30 * 1000, // 30秒內不重複請求
+    staleTime: 30 * 1000,
   });
 
-  // 合併查詢錯誤和其他操作錯誤
+  // 內部批號僅在可建立 IQC 時按需載入；沿用現有全量載入 helper（受既有 API 無搜尋/篩選參數限制）
+  const {
+    data: lots = [],
+    isLoading: lotsLoading,
+    error: lotsQueryError,
+  } = useQuery({
+    queryKey: ["internal-lots", "all"],
+    queryFn: () => allInternalLots(),
+    enabled: canWrite,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const lotError = lotsQueryError ? getErrorMessage(lotsQueryError) : "";
+  const selectedLot = lots.find((lot) => String(lot.id) === form.lotId);
   const displayError = queryError ? getErrorMessage(queryError) : error;
-  
-  useEffect(() => {
-    let active = true;
-    allInternalLots()
-      .then((items) => {
-        if (active) setLots(items);
-      })
-      .catch((err) => {
-        if (active) setLotError(getErrorMessage(err));
-      })
-      .finally(() => {
-        if (active) setLotsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const onSubmit = async (data: IQCFormData) => {
     setError("");
@@ -157,7 +136,6 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
       setSuccess(
         `檢驗紀錄 ${created.id} 已建立，結果：${statusLabel(created.inspection_result)}／${statusLabel(created.release_status)}。`,
       );
-      // 重置表單
       reset({
         lotId: "",
         sampleQty: "",
@@ -165,19 +143,16 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         inspectionDate: localDateTimeNow(),
         remarks: "",
       });
-      // 使所有相關查詢緩存失效，確保列表資料最新
-      await queryClient.invalidateQueries({ queryKey: ['iqc-records'] });
+      await queryClient.invalidateQueries({ queryKey: ["iqc-records"] });
       if (created.internal_lot_id !== null) {
         try {
           const actualLot = await api.getInternalLot(created.internal_lot_id);
           setUpdatedLot(actualLot);
-          setLots((current) =>
-            current.map((lot) => (lot.id === actualLot.id ? actualLot : lot)),
+          queryClient.setQueryData<InternalLot[]>(["internal-lots", "all"], (current) =>
+            (current ?? []).map((lot) => (lot.id === actualLot.id ? actualLot : lot)),
           );
         } catch (err) {
-          setError(
-            `檢驗紀錄已儲存，但無法重新讀取批號狀態：${getErrorMessage(err)}`,
-          );
+          setError(`檢驗紀錄已建立，但無法更新目前批號狀態：${getErrorMessage(err)}`);
         }
       }
     } catch (err) {
@@ -189,9 +164,9 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
   return (
     <section>
       <PageHeader
-        eyebrow="進料品質管制"
+        eyebrow="進料與品質追溯"
         title="進料檢驗（IQC）"
-        description="針對既有內部批號記錄檢驗結果；批號狀態由後端依驗證通過的檢驗結果與放行狀態更新。"
+        description="針對內部批號進行檢驗紀錄，批號狀態由後端規則決定。檢驗完成需經審核流程方可進行後續操作。"
       />
       {displayError && (
         <div className="mb-4">
@@ -207,7 +182,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         {canWrite && (
           <Panel
             title="新增檢驗紀錄"
-            description="檢驗結果與放行狀態依後端驗證規則配對：待檢／暫緩放行、合格／已放行、不合格／判退。"
+            description="檢驗結果與批號狀態變更由後端驗證規則控制，異常或待驗的批號可進行複驗，通過則釋出。"
           >
             {lotsLoading ? (
               <LoadingState label="正在載入內部批號…" />
@@ -216,14 +191,10 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
             ) : !lots.length ? (
               <EmptyState
                 title="目前沒有可檢驗的內部批號"
-                description="請先從收料紀錄建立內部批號，再進行 IQC 檢驗。"
+                description="請先於收料流程完成批號建立，再回到 IQC 檢驗。"
               />
             ) : (
-              <form
-                onSubmit={handleSubmit(onSubmit)}
-                className="space-y-4"
-                noValidate
-              >
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
                 <FormField
                   label="內部批號"
                   htmlFor="internal-lot-select"
@@ -252,69 +223,42 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 </FormField>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="抽樣數量" htmlFor="sample-qty" error={errors.sampleQty?.message}>
-                    <input
-                      id="sample-qty"
-                      className={inputClass}
-                      type="number"
-                      min="0.0001"
-                      step="any"
-                      {...register("sampleQty")}
-                    />
+                    <input id="sample-qty" className={inputClass} type="number" min="0.0001" step="any" {...register("sampleQty")} />
                   </FormField>
                   <FormField label="檢驗結果" htmlFor="inspection-result" error={errors.result?.message}>
-                    <select
-                      id="inspection-result"
-                      className={inputClass}
-                      {...register("result")}
-                    >
-                      <option value="pending">待檢</option>
+                    <select id="inspection-result" className={inputClass} {...register("result")}>
+                      <option value="pending">待驗</option>
                       <option value="passed">合格</option>
                       <option value="failed">不合格</option>
                     </select>
                   </FormField>
                   <FormField label="檢驗日期時間" htmlFor="inspection-date" error={errors.inspectionDate?.message}>
-                    <input
-                      id="inspection-date"
-                      className={inputClass}
-                      type="datetime-local"
-                      {...register("inspectionDate")}
-                    />
+                    <input id="inspection-date" className={inputClass} type="datetime-local" {...register("inspectionDate")} />
                   </FormField>
                   <div className="space-y-1.5 text-sm font-medium text-slate-700">
-                    <span>放行狀態</span>
+                    <span>預期狀態</span>
                     <div className="flex h-[38px] items-center">
                       <StatusBadge value={outcomeStatus} />
                     </div>
-                    <p className="text-xs font-normal text-slate-500">
-                      依檢驗結果及 API 規則自動對應。
-                    </p>
+                    <p className="text-xs font-normal text-slate-500">依檢驗結果由 API 規則實際判定。</p>
                   </div>
                 </div>
                 <FormField label="備註" htmlFor="remarks" error={errors.remarks?.message}>
-                  <textarea
-                    id="remarks"
-                    className={`${inputClass} min-h-20 resize-y`}
-                    maxLength={500}
-                    {...register("remarks")}
-                  />
+                  <textarea id="remarks" className={`${inputClass} min-h-20 resize-y`} maxLength={500} {...register("remarks")} />
                 </FormField>
                 <ConfirmDialog
                   trigger={
-                    <button
-                      type="button"
-                      className={buttonClass}
-                      disabled={!selectedLot}
-                    >
-                      確認檢驗資料
+                    <button type="button" className={buttonClass} disabled={!selectedLot}>
+                      確認檢驗紀錄
                     </button>
                   }
-                  title="確定儲存檢驗結果？"
+                  title="確認建立檢驗結果？"
                   description={
                     selectedLot
                       ? `將記錄批號 ${selectedLot.internal_lot_no} 的檢驗結果為「${statusLabel(form.result)}」。後端將依驗證規則更新批號狀態（${statusLabel(form.result)} → ${statusLabel(outcomeStatus)}）。`
                       : "請先選擇內部批號。"
                   }
-                  confirmLabel="儲存檢驗紀錄"
+                  confirmLabel="建立檢驗紀錄"
                   onConfirm={handleSubmit(onSubmit)}
                 />
               </form>
@@ -332,7 +276,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
         )}
         <Panel
           title="檢驗紀錄清單"
-          description="依檢驗備註或結果篩選；結果與放行狀態由後端驗證規則維護。"
+          description="依檢驗結果篩選，可對待驗項目進行後端驗證規則控制。"
         >
           <div className="mb-4 flex flex-wrap gap-3">
             <FormField label="搜尋備註">
@@ -358,7 +302,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                 }}
               >
                 <option value="">全部結果</option>
-                <option value="pending">待檢</option>
+                <option value="pending">待驗</option>
                 <option value="passed">合格</option>
                 <option value="failed">不合格</option>
               </select>
@@ -375,24 +319,19 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                   <Th>抽樣數量</Th>
                   <Th>檢驗日期</Th>
                   <Th>檢驗結果</Th>
-                  <Th>放行狀態</Th>
+                  <Th>預期狀態</Th>
                   {profile?.permissions.includes("nonconformance:write") && <Th>品質異常</Th>}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {records.items.map((record) => {
-                  const lot = lots.find(
-                    (item) => item.id === record.internal_lot_id,
-                  );
+                  const lot = lots.find((item) => item.id === record.internal_lot_id);
                   return (
                     <TableRow key={record.id}>
-                      <Td className="font-medium text-slate-950">
-                        IQC-{record.id}
-                      </Td>
+                      <Td className="font-medium text-slate-950">IQC-{record.id}</Td>
                       <Td>
                         {record.internal_lot_id
-                          ? (lot?.internal_lot_no ??
-                            `內部批號 ${record.internal_lot_id}`)
+                          ? (lot?.internal_lot_no ?? `內部批號 ${record.internal_lot_id}`)
                           : record.receipt_id
                             ? `收料單 ${record.receipt_id}`
                             : "—"}
@@ -400,9 +339,7 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                       <Td>{record.sample_qty}</Td>
                       <Td>
                         {record.inspection_date
-                          ? new Date(record.inspection_date).toLocaleDateString(
-                              "zh-TW",
-                            )
+                          ? new Date(record.inspection_date).toLocaleDateString("zh-TW")
                           : "—"}
                       </Td>
                       <Td>
@@ -411,7 +348,13 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
                       <Td>
                         <StatusBadge value={record.release_status} />
                       </Td>
-                      {profile?.permissions.includes("nonconformance:write") && <Td><Link className="text-sky-700 underline" to={`/nonconformances?iqc_id=${record.id}`}>建立異常案件</Link></Td>}
+                      {profile?.permissions.includes("nonconformance:write") && (
+                        <Td>
+                          <Link className="text-sky-700 underline" to={`/nonconformances?iqc_id=${record.id}`}>
+                            建立異常紀錄
+                          </Link>
+                        </Td>
+                      )}
                     </TableRow>
                   );
                 })}
@@ -419,12 +362,8 @@ export function IQCPage({ profile }: { profile: UserProfile | null }) {
             </DataTable>
           ) : displayError && !records ? null : (
             <EmptyState
-              title="找不到符合的 IQC 紀錄"
-              description={
-                query || resultFilter
-                  ? "請調整搜尋條件。"
-                  : "建立檢驗紀錄後，資料會顯示於此。"
-              }
+              title="沒有符合的 IQC 紀錄"
+              description={query || resultFilter ? "請調整搜尋條件。" : "建立檢驗紀錄後，可在此檢視。"}
             />
           )}
           <Pagination

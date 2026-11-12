@@ -7,7 +7,6 @@ os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 import app.api.routes.auth as auth_routes
 import pytest
 from app.core import config
-from app.core import redis_client as redis_module
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.main import app
