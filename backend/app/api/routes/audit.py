@@ -5,17 +5,22 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from typing import cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import AuthenticatedUser, require_permission
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.models.audit import AuditLogORM
 from app.models.user import UserORM
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
+
+MAX_EXPORT_ROWS = 50000
+MAX_EXPORT_DAYS = 365
+
+_AuditRow = tuple[AuditLogORM, str]
 
 
 def _filtered_statement(
@@ -27,7 +32,7 @@ def _filtered_statement(
     action: str | None,
     start_at: datetime | None,
     end_at: datetime | None,
-) -> Select[AuditLogORM, str]:
+) -> Select[_AuditRow]:
     statement = select(AuditLogORM, UserORM.username).outerjoin(
         UserORM, UserORM.id == AuditLogORM.actor_user_id
     )
@@ -55,7 +60,7 @@ def _csv_cell(value: object) -> str:
     return text
 
 
-def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str]:
+def _audit_csv(db: Session, statement: Select[_AuditRow]) -> Iterator[str]:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"])
@@ -90,6 +95,15 @@ def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str
         buffer.truncate(0)
 
 
+def _generate_audit_csv(statement: Select[_AuditRow]) -> Iterator[str]:
+    """Generator that creates its own session for streaming response."""
+    db = SessionLocal()
+    try:
+        yield from _audit_csv(db, statement)
+    finally:
+        db.close()
+
+
 @router.get("")
 def list_audit_logs(
     resource_type: str | None = Query(default=None, max_length=100),
@@ -113,6 +127,27 @@ def list_audit_logs(
         start_at=start_at,
         end_at=end_at,
     )
+
+    count_statement = select(func.count(func.distinct(AuditLogORM.id)))
+    if resource_type:
+        count_statement = count_statement.where(AuditLogORM.resource_type == resource_type)
+    if resource_id:
+        count_statement = count_statement.where(AuditLogORM.resource_id == resource_id)
+    if actor_user_id is not None:
+        count_statement = count_statement.where(AuditLogORM.actor_user_id == actor_user_id)
+    if actor_username:
+        count_statement = count_statement.where(
+            UserORM.username.ilike(f"%{actor_username.strip()}%")
+        )
+    if action:
+        count_statement = count_statement.where(AuditLogORM.action == action.upper())
+    if start_at:
+        count_statement = count_statement.where(AuditLogORM.created_at >= start_at)
+    if end_at:
+        count_statement = count_statement.where(AuditLogORM.created_at <= end_at)
+
+    total = db.scalar(count_statement) or 0
+
     rows = cast(
         list[tuple[AuditLogORM, str | None]],
         db.execute(statement.offset((page - 1) * page_size).limit(page_size)).all(),
@@ -133,6 +168,7 @@ def list_audit_logs(
             }
             for row, username in rows
         ],
+        "total": total,
         "page": page,
         "page_size": page_size,
     }
@@ -147,9 +183,24 @@ def export_audit_logs(
     action: str | None = Query(default=None, max_length=20),
     start_at: datetime | None = None,
     end_at: datetime | None = None,
-    db: Session = Depends(get_db),
     _user: AuthenticatedUser = Depends(require_permission("audit:read")),
 ):
+    if start_at is None and end_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="匯出需指定時間範圍（start_at 與 end_at 至少一項）。",
+        )
+    if start_at and end_at and start_at > end_at:
+        raise HTTPException(
+            status_code=400,
+            detail="開始時間不可晚於結束時間。",
+        )
+    if start_at and end_at and (end_at - start_at).days > MAX_EXPORT_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"時間範圍不可超過 {MAX_EXPORT_DAYS} 天。",
+        )
+
     statement = _filtered_statement(
         resource_type=resource_type,
         resource_id=resource_id,
@@ -159,8 +210,38 @@ def export_audit_logs(
         start_at=start_at,
         end_at=end_at,
     )
+
+    db = SessionLocal()
+    try:
+        count_stmt = select(func.count(func.distinct(AuditLogORM.id)))
+        if resource_type:
+            count_stmt = count_stmt.where(AuditLogORM.resource_type == resource_type)
+        if resource_id:
+            count_stmt = count_stmt.where(AuditLogORM.resource_id == resource_id)
+        if actor_user_id is not None:
+            count_stmt = count_stmt.where(AuditLogORM.actor_user_id == actor_user_id)
+        if actor_username:
+            count_stmt = count_stmt.where(
+                UserORM.username.ilike(f"%{actor_username.strip()}%")
+            )
+        if action:
+            count_stmt = count_stmt.where(AuditLogORM.action == action.upper())
+        if start_at:
+            count_stmt = count_stmt.where(AuditLogORM.created_at >= start_at)
+        if end_at:
+            count_stmt = count_stmt.where(AuditLogORM.created_at <= end_at)
+
+        total = db.scalar(count_stmt) or 0
+        if total > MAX_EXPORT_ROWS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"匯出資料筆數超過上限 {MAX_EXPORT_ROWS} 筆，請縮小篩選條件。",
+            )
+    finally:
+        db.close()
+
     return StreamingResponse(
-        _audit_csv(db, statement),
+        _generate_audit_csv(statement),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="smtms-audit-logs.csv"'},
     )

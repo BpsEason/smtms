@@ -1,6 +1,7 @@
 import csv
 import io
 from collections.abc import Generator
+from datetime import datetime, timedelta
 
 import pytest
 from app.api.routes.audit import _audit_csv, _filtered_statement
@@ -45,6 +46,10 @@ def audit_environment(monkeypatch) -> Generator[tuple[TestClient, sessionmaker],
     def override_db() -> Generator[Session, None, None]:
         with sessions() as session:
             yield session
+
+    # Override SessionLocal so export endpoint uses test session
+    import app.db.session as session_module
+    monkeypatch.setattr(session_module, "SessionLocal", sessions)
 
     app.dependency_overrides[get_db] = override_db
     with sessions.begin() as db:
@@ -272,3 +277,91 @@ def test_audit_csv_export_quotes_content_and_neutralizes_formula_injection(
     assert exported[4] == 'row,"quoted"'
     assert exported[6].startswith("{")
     assert "=HYPERLINK" in exported[6]
+
+
+def test_audit_list_returns_total(audit_environment) -> None:
+    client, sessions = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+    writer = _login(client, "writer", "Writer-Test-Password!")
+
+    # Create a material to generate audit log
+    response = client.post(
+        "/api/v1/materials",
+        headers=writer,
+        json={
+            "material_code": "TOTAL-TEST",
+            "material_name": "Total test",
+            "material_type": "metal",
+            "uom": "pcs",
+        },
+    )
+    assert response.status_code == 201
+
+    list_resp = client.get("/api/v1/audit-logs", headers=headers, params={"resource_type": "materials"})
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert "total" in data
+    assert data["total"] >= 1
+    assert data["page"] == 1
+    assert data["page_size"] == 50
+
+
+def test_audit_export_requires_time_range(audit_environment) -> None:
+    client, _ = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+
+    # No time range should fail
+    resp = client.get("/api/v1/audit-logs/export.csv", headers=headers)
+    assert resp.status_code == 400
+    assert "時間範圍" in resp.json()["detail"]
+
+
+def test_audit_export_time_range_limit(audit_environment) -> None:
+    client, _ = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+
+    # Range > 365 days should fail
+    start = datetime.now() - timedelta(days=400)
+    end = datetime.now()
+    resp = client.get(
+        "/api/v1/audit-logs/export.csv",
+        headers=headers,
+        params={"start_at": start.isoformat(), "end_at": end.isoformat()},
+    )
+    assert resp.status_code == 400
+    assert "365" in resp.json()["detail"]
+
+
+def test_audit_export_row_limit(audit_environment, monkeypatch) -> None:
+    client, sessions = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+
+    # Patch MAX_EXPORT_ROWS to a small number for testing
+    import app.api.routes.audit as audit_module
+    monkeypatch.setattr(audit_module, "MAX_EXPORT_ROWS", 2)
+    # Also patch SessionLocal in the audit module
+    monkeypatch.setattr(audit_module, "SessionLocal", sessions)
+
+    # Create 3 audit logs
+    writer = _login(client, "writer", "Writer-Test-Password!")
+    for i in range(3):
+        client.post(
+            "/api/v1/materials",
+            headers=writer,
+            json={
+                "material_code": f"LIMIT-{i}",
+                "material_name": f"Limit test {i}",
+                "material_type": "metal",
+                "uom": "pcs",
+            },
+        )
+
+    start = datetime.now() - timedelta(days=1)
+    end = datetime.now()
+    resp = client.get(
+        "/api/v1/audit-logs/export.csv",
+        headers=headers,
+        params={"start_at": start.isoformat(), "end_at": end.isoformat(), "resource_type": "materials"},
+    )
+    assert resp.status_code == 400
+    assert "超過上限" in resp.json()["detail"]
