@@ -1,9 +1,11 @@
 import os
-os.environ['APP_ENV'] = 'development'
 
-from fastapi.testclient import TestClient
-from app.main import app
+os.environ["APP_ENV"] = "development"
+
 from app.core import redis_client as redis_module
+from app.main import app
+from fastapi.testclient import TestClient
+
 
 class FakeRedis:
     async def exists(self, key): return 0
