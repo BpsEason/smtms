@@ -451,7 +451,10 @@ def get_dashboard_todos(
         )
         if is_supplier:
             nc_stmt = nc_stmt.where(NonconformanceORM.supplier_id == current_user.supplier_id)
-        nc_stmt = nc_stmt.order_by(NonconformanceORM.found_at.desc().nullslast()).limit(50)
+        nc_stmt = nc_stmt.order_by(
+            NonconformanceORM.found_at.is_(None),
+            NonconformanceORM.found_at.desc(),
+        ).limit(50)
 
         nc_rows = db.execute(nc_stmt).all()
 

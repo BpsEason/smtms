@@ -20,9 +20,6 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 MAX_EXPORT_ROWS = 50000
 MAX_EXPORT_DAYS = 365
 
-_AuditRow = tuple[AuditLogORM, str]
-
-
 def _filtered_statement(
     *,
     resource_type: str | None,
@@ -32,7 +29,7 @@ def _filtered_statement(
     action: str | None,
     start_at: datetime | None,
     end_at: datetime | None,
-) -> Select[_AuditRow]:
+) -> Select[AuditLogORM, str]:
     statement = select(AuditLogORM, UserORM.username).outerjoin(
         UserORM, UserORM.id == AuditLogORM.actor_user_id
     )
@@ -60,7 +57,7 @@ def _csv_cell(value: object) -> str:
     return text
 
 
-def _audit_csv(db: Session, statement: Select[_AuditRow]) -> Iterator[str]:
+def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str]:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"])
@@ -95,7 +92,7 @@ def _audit_csv(db: Session, statement: Select[_AuditRow]) -> Iterator[str]:
         buffer.truncate(0)
 
 
-def _generate_audit_csv(statement: Select[_AuditRow]) -> Iterator[str]:
+def _generate_audit_csv(statement: Select[AuditLogORM, str]) -> Iterator[str]:
     """Generator that creates its own session for streaming response."""
     db = SessionLocal()
     try:
