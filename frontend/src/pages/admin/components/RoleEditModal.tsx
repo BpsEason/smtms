@@ -134,7 +134,7 @@ export function RoleEditModal({
       onCancel={onCancel}
       footer={null}
       destroyOnHidden
-      maskClosable={!busy}
+      mask={{ closable: !busy }}
       closable={!busy}
       width={860}
     >

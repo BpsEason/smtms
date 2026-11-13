@@ -104,7 +104,7 @@ export function ReceiptDetailDialog({
       {!selectedReceipt ? (
         <LoadingState label="正在載入收料詳情…" />
       ) : (
-        <Space direction="vertical" size={20} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={20} style={{ width: "100%" }}>
           <Descriptions size="small" column={2} bordered>
             <Descriptions.Item label="收料單號">{selectedReceipt.receipt_no}</Descriptions.Item>
             <Descriptions.Item label="供應商 ID">{selectedReceipt.supplier_id}</Descriptions.Item>

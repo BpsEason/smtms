@@ -21,6 +21,16 @@ import { SEVERITY_OPTIONS } from "./constants";
 
 const { Text, Title } = Typography;
 
+function formatHistoryValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 export function NonconformanceDetail({
   selectedItem,
   isLoading,
@@ -69,7 +79,7 @@ export function NonconformanceDetail({
 
     if (selectedItem.status === "pending_confirmation") {
       return (
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
           <Space wrap>
             <Button disabled={isLoading} onClick={() => onStatusTransition("investigating")}>
               退回調查
@@ -124,11 +134,11 @@ export function NonconformanceDetail({
       width={900}
       footer={null}
       destroyOnHidden
-      maskClosable={!isLoading}
+      mask={{ closable: !isLoading }}
       keyboard={!isLoading}
       styles={{ body: { maxHeight: "70vh", overflowY: "auto" } }}
     >
-      <Space direction="vertical" size={20} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={20} style={{ width: "100%" }}>
         {/* 基本資訊 */}
         <Space wrap size="middle">
           <StatusBadge value={selectedItem.status} />
@@ -232,13 +242,13 @@ export function NonconformanceDetail({
         {selectedItem.dispositions?.length ? (
           <Timeline
             items={selectedItem.dispositions.map((d) => ({
-              children: (
+              content: (
                 <div>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {new Date(d.executed_at).toLocaleString()} · 負責人 ID {d.owner_user_id}
+                    {new Date(d.executed_at).toLocaleString()} 繚 鞎痊鈭?ID {d.owner_user_id}
                   </Text>
                   <div>
-                    {d.content} — {d.result}
+                    {d.content} ??{d.result}
                   </div>
                 </div>
               ),
@@ -265,7 +275,7 @@ export function NonconformanceDetail({
         )}
 
         {selectedItem.attachments?.length ? (
-          <Space direction="vertical" size={4}>
+          <Space orientation="vertical" size={4}>
             {selectedItem.attachments.map((a) => (
               <Space key={a.id}>
                 <Button type="link" onClick={() => onDownloadAttachment(a.id, a.original_filename)}>
@@ -289,24 +299,28 @@ export function NonconformanceDetail({
 
         {selectedItem.history?.length ? (
           <Timeline
-            items={selectedItem.history.map((h) => ({
-              children: (
-                <div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {new Date(h.created_at).toLocaleString()} · 使用者 {h.actor_user_id}
-                  </Text>
-                  <div>{h.action}</div>
-                  {h.before_data && (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-xs text-slate-500">變更前後資料</summary>
-                      <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-2 text-xs">
-                        {h.before_data} → {h.after_data}
-                      </pre>
-                    </details>
-                  )}
-                </div>
-              ),
-            }))}
+            items={selectedItem.history.map((h) => {
+              const beforeText = formatHistoryValue(h.before_data);
+              const afterText = formatHistoryValue(h.after_data);
+              return {
+                content: (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {new Date(h.created_at).toLocaleString()} 繚 雿輻??{h.actor_user_id}
+                    </Text>
+                    <div>{h.action}</div>
+                    {(beforeText || afterText) && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-xs text-slate-500">霈??鞈?</summary>
+                        <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-2 text-xs">
+                          {beforeText || "—"} → {afterText || "—"}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                ),
+              };
+            })}
           />
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無歷程" />

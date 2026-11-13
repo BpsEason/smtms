@@ -525,7 +525,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
       )}
 
       {errors.length > 0 && (
-        <Space direction="vertical" size="middle" style={{ width: "100%", marginBottom: 20 }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%", marginBottom: 20 }}>
           {errors.map((error) => (
             <Alert
               key={error.key}

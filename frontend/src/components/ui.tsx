@@ -138,7 +138,7 @@ export function ConfirmDialog({ trigger, title, description, confirmLabel = '確
         onCancel={() => { if (!pending) { setOpen(false); setFailure('') } }}
         title={title}
         closable={!pending}
-        maskClosable={!pending}
+        mask={{ closable: !pending }}
         keyboard={!pending}
         footer={[
           <Button key="cancel" onClick={() => { if (!pending) { setOpen(false); setFailure('') } }} disabled={pending}>

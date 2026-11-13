@@ -149,7 +149,7 @@ export function UsersManager({
         onCancel={handleCancel}
         footer={null}
         destroyOnHidden
-        maskClosable={!busy}
+        mask={{ closable: !busy }}
         closable={!busy}
         width={720}
       >
