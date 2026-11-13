@@ -85,7 +85,7 @@ def _filtered_statement(
 
 def _count_statement(
     statement: Select[Any, Any],
-) -> Select[Any, Any]:
+) -> Select[int]:
     """
     Count 使用與列表、匯出完全相同的 JOIN 與 WHERE 條件。
     移除排序後透過 Subquery 計算筆數。
