@@ -1,6 +1,5 @@
-import 'antd/dist/reset.css'
 import { Alert, Button, Card, Empty, Flex, Modal, Spin, Statistic, Tag, Typography } from 'antd'
-import { useState, type ReactNode } from 'react'
+import { useState, type ReactNode, isValidElement, cloneElement } from 'react'
 import { statusLabel, severityLabel } from '../lib/status'
 
 const { Title, Text } = Typography
@@ -54,27 +53,28 @@ export function TableRow({ children, ...props }: { children: ReactNode; classNam
 export function Th({ children, className = '' }: { children: ReactNode; className?: string }) { return <th className={className} style={{ whiteSpace: 'nowrap', padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>{children}</th> }
 export function Td({ children, className = '' }: { children: ReactNode; className?: string }) { return <td className={className} style={{ padding: '12px 16px', verticalAlign: 'middle' }}>{children}</td> }
 
+const statusToneMap: Record<string, string> = {
+  active: 'success', available: 'success', passed: 'success', released: 'success',
+  approved: 'success', complete: 'success', completed: 'success', closed: 'success',
+  pending: 'warning', hold: 'warning', quarantine: 'warning', received: 'warning',
+  in_progress: 'warning', pending_confirmation: 'warning',
+  failed: 'error', rejected: 'error', inactive: 'error', blocked: 'error', returned: 'error',
+  investigating: 'processing',
+}
+
+const severityToneMap: Record<string, string> = {
+  critical: 'red', high: 'orange', medium: 'gold', low: 'green',
+}
+
 export function StatusBadge({ value, label }: { value: string; label?: string }) {
   const normalized = value.toLowerCase()
-  const tone = ['active', 'available', 'passed', 'released', 'approved', 'complete', 'completed', 'closed'].includes(normalized)
-    ? 'success'
-    : ['pending', 'hold', 'quarantine', 'received', 'in_progress', 'pending_confirmation'].includes(normalized)
-      ? 'warning'
-      : ['failed', 'rejected', 'inactive', 'blocked', 'returned'].includes(normalized)
-        ? 'error'
-        : normalized === 'investigating'
-          ? 'processing'
-          : 'default'
+  const tone = statusToneMap[normalized] ?? 'default'
   return <Tag color={tone}>{label ?? statusLabel(value)}</Tag>
 }
 
 export function SeverityBadge({ value, label }: { value: string; label?: string }) {
   const normalized = value.toLowerCase()
-  const tone = normalized === 'critical' ? 'red'
-    : normalized === 'high' ? 'orange'
-    : normalized === 'medium' ? 'gold'
-    : normalized === 'low' ? 'green'
-    : 'default'
+  const tone = severityToneMap[normalized] ?? 'default'
   return <Tag color={tone}>{label ?? severityLabel(value)}</Tag>
 }
 
@@ -93,7 +93,6 @@ export function FormField({ label, hint, error, htmlFor, children }: { label: st
 }
 
 // 相容性保留：多處既有頁面以 className 使用；不改為 React Component，避免跨檔破壞。
-// 使用 ! 強制優先級，避免被 antd/dist/reset.css 覆蓋文字顏色
 export const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-600 focus:ring-2 focus:ring-sky-600/15 disabled:cursor-not-allowed disabled:bg-slate-50'
 
@@ -104,7 +103,7 @@ export const secondaryButtonClass =
   'inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium !text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50'
 
 export function LoadingState({ label = '資料載入中…' }: { label?: string }) {
-  return <Flex role="status" align="center" gap={8} style={{ padding: '32px 0' }}><Spin size="small" /><Text>{label}</Text></Flex>
+  return <Flex role="status" aria-live="polite" align="center" gap={8} style={{ padding: '32px 0' }}><Spin size="small" /><Text>{label}</Text></Flex>
 }
 export function EmptyState({ title, description }: { title: string; description?: string }) {
   return <Empty description={<Flex vertical gap={4} align="center"><Text strong>{title}</Text>{description ? <Text type="secondary">{description}</Text> : null}</Flex>} />
@@ -130,15 +129,37 @@ export function ConfirmDialog({ trigger, title, description, confirmLabel = '確
       setPending(false)
     }
   }
+  const handleTriggerClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    if (!pending && !e.defaultPrevented) setOpen(true)
+  }
+  const enhancedTrigger = isValidElement(trigger)
+    ? cloneElement(trigger as React.ReactElement<any>, {
+        onClick: (e: React.MouseEvent) => {
+          ;(trigger.props as any).onClick?.(e)
+          if (!e.defaultPrevented) handleTriggerClick(e)
+        },
+        onKeyDown: (e: React.KeyboardEvent) => {
+          ;(trigger.props as any).onKeyDown?.(e)
+          if (!e.defaultPrevented && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            handleTriggerClick(e)
+          }
+        },
+      })
+    : (
+      <span onClick={handleTriggerClick} style={{ cursor: 'pointer', display: 'inline-block' }} tabIndex={0} role="button" onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !pending) { e.preventDefault(); handleTriggerClick(e) } }}>
+        {trigger}
+      </span>
+    )
   return (
     <>
-      <span onClick={() => { if (!pending) setOpen(true) }} style={{ cursor: 'pointer', display: 'inline-block' }}>{trigger}</span>
+      {enhancedTrigger}
       <Modal
         open={open}
         onCancel={() => { if (!pending) { setOpen(false); setFailure('') } }}
         title={title}
         closable={!pending}
-        mask={{ closable: !pending }}
+        maskClosable={!pending}
         keyboard={!pending}
         footer={[
           <Button key="cancel" onClick={() => { if (!pending) { setOpen(false); setFailure('') } }} disabled={pending}>
