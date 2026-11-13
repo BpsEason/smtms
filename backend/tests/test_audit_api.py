@@ -36,6 +36,7 @@ def audit_environment(
 
     # Override SessionLocal so export endpoint uses test session
     import app.db.session as session_module
+
     monkeypatch.setattr(session_module, "SessionLocal", sessions)
 
     app.dependency_overrides[get_db] = override_db
@@ -329,6 +330,7 @@ def test_audit_export_row_limit(audit_environment, monkeypatch) -> None:
 
     # Patch MAX_EXPORT_ROWS to a small number for testing
     import app.api.routes.audit as audit_module
+
     monkeypatch.setattr(audit_module, "MAX_EXPORT_ROWS", 2)
     # Also patch SessionLocal in the audit module
     monkeypatch.setattr(audit_module, "SessionLocal", sessions)
@@ -360,3 +362,149 @@ def test_audit_export_row_limit(audit_environment, monkeypatch) -> None:
     )
     assert resp.status_code == 400
     assert "超過上限" in resp.json()["detail"]
+
+
+def test_audit_list_count_consistency_and_filters(audit_environment) -> None:
+    client, sessions = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+
+    with sessions() as db:
+        alice = UserORM(username="alice", password_hash=get_password_hash("x"), is_active=True)
+        bob = UserORM(username="bob", password_hash=get_password_hash("x"), is_active=True)
+        db.add_all([alice, bob])
+        db.flush()
+        db.add_all(
+            [
+                AuditLogORM(
+                    actor_user_id=alice.id,
+                    action="CREATE",
+                    resource_type="materials",
+                    resource_id="a1",
+                ),
+                AuditLogORM(
+                    actor_user_id=alice.id,
+                    action="CREATE",
+                    resource_type="materials",
+                    resource_id="a2",
+                ),
+                AuditLogORM(
+                    actor_user_id=bob.id,
+                    action="LOGIN",
+                    resource_type="users",
+                    resource_id=str(bob.id),
+                ),
+                AuditLogORM(
+                    actor_user_id=None,
+                    action="DELETE",
+                    resource_type="materials",
+                    resource_id="d1",
+                ),
+            ]
+        )
+        db.commit()
+
+    # 登入會附帶寫入 LOGIN 與 refresh_tokens CREATE 兩筆稽核，合計 6 筆
+    all_resp = client.get("/api/v1/audit-logs", headers=headers, params={"page_size": 100})
+    assert all_resp.status_code == 200
+    assert all_resp.json()["total"] == 6
+
+    # actor_username 不分大小寫，且 count 與 list 筆數一致
+    for username in ("alice", "ALICE", "Alice"):
+        resp = client.get(
+            "/api/v1/audit-logs",
+            headers=headers,
+            params={"actor_username": username, "page_size": 100},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+        assert all(item["actor_username"] == "alice" for item in data["items"])
+
+    resp = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"actor_username": "bob", "page_size": 100},
+    )
+    assert resp.json()["total"] == 1
+
+    # action 不分大小寫，不漏資料
+    for action in ("create", "Create", "CREATE"):
+        total = client.get(
+            "/api/v1/audit-logs",
+            headers=headers,
+            params={"action": action, "page_size": 100},
+        ).json()["total"]
+        assert total == 3
+
+    for action in ("LOGIN", "login"):
+        total = client.get(
+            "/api/v1/audit-logs",
+            headers=headers,
+            params={"action": action, "page_size": 100},
+        ).json()["total"]
+        assert total == 2
+
+    assert (
+        client.get(
+            "/api/v1/audit-logs",
+            headers=headers,
+            params={"action": "DELETE", "page_size": 100},
+        ).json()["total"]
+        == 1
+    )
+    assert (
+        client.get(
+            "/api/v1/audit-logs",
+            headers=headers,
+            params={"action": "nonexistent", "page_size": 100},
+        ).json()["total"]
+        == 0
+    )
+
+
+def test_audit_export_filter_matches_list(audit_environment, monkeypatch) -> None:
+    client, sessions = audit_environment
+    headers = _login(client, "auditor", "Audit-Test-Password!")
+
+    # 匯出端點建立自己的 Session，需指向測試資料庫（與 audit:read 路由相同 session）
+    import app.api.routes.audit as audit_module
+
+    monkeypatch.setattr(audit_module, "SessionLocal", sessions)
+
+    with sessions() as db:
+        alice = UserORM(username="alice", password_hash=get_password_hash("x"), is_active=True)
+        db.add(alice)
+        db.flush()
+        for i in range(3):
+            db.add(
+                AuditLogORM(
+                    actor_user_id=alice.id,
+                    action="CREATE",
+                    resource_type="materials",
+                    resource_id=str(i),
+                )
+            )
+        db.commit()
+
+    start = datetime.now() - timedelta(days=1)
+    end = datetime.now()
+    params = {
+        "start_at": start.isoformat(),
+        "end_at": end.isoformat(),
+        "resource_type": "materials",
+        "actor_username": "alice",
+    }
+
+    list_resp = client.get(
+        "/api/v1/audit-logs", headers=headers, params={**params, "page_size": 100}
+    )
+    assert list_resp.status_code == 200
+    total = list_resp.json()["total"]
+
+    export_resp = client.get("/api/v1/audit-logs/export.csv", headers=headers, params=params)
+    assert export_resp.status_code == 200
+    contents = export_resp.content.decode("utf-8-sig")
+    rows = list(csv.reader(io.StringIO(contents)))
+    assert rows[0] == ["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"]
+    assert len(rows) - 1 == total

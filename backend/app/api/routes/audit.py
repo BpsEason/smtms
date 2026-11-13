@@ -3,7 +3,7 @@ import io
 import json
 from collections.abc import Iterable, Iterator
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -20,6 +20,42 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 MAX_EXPORT_ROWS = 50000
 MAX_EXPORT_DAYS = 365
 
+
+def _apply_audit_filters(
+    statement: Select[Any, Any],
+    *,
+    resource_type: str | None,
+    resource_id: str | None,
+    actor_user_id: int | None,
+    actor_username: str | None,
+    action: str | None,
+    start_at: datetime | None,
+    end_at: datetime | None,
+) -> Select[Any, Any]:
+    if resource_type:
+        statement = statement.where(AuditLogORM.resource_type == resource_type)
+
+    if resource_id:
+        statement = statement.where(AuditLogORM.resource_id == resource_id)
+
+    if actor_user_id is not None:
+        statement = statement.where(AuditLogORM.actor_user_id == actor_user_id)
+
+    if actor_username and actor_username.strip():
+        statement = statement.where(UserORM.username.ilike(f"%{actor_username.strip()}%"))
+
+    if action and action.strip():
+        statement = statement.where(func.upper(AuditLogORM.action) == action.strip().upper())
+
+    if start_at:
+        statement = statement.where(AuditLogORM.created_at >= start_at)
+
+    if end_at:
+        statement = statement.where(AuditLogORM.created_at <= end_at)
+
+    return statement
+
+
 def _filtered_statement(
     *,
     resource_type: str | None,
@@ -31,43 +67,72 @@ def _filtered_statement(
     end_at: datetime | None,
 ) -> Select[AuditLogORM, str]:
     statement = select(AuditLogORM, UserORM.username).outerjoin(
-        UserORM, UserORM.id == AuditLogORM.actor_user_id
+        UserORM,
+        UserORM.id == AuditLogORM.actor_user_id,
     )
-    if resource_type:
-        statement = statement.where(AuditLogORM.resource_type == resource_type)
-    if resource_id:
-        statement = statement.where(AuditLogORM.resource_id == resource_id)
-    if actor_user_id is not None:
-        statement = statement.where(AuditLogORM.actor_user_id == actor_user_id)
-    if actor_username:
-        statement = statement.where(UserORM.username.ilike(f"%{actor_username.strip()}%"))
-    if action:
-        statement = statement.where(AuditLogORM.action == action.upper())
-    if start_at:
-        statement = statement.where(AuditLogORM.created_at >= start_at)
-    if end_at:
-        statement = statement.where(AuditLogORM.created_at <= end_at)
-    return statement.order_by(AuditLogORM.created_at.desc(), AuditLogORM.id.desc())
+
+    return _apply_audit_filters(
+        statement,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        actor_user_id=actor_user_id,
+        actor_username=actor_username,
+        action=action,
+        start_at=start_at,
+        end_at=end_at,
+    )
+
+
+def _count_statement(
+    statement: Select[Any, Any],
+) -> Select[Any, Any]:
+    """
+    Count 使用與列表、匯出完全相同的 JOIN 與 WHERE 條件。
+    移除排序後透過 Subquery 計算筆數。
+    """
+    filtered_subquery = statement.order_by(None).subquery()
+
+    return select(func.count()).select_from(filtered_subquery)
 
 
 def _csv_cell(value: object) -> str:
     text = "" if value is None else str(value)
+
     if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
         text = "'" + text
+
     return text
 
 
-def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str]:
+def _audit_csv(
+    db: Session,
+    statement: Select[AuditLogORM, str],
+) -> Iterator[str]:
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
-    writer.writerow(["操作時間", "操作者", "操作類型", "資源類型", "資源 ID", "異動前", "異動後"])
+
+    writer.writerow(
+        [
+            "操作時間",
+            "操作者",
+            "操作類型",
+            "資源類型",
+            "資源 ID",
+            "異動前",
+            "異動後",
+        ]
+    )
+
     yield "\ufeff" + buffer.getvalue()
+
     buffer.seek(0)
     buffer.truncate(0)
+
     result = cast(
         Iterable[tuple[AuditLogORM, str | None]],
         db.execute(statement.execution_options(yield_per=500)),
     )
+
     for log, username in result:
         writer.writerow(
             [
@@ -78,23 +143,40 @@ def _audit_csv(db: Session, statement: Select[AuditLogORM, str]) -> Iterator[str
                     log.action,
                     log.resource_type,
                     log.resource_id,
-                    json.dumps(log.before_data, ensure_ascii=False, separators=(",", ":"))
-                    if log.before_data is not None
-                    else "",
-                    json.dumps(log.after_data, ensure_ascii=False, separators=(",", ":"))
-                    if log.after_data is not None
-                    else "",
+                    (
+                        json.dumps(
+                            log.before_data,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        if log.before_data is not None
+                        else ""
+                    ),
+                    (
+                        json.dumps(
+                            log.after_data,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                        if log.after_data is not None
+                        else ""
+                    ),
                 ]
             ]
         )
+
         yield buffer.getvalue()
+
         buffer.seek(0)
         buffer.truncate(0)
 
 
-def _generate_audit_csv(statement: Select[AuditLogORM, str]) -> Iterator[str]:
+def _generate_audit_csv(
+    statement: Select[AuditLogORM, str],
+) -> Iterator[str]:
     """Generator that creates its own session for streaming response."""
     db = SessionLocal()
+
     try:
         yield from _audit_csv(db, statement)
     finally:
@@ -125,30 +207,20 @@ def list_audit_logs(
         end_at=end_at,
     )
 
-    count_statement = select(func.count(func.distinct(AuditLogORM.id)))
-    if resource_type:
-        count_statement = count_statement.where(AuditLogORM.resource_type == resource_type)
-    if resource_id:
-        count_statement = count_statement.where(AuditLogORM.resource_id == resource_id)
-    if actor_user_id is not None:
-        count_statement = count_statement.where(AuditLogORM.actor_user_id == actor_user_id)
-    if actor_username:
-        count_statement = count_statement.where(
-            UserORM.username.ilike(f"%{actor_username.strip()}%")
-        )
-    if action:
-        count_statement = count_statement.where(AuditLogORM.action == action.upper())
-    if start_at:
-        count_statement = count_statement.where(AuditLogORM.created_at >= start_at)
-    if end_at:
-        count_statement = count_statement.where(AuditLogORM.created_at <= end_at)
-
-    total = db.scalar(count_statement) or 0
+    total = db.scalar(_count_statement(statement)) or 0
 
     rows = cast(
         list[tuple[AuditLogORM, str | None]],
-        db.execute(statement.offset((page - 1) * page_size).limit(page_size)).all(),
+        db.execute(
+            statement.order_by(
+                AuditLogORM.created_at.desc(),
+                AuditLogORM.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all(),
     )
+
     return {
         "items": [
             {
@@ -187,11 +259,13 @@ def export_audit_logs(
             status_code=400,
             detail="匯出需指定時間範圍（start_at 與 end_at 至少一項）。",
         )
+
     if start_at and end_at and start_at > end_at:
         raise HTTPException(
             status_code=400,
             detail="開始時間不可晚於結束時間。",
         )
+
     if start_at and end_at and (end_at - start_at).days > MAX_EXPORT_DAYS:
         raise HTTPException(
             status_code=400,
@@ -209,36 +283,25 @@ def export_audit_logs(
     )
 
     db = SessionLocal()
-    try:
-        count_stmt = select(func.count(func.distinct(AuditLogORM.id)))
-        if resource_type:
-            count_stmt = count_stmt.where(AuditLogORM.resource_type == resource_type)
-        if resource_id:
-            count_stmt = count_stmt.where(AuditLogORM.resource_id == resource_id)
-        if actor_user_id is not None:
-            count_stmt = count_stmt.where(AuditLogORM.actor_user_id == actor_user_id)
-        if actor_username:
-            count_stmt = count_stmt.where(
-                UserORM.username.ilike(f"%{actor_username.strip()}%")
-            )
-        if action:
-            count_stmt = count_stmt.where(AuditLogORM.action == action.upper())
-        if start_at:
-            count_stmt = count_stmt.where(AuditLogORM.created_at >= start_at)
-        if end_at:
-            count_stmt = count_stmt.where(AuditLogORM.created_at <= end_at)
 
-        total = db.scalar(count_stmt) or 0
+    try:
+        total = db.scalar(_count_statement(statement)) or 0
+
         if total > MAX_EXPORT_ROWS:
             raise HTTPException(
                 status_code=400,
-                detail=f"匯出資料筆數超過上限 {MAX_EXPORT_ROWS} 筆，請縮小篩選條件。",
+                detail=(f"匯出資料筆數超過上限 {MAX_EXPORT_ROWS} 筆，請縮小篩選條件。"),
             )
     finally:
         db.close()
 
+    export_statement = statement.order_by(
+        AuditLogORM.created_at.desc(),
+        AuditLogORM.id.desc(),
+    )
+
     return StreamingResponse(
-        _generate_audit_csv(statement),
+        _generate_audit_csv(export_statement),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="smtms-audit-logs.csv"'},
+        headers={"Content-Disposition": ('attachment; filename="smtms-audit-logs.csv"')},
     )
