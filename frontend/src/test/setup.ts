@@ -14,3 +14,16 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 })
+
+// jsdom does not implement ResizeObserver, which antd Table/List rely on.
+if (!('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    writable: true,
+    value: ResizeObserverStub,
+  })
+}

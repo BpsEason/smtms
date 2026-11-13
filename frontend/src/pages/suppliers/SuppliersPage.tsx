@@ -1,7 +1,6 @@
 import {
   useEffect,
   useState,
-  type FormEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Plus, Search, Upload } from "lucide-react";
@@ -12,7 +11,6 @@ import {
   DataTable,
   EmptyState,
   ErrorState,
-  FormField,
   inputClass,
   buttonClass,
   secondaryButtonClass,
@@ -27,6 +25,7 @@ import {
   Th,
 } from "../../components/ui";
 import { SupplierFormDialog, type SupplierFormData } from "./SupplierFormDialog";
+import { SupplierMaterialLinkDialog, type LinkMaterialFormData } from "./SupplierMaterialLinkDialog";
 import { SupplierDocumentsPanel } from "./SupplierDocumentsPanel";
 import { SupplierImportPanel } from "./SupplierImportPanel";
 import { optional, Pagination } from "./utils";
@@ -48,6 +47,7 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [linkingSupplier, setLinkingSupplier] = useState<Supplier | null>(null);
+  const [linkMaterialDialogOpen, setLinkMaterialDialogOpen] = useState(false);
   const [documentSupplier, setDocumentSupplier] = useState<Supplier | null>(null);
   const [materialOptions, setMaterialOptions] = useState<Material[]>([]);
   const [linkBusy, setLinkBusy] = useState(false);
@@ -143,23 +143,39 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
       setEditingSupplier(null);
     }
   };
-  const linkMaterial = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleLinkMaterialDialogOpenChange = (open: boolean) => {
+    setLinkMaterialDialogOpen(open);
+    if (!open) {
+      setLinkingSupplier(null);
+    }
+  };
+  const openLinkMaterialDialog = (supplier: Supplier) => {
+    setLinkingSupplier(supplier);
+    setLinkMaterialDialogOpen(true);
+    setShowImport(false);
+    setError("");
+    setSuccess("");
+  };
+  const linkMaterial = async (formData: LinkMaterialFormData) => {
     if (!linkingSupplier) return;
-    setError(""); setSuccess(""); setLinkBusy(true);
-    const form = new FormData(event.currentTarget);
+    setError("");
+    setSuccess("");
+    setLinkBusy(true);
     try {
       await api.createSupplierMaterial(linkingSupplier.id, {
-        material_id: Number(form.get("material_id")),
-        supplier_material_code: optional(form.get("supplier_material_code")),
-        is_preferred: form.get("is_preferred") === "on",
+        material_id: formData.material_id,
+        supplier_material_code: optional(formData.supplier_material_code),
+        is_preferred: formData.is_preferred,
       });
       setSuccess(`已建立「${linkingSupplier.supplier_name}」與所選物料的供應關聯。`);
       setLinkingSupplier(null);
-      // 使所有相關查詢快取失效，確保列表資料最新
+      setLinkMaterialDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-    } catch (err) { setError(`操作失敗：${formatErrorMessage(err)}`); }
-    finally { setLinkBusy(false); }
+    } catch (err) {
+      setError(`操作失敗：${formatErrorMessage(err)}`);
+    } finally {
+      setLinkBusy(false);
+    }
   };
   return (
     <section>
@@ -201,41 +217,15 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
           }}
         />
       )}
-      {linkingSupplier && (
-        <Panel
-          title={`建立供應物料關聯：${linkingSupplier.supplier_name}`}
-          description="收料與供應商批號登錄只允許使用已建立關聯的供應商與物料。"
-          className="mb-5"
-        >
-          <form onSubmit={linkMaterial} className="grid gap-4 sm:grid-cols-2">
-            <FormField label="物料">
-              <select name="material_id" className={inputClass} required defaultValue="">
-                <option value="">選擇物料</option>
-                {materialOptions.map((material) => (
-                  <option key={material.id} value={material.id}>
-                    {material.material_code} · {material.material_name}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="供應商料號" hint="選填；填寫供應商使用的料件編碼。">
-              <input aria-label="供應商料號" name="supplier_material_code" className={inputClass} maxLength={80} />
-            </FormField>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" name="is_preferred" />
-              設為此物料的首選供應商
-            </label>
-            <div className="flex gap-2 sm:col-span-2">
-              <button type="submit" className={buttonClass} disabled={linkBusy || !materialOptions.length}>
-                {linkBusy ? "建立中…" : "建立關聯"}
-              </button>
-              <button type="button" className={secondaryButtonClass} disabled={linkBusy} onClick={() => setLinkingSupplier(null)}>
-                取消
-              </button>
-            </div>
-          </form>
-        </Panel>
-      )}
+      <SupplierMaterialLinkDialog
+        open={linkMaterialDialogOpen}
+        onOpenChange={handleLinkMaterialDialogOpenChange}
+        linkingSupplier={linkingSupplier}
+        materialOptions={materialOptions}
+        isSubmitting={linkBusy}
+        submitError={error}
+        onSubmit={linkMaterial}
+      />
       {success && (
         <p role="status" className="mb-4 text-sm text-emerald-800">
           {success}
@@ -319,12 +309,7 @@ export function SuppliersPage({ profile }: { profile: UserProfile | null }) {
                           <button
                             type="button"
                             className={secondaryButtonClass}
-                            onClick={() => {
-                              setLinkingSupplier(supplier);
-                              setDialogOpen(false);
-                              setShowImport(false);
-                              setError("");
-                            }}
+                            onClick={() => openLinkMaterialDialog(supplier)}
                           >
                             連結物料
                           </button>

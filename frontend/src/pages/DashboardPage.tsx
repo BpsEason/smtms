@@ -1,4 +1,4 @@
-﻿import { useCallback, useState } from "react";
+﻿import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -20,10 +20,14 @@ import {
   Modal,
   Descriptions,
   Timeline,
+  List,
+  Collapse,
+  Progress,
 } from "antd";
 import {
   InboxOutlined,
   NumberOutlined,
+  PaperClipOutlined,
 } from "@ant-design/icons";
 import { ApiError, api } from "../api";
 import { formatErrorMessage } from "../lib/error";
@@ -32,7 +36,9 @@ import { SeverityBadge, StatusBadge } from "../components/ui";
 import type {
   DashboardSummary,
   DashboardTodos,
+  OpenNCItem,
   PaginatedResponse,
+  PendingIQCItem,
   QualityTrendResponse,
   Receipt,
   UserProfile,
@@ -42,6 +48,8 @@ import type {
 
 const { Title, Text } = Typography;
 
+const EMPTY_TEXT = "—";
+
 const taiwanDateFormatter = new Intl.DateTimeFormat("zh-TW", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -49,12 +57,174 @@ const taiwanDateFormatter = new Intl.DateTimeFormat("zh-TW", {
   day: "2-digit",
 });
 
-function formatTaiwanDate(value: string): string {
+const taiwanDateTimeFormatter = new Intl.DateTimeFormat("zh-TW", {
+  timeZone: "Asia/Taipei",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function formatTaiwanDate(value: string | null | undefined): string {
+  if (!value) {
+    return EMPTY_TEXT;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "—";
+    return EMPTY_TEXT;
   }
   return taiwanDateFormatter.format(date);
+}
+
+function formatTaiwanDateTime(value: string | null | undefined): string {
+  if (!value) {
+    return EMPTY_TEXT;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return EMPTY_TEXT;
+  }
+  return taiwanDateTimeFormatter.format(date);
+}
+
+function formatParty(
+  name: string | null | undefined,
+  code: string | null | undefined,
+): string | null {
+  if (name && code) {
+    return `${name} (${code})`;
+  }
+  return name ?? code ?? null;
+}
+
+function formatHistoryPayload(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return EMPTY_TEXT;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return EMPTY_TEXT;
+    }
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return value;
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return EMPTY_TEXT;
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const DIFF_PRE_STYLE: CSSProperties = {
+  margin: 0,
+  padding: 8,
+  maxHeight: 160,
+  overflow: "auto",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  fontSize: 12,
+  background: "#fafafa",
+  borderRadius: 4,
+};
+
+const LONG_TEXT_STYLE: CSSProperties = {
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
+
+const HERO_PANEL_STYLE: CSSProperties = {
+  position: "relative",
+  overflow: "hidden",
+  height: "100%",
+  borderRadius: 12,
+  border: "1px solid #dbe8f7",
+  background: "linear-gradient(135deg, #f5faff 0%, #e7f1fc 100%)",
+  padding: "20px 24px",
+};
+
+const HERO_WATERMARK_STYLE: CSSProperties = {
+  position: "absolute",
+  right: 16,
+  top: "50%",
+  transform: "translateY(-50%)",
+  fontSize: 104,
+  lineHeight: 1,
+  color: "#0064c8",
+  opacity: 0.08,
+  pointerEvents: "none",
+};
+
+const HERO_ICON_STYLE: CSSProperties = {
+  display: "grid",
+  placeItems: "center",
+  flex: "0 0 auto",
+  width: 56,
+  height: 56,
+  borderRadius: 14,
+  background: "#ffffff",
+  border: "1px solid #dbe8f7",
+  boxShadow: "0 2px 8px rgba(0, 100, 200, 0.08)",
+  color: "#0064c8",
+};
+
+const HERO_VALUE_STYLE: CSSProperties = {
+  fontSize: 46,
+  fontWeight: 700,
+  lineHeight: 1.1,
+  color: "#0b4a8f",
+};
+
+const PANEL_STYLE: CSSProperties = {
+  height: "100%",
+  borderRadius: 12,
+  border: "1px solid #f0f0f0",
+  background: "#ffffff",
+  padding: "20px 24px",
+};
+
+const LOT_STATUS_ITEM_STYLE: CSSProperties = {
+  flex: "1 1 240px",
+  minWidth: 200,
+  maxWidth: "100%",
+};
+
+function SummaryItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Flex vertical gap={4}>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {label}
+      </Text>
+      <div>{children}</div>
+    </Flex>
+  );
+}
+
+function describeAttachment(attachment: NonNullable<Nonconformance["attachments"]>[number]): string {
+  const parts = [attachment.media_type || "未知類型", formatFileSize(attachment.size_bytes)];
+  if (attachment.created_at) {
+    parts.push(formatTaiwanDateTime(attachment.created_at));
+  }
+  return parts.join(" · ");
 }
 
 const IQC_SUMMARY_PERMISSIONS = [
@@ -141,46 +311,68 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
     staleTime: 30 * 1000,
   });
 
-  const [selectedIqcId, setSelectedIqcId] = useState<number | null>(null);
+  const [selectedIqc, setSelectedIqc] = useState<PendingIQCItem | null>(null);
   const [iqcDetailModalOpen, setIqcDetailModalOpen] = useState(false);
 
   const iqcDetailQuery = useQuery<IQCRecord>({
-    queryKey: ["iqc", "detail", selectedIqcId],
-    queryFn: () => api.getIQCRecord(selectedIqcId!),
-    enabled: !!selectedIqcId,
+    queryKey: ["iqc", "detail", selectedIqc?.id],
+    queryFn: () => api.getIQCRecord(selectedIqc!.id),
+    enabled: !!selectedIqc,
     retry: 1,
     staleTime: 30 * 1000,
   });
 
-  const handleOpenIqcDetail = (id: number) => {
-    setSelectedIqcId(id);
+  const handleOpenIqcDetail = (item: PendingIQCItem) => {
+    setSelectedIqc(item);
     setIqcDetailModalOpen(true);
   };
 
   const handleCloseIqcDetail = () => {
     setIqcDetailModalOpen(false);
-    setSelectedIqcId(null);
+    setSelectedIqc(null);
   };
 
-  const [selectedNcId, setSelectedNcId] = useState<number | null>(null);
+  const [selectedNc, setSelectedNc] = useState<OpenNCItem | null>(null);
   const [ncDetailModalOpen, setNcDetailModalOpen] = useState(false);
+  const [ncAttachmentError, setNcAttachmentError] = useState<string | null>(null);
 
   const ncDetailQuery = useQuery<Nonconformance>({
-    queryKey: ["nonconformance", "detail", selectedNcId],
-    queryFn: () => api.getNonconformance(selectedNcId!),
-    enabled: !!selectedNcId,
+    queryKey: ["nonconformance", "detail", selectedNc?.id],
+    queryFn: () => api.getNonconformance(selectedNc!.id),
+    enabled: !!selectedNc,
     retry: 1,
     staleTime: 30 * 1000,
   });
 
-  const handleOpenNcDetail = (id: number) => {
-    setSelectedNcId(id);
+  const handleOpenNcDetail = (item: OpenNCItem) => {
+    setSelectedNc(item);
+    setNcAttachmentError(null);
     setNcDetailModalOpen(true);
   };
 
   const handleCloseNcDetail = () => {
     setNcDetailModalOpen(false);
-    setSelectedNcId(null);
+    setSelectedNc(null);
+    setNcAttachmentError(null);
+  };
+
+  const handleDownloadAttachment = async (
+    caseId: number,
+    attachmentId: number,
+    filename: string,
+  ) => {
+    setNcAttachmentError(null);
+    try {
+      const blob = await api.downloadNonconformanceAttachment(caseId, attachmentId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNcAttachmentError(formatErrorMessage(error));
+    }
   };
 
   const handleRefresh = () => {
@@ -249,6 +441,10 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
   const lotStatusEntries = summary?.internal_lots
     ? Object.entries(summary.internal_lots.by_lot_status)
     : [];
+  const lotStatusTotal = lotStatusEntries.reduce(
+    (sum, [, count]) => sum + (Number.isFinite(count) ? count : 0),
+    0,
+  );
   const hasVisibleSummaryBlocks = Boolean(
     summary?.receipts ||
       summary?.internal_lots ||
@@ -260,6 +456,36 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
     !loading &&
     !canReadReceipts &&
     (!canReadDashboardSummary || summaryForbidden || (!summaryQuery.isLoading && !hasVisibleSummaryBlocks));
+
+  const iqcDetail = iqcDetailQuery.data;
+  const iqcSupplierText =
+    formatParty(selectedIqc?.supplier_name, selectedIqc?.supplier_code) ?? EMPTY_TEXT;
+  const iqcMaterialText =
+    formatParty(selectedIqc?.material_name, selectedIqc?.material_code) ?? EMPTY_TEXT;
+  const iqcReceiptNo =
+    selectedIqc?.receipt_no ??
+    (iqcDetail?.receipt_id ? `收料單 #${iqcDetail.receipt_id}` : EMPTY_TEXT);
+  const iqcInternalLotNo =
+    iqcDetail?.internal_lot_no ??
+    selectedIqc?.internal_lot_no ??
+    (iqcDetail?.internal_lot_id ? `內部批號 #${iqcDetail.internal_lot_id}` : EMPTY_TEXT);
+  const iqcHasReviewInfo = Boolean(
+    iqcDetail?.reviewed_at || iqcDetail?.reviewed_by_user_id || iqcDetail?.review_decision_note,
+  );
+
+  const ncDetail = ncDetailQuery.data;
+  const ncSupplierText =
+    formatParty(selectedNc?.supplier_name, selectedNc?.supplier_code) ??
+    (ncDetail?.supplier_id ? `供應商 #${ncDetail.supplier_id}` : EMPTY_TEXT);
+  const ncMaterialText =
+    formatParty(selectedNc?.material_name, selectedNc?.material_code) ??
+    (ncDetail?.material_id ? `物料 #${ncDetail.material_id}` : EMPTY_TEXT);
+  const ncOwnerText = ncDetail?.owner_user_id
+    ? `使用者 #${ncDetail.owner_user_id}`
+    : EMPTY_TEXT;
+  const ncDispositions = ncDetail?.dispositions ?? [];
+  const ncHistory = ncDetail?.history ?? [];
+  const ncAttachments = ncDetail?.attachments ?? [];
 
   return (
     <section>
@@ -336,24 +562,43 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
               title="收料統計"
               extra={<Text type="secondary">依收料紀錄彙總</Text>}
               style={{ marginBottom: 24 }}
+              styles={{ body: { padding: 20 } }}
             >
-              <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card size="small">
-                    <Flex align="center" gap={12} style={{ marginBottom: 8 }}>
-                      <InboxOutlined style={{ fontSize: 20, color: "#8c8c8c" }} />
-                      <Statistic
-                        title="收料總數"
-                        value={summary.receipts.total}
-                        precision={0}
-                        groupSeparator=","
-                      />
-                    </Flex>
-                    <Divider />
-                    <Text type="secondary" style={{ fontSize: 12 }}>收料紀錄總筆數</Text>
-                  </Card>
-                </Col>
-              </Row>
+              <div style={HERO_PANEL_STYLE}>
+                <InboxOutlined aria-hidden className="hidden sm:block" style={HERO_WATERMARK_STYLE} />
+                <Flex align="center" gap={20} wrap="wrap" style={{ position: "relative" }}>
+                  <div style={HERO_ICON_STYLE}>
+                    <InboxOutlined style={{ fontSize: 28 }} />
+                  </div>
+                  <Flex vertical gap={2} style={{ minWidth: 0 }}>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      收料總數
+                    </Text>
+                    <Statistic
+                      value={summary.receipts.total}
+                      precision={0}
+                      groupSeparator=","
+                      styles={{ value: HERO_VALUE_STYLE }}
+                    />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      收料紀錄總筆數
+                    </Text>
+                  </Flex>
+                  <Flex
+                    vertical
+                    gap={2}
+                    align="flex-start"
+                    style={{ alignSelf: "flex-start" }}
+                  >
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      統計單位
+                    </Text>
+                    <Text strong style={{ fontSize: 13 }}>
+                      筆（收料紀錄）
+                    </Text>
+                  </Flex>
+                </Flex>
+              </div>
             </Card>
           )}
 
@@ -362,53 +607,97 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
               title="內部批號統計"
               extra={<Text type="secondary">依內部物料批次彙總</Text>}
               style={{ marginBottom: 24 }}
+              styles={{ body: { padding: 20 } }}
             >
-              <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card size="small">
-                    <Flex align="center" gap={12} style={{ marginBottom: 8 }}>
-                      <NumberOutlined style={{ fontSize: 20, color: "#8c8c8c" }} />
+              <Row gutter={[20, 20]}>
+                <Col xs={24} lg={7} xl={6}>
+                  <div style={HERO_PANEL_STYLE}>
+                    <NumberOutlined aria-hidden className="hidden sm:block" style={HERO_WATERMARK_STYLE} />
+                    <Flex vertical gap={10} style={{ position: "relative" }}>
+                      <Flex align="center" gap={12}>
+                        <div style={HERO_ICON_STYLE}>
+                          <NumberOutlined style={{ fontSize: 28 }} />
+                        </div>
+                        <Text strong style={{ fontSize: 15 }}>
+                          內部批次總數
+                        </Text>
+                      </Flex>
                       <Statistic
-                        title="內部批次總數"
                         value={summary.internal_lots.total}
                         precision={0}
                         groupSeparator=","
+                        styles={{ value: HERO_VALUE_STYLE }}
                       />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        內部批號總筆數
+                      </Text>
                     </Flex>
-                    <Divider />
-                    <Text type="secondary" style={{ fontSize: 12 }}>內部批號總筆數</Text>
-                  </Card>
+                  </div>
+                </Col>
+                <Col xs={24} lg={17} xl={18}>
+                  <div style={PANEL_STYLE}>
+                    <Flex
+                      align="center"
+                      justify="space-between"
+                      wrap="wrap"
+                      gap={8}
+                      style={{ marginBottom: 16 }}
+                    >
+                      <Text strong style={{ fontSize: 14 }}>
+                        批號狀態分布
+                      </Text>
+                      {lotStatusEntries.length > 0 && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          共 {lotStatusEntries.length} 種狀態 · 狀態數量合計 {lotStatusTotal}
+                        </Text>
+                      )}
+                    </Flex>
+                    {lotStatusEntries.length > 0 ? (
+                      <Flex wrap="wrap" gap={16}>
+                        {lotStatusEntries.map(([status, count]) => {
+                          const percent =
+                            lotStatusTotal > 0
+                              ? Math.round((count / lotStatusTotal) * 1000) / 10
+                              : 0;
+                          return (
+                            <div key={status} style={LOT_STATUS_ITEM_STYLE}>
+                              <Flex
+                                align="center"
+                                justify="space-between"
+                                gap={8}
+                                style={{ marginBottom: 6 }}
+                              >
+                                <Tag color={getStatusColor(status)} style={{ marginInlineEnd: 0 }}>
+                                  {status}
+                                </Tag>
+                                <Flex align="center" gap={8}>
+                                  <Text strong style={{ fontSize: 13 }}>
+                                    {count}
+                                  </Text>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {percent}%
+                                  </Text>
+                                </Flex>
+                              </Flex>
+                              <Progress percent={percent} showInfo={false} size="small" />
+                            </div>
+                          );
+                        })}
+                      </Flex>
+                    ) : (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description={
+                          <Flex vertical gap={4} align="center">
+                            <Text strong>尚無批號狀態資料</Text>
+                            <Text type="secondary">目前沒有可統計的內部批號狀態分布。</Text>
+                          </Flex>
+                        }
+                      />
+                    )}
+                  </div>
                 </Col>
               </Row>
-              {lotStatusEntries.length > 0 && (
-                <div>
-                  <Text strong style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
-                    批號狀態分布
-                  </Text>
-                  <Table
-                    dataSource={lotStatusEntries.map(([status, count]) => ({ status, count }))}
-                    rowKey="status"
-                    columns={[
-                      { title: "批號狀態", dataIndex: "status", key: "status", render: (status: string) => <Tag color={getStatusColor(status)}>{status}</Tag> },
-                      { title: "數量", dataIndex: "count", key: "count", align: "right" },
-                    ]}
-                    pagination={false}
-                    bordered
-                    size="middle"
-                  />
-                </div>
-              )}
-              {lotStatusEntries.length === 0 && (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <Flex vertical gap={4} align="center">
-                      <Text strong>尚無批號狀態資料</Text>
-                      <Text type="secondary">目前沒有可統計的內部批號狀態分布。</Text>
-                    </Flex>
-                  }
-                />
-              )}
             </Card>
           )}
 
@@ -560,7 +849,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
                         <Button
                           type="link"
                           size="small"
-                          onClick={() => handleOpenIqcDetail(record.id)}
+                          onClick={() => handleOpenIqcDetail(record)}
                         >
                           詳細
                         </Button>
@@ -636,7 +925,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
                         <Button
                           type="link"
                           size="small"
-                          onClick={() => handleOpenNcDetail(record.id)}
+                          onClick={() => handleOpenNcDetail(record)}
                         >
                           詳細
                         </Button>
@@ -804,11 +1093,12 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
             關閉
           </Button>,
         ]}
-        width={720}
+        width="min(800px, 92vw)"
         destroyOnHidden
+        styles={{ body: { maxHeight: "70vh", overflowY: "auto" } }}
       >
         {iqcDetailQuery.isLoading ? (
-          <Flex align="center" style={{ padding: "40px 0" }}>
+          <Flex align="center" justify="center" style={{ padding: "48px 0" }}>
             <Spin size="large" />
           </Flex>
         ) : iqcDetailQuery.error ? (
@@ -819,46 +1109,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
             description={formatErrorMessage(iqcDetailQuery.error)}
             action={<Button size="small" onClick={() => void iqcDetailQuery.refetch()}>重試</Button>}
           />
-        ) : iqcDetailQuery.data ? (
-          <Descriptions column={2} size="small" layout="horizontal">
-            <Descriptions.Item label="IQC 編號">IQC-{iqcDetailQuery.data.id}</Descriptions.Item>
-            <Descriptions.Item label="收料單號">{iqcDetailQuery.data.receipt_id ? `收料單 ${iqcDetailQuery.data.receipt_id}` : "—"}</Descriptions.Item>
-            <Descriptions.Item label="內部批號">{iqcDetailQuery.data.internal_lot_no ?? (iqcDetailQuery.data.internal_lot_id ? `內部批號 ${iqcDetailQuery.data.internal_lot_id}` : "—")}</Descriptions.Item>
-            <Descriptions.Item label="供應商">
-              {iqcDetailQuery.data.receipt_id
-                ? "—"
-                : iqcDetailQuery.data.internal_lot_id
-                ? "—"
-                : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="物料">
-              {iqcDetailQuery.data.internal_lot_id ? "—" : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="抽樣數量">{iqcDetailQuery.data.sample_qty}</Descriptions.Item>
-            <Descriptions.Item label="檢驗日期">
-              {iqcDetailQuery.data.inspection_date
-                ? formatTaiwanDate(iqcDetailQuery.data.inspection_date)
-                : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="檢驗結果">
-              <Tag color={getStatusColor(iqcDetailQuery.data.inspection_result)}>
-                {iqcDetailQuery.data.inspection_result}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="放行狀態">
-              <Tag color={getStatusColor(iqcDetailQuery.data.release_status)}>
-                {iqcDetailQuery.data.release_status}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="審核狀態">
-              <Tag color={getStatusColor(iqcDetailQuery.data.review_status || "pending")}>
-                {iqcDetailQuery.data.review_status || "pending"}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="建立時間">{formatTaiwanDate(iqcDetailQuery.data.created_at)}</Descriptions.Item>
-            <Descriptions.Item label="檢驗備註">{iqcDetailQuery.data.remarks || "—"}</Descriptions.Item>
-          </Descriptions>
-        ) : (
+        ) : !iqcDetail ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
@@ -868,6 +1119,124 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
               </Flex>
             }
           />
+        ) : (
+          <Flex vertical gap={16} style={{ width: "100%" }}>
+            <Card size="small" title="檢驗摘要">
+              <Flex wrap="wrap" align="flex-start" justify="space-between" gap={16}>
+                <Flex vertical gap={2}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    IQC 編號
+                  </Text>
+                  <Title level={3} style={{ margin: 0 }}>
+                    IQC-{iqcDetail.id}
+                  </Title>
+                </Flex>
+                <Flex wrap="wrap" gap={24}>
+                  <SummaryItem label="檢驗結果">
+                    <StatusBadge value={iqcDetail.inspection_result} />
+                  </SummaryItem>
+                  <SummaryItem label="審核狀態">
+                    <StatusBadge value={iqcDetail.review_status || "pending"} />
+                  </SummaryItem>
+                  <SummaryItem label="放行狀態">
+                    <StatusBadge value={iqcDetail.release_status} />
+                  </SummaryItem>
+                </Flex>
+              </Flex>
+            </Card>
+
+            <Card size="small" title="基本資料">
+              <Descriptions
+                size="small"
+                column={{ xs: 1, sm: 2 }}
+                items={[
+                  { key: "id", label: "IQC 編號", children: `IQC-${iqcDetail.id}` },
+                  { key: "receipt_no", label: "收料單號", children: iqcReceiptNo },
+                  { key: "supplier", label: "供應商", children: iqcSupplierText },
+                  { key: "material", label: "物料", children: iqcMaterialText },
+                  {
+                    key: "supplier_lot_no",
+                    label: "供應商批號",
+                    children: (
+                      <Text type="secondary" title="IQC 詳細資料 API 未提供供應商批號欄位">
+                        {EMPTY_TEXT}
+                      </Text>
+                    ),
+                  },
+                  { key: "internal_lot_no", label: "內部批號", children: iqcInternalLotNo },
+                  {
+                    key: "inspection_date",
+                    label: "檢驗日期",
+                    children: formatTaiwanDate(iqcDetail.inspection_date),
+                  },
+                  {
+                    key: "created_at",
+                    label: "建立時間",
+                    children: formatTaiwanDateTime(iqcDetail.created_at),
+                  },
+                ]}
+              />
+            </Card>
+
+            <Card size="small" title="檢驗結果">
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Statistic
+                    title="抽樣數量"
+                    value={Number(iqcDetail.sample_qty)}
+                    groupSeparator=","
+                  />
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Statistic
+                    title="檢驗結果"
+                    value={iqcDetail.inspection_result}
+                    valueRender={() => <StatusBadge value={iqcDetail.inspection_result} />}
+                  />
+                </Col>
+              </Row>
+              {iqcHasReviewInfo && (
+                <>
+                  <Divider style={{ margin: "16px 0" }} />
+                  <Descriptions
+                    size="small"
+                    column={{ xs: 1, sm: 2 }}
+                    items={[
+                      {
+                        key: "reviewed_by_user_id",
+                        label: "審核人員",
+                        children: iqcDetail.reviewed_by_user_id
+                          ? `使用者 #${iqcDetail.reviewed_by_user_id}`
+                          : EMPTY_TEXT,
+                      },
+                      {
+                        key: "reviewed_at",
+                        label: "審核時間",
+                        children: formatTaiwanDateTime(iqcDetail.reviewed_at),
+                      },
+                      {
+                        key: "review_decision_note",
+                        label: "審核結論",
+                        span: 2,
+                        children: iqcDetail.review_decision_note ?? EMPTY_TEXT,
+                      },
+                    ]}
+                  />
+                </>
+              )}
+            </Card>
+
+            <Card size="small" title="檢驗備註">
+              {iqcDetail.remarks?.trim() ? (
+                <Text style={LONG_TEXT_STYLE}>{iqcDetail.remarks}</Text>
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="尚無檢驗備註"
+                />
+              )}
+            </Card>
+          </Flex>
         )}
       </Modal>
 
@@ -880,11 +1249,12 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
             關閉
           </Button>,
         ]}
-        width={900}
+        width="min(1000px, 94vw)"
         destroyOnHidden
+        styles={{ body: { maxHeight: "70vh", overflowY: "auto" } }}
       >
         {ncDetailQuery.isLoading ? (
-          <Flex align="center" style={{ padding: "40px 0" }}>
+          <Flex align="center" justify="center" style={{ padding: "48px 0" }}>
             <Spin size="large" />
           </Flex>
         ) : ncDetailQuery.error ? (
@@ -895,105 +1265,7 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
             description={formatErrorMessage(ncDetailQuery.error)}
             action={<Button size="small" onClick={() => void ncDetailQuery.refetch()}>重試</Button>}
           />
-        ) : ncDetailQuery.data ? (
-          <Space direction="vertical" size={20} style={{ width: "100%" }}>
-            {/* 基本資訊 */}
-            <Space wrap size="middle">
-              <StatusBadge value={ncDetailQuery.data.status} />
-              <Text>來源：{ncDetailQuery.data.source}</Text>
-              <SeverityBadge value={ncDetailQuery.data.severity} />
-              <Text>不良數量：{ncDetailQuery.data.defect_qty ?? "未填"}</Text>
-            </Space>
-
-            <Descriptions size="small" column={2} bordered>
-              <Descriptions.Item label="供應商">{ncDetailQuery.data.supplier_id ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="物料">{ncDetailQuery.data.material_id ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="收料紀錄">{ncDetailQuery.data.receipt_id ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="供應商批號">{ncDetailQuery.data.supplier_lot_id ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="內部批號">{ncDetailQuery.data.internal_lot_id ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="IQC">{ncDetailQuery.data.iqc_record_id ?? "—"}</Descriptions.Item>
-            </Descriptions>
-
-            <Divider titlePlacement="start" plain>
-              異常描述
-            </Divider>
-            <Text type="secondary" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
-              {ncDetailQuery.data.description}
-            </Text>
-
-            <Divider titlePlacement="start" plain>
-              調查內容
-            </Divider>
-            <Text type="secondary" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
-              {ncDetailQuery.data.investigation || "無調查內容"}
-            </Text>
-
-            <Divider titlePlacement="start" plain>
-              圍堵與處置紀錄
-            </Divider>
-            {ncDetailQuery.data.dispositions?.length ? (
-              <Timeline
-                items={ncDetailQuery.data.dispositions.map((d) => ({
-                  children: (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {new Date(d.executed_at).toLocaleString()} · 負責人 ID {d.owner_user_id}
-                      </Text>
-                      <div>
-                        {d.content} — {d.result}
-                      </div>
-                    </div>
-                  ),
-                }))}
-              />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無處置紀錄" />
-            )}
-
-            <Divider titlePlacement="start" plain>
-              附件
-            </Divider>
-            {ncDetailQuery.data.attachments?.length ? (
-              <Space direction="vertical" size={4}>
-                {ncDetailQuery.data.attachments.map((a) => (
-                  <Space key={a.id}>
-                    <Text>{a.original_filename}</Text>
-                  </Space>
-                ))}
-              </Space>
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無附件" />
-            )}
-
-            <Divider titlePlacement="start" plain>
-              案件歷程
-            </Divider>
-            {ncDetailQuery.data.history?.length ? (
-              <Timeline
-                items={ncDetailQuery.data.history.map((h) => ({
-                  children: (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {new Date(h.created_at).toLocaleString()} · 使用者 {h.actor_user_id}
-                      </Text>
-                      <div>{h.action}</div>
-                      {h.before_data && (
-                        <details className="mt-1">
-                          <summary className="cursor-pointer text-xs text-slate-500">變更前後資料</summary>
-                          <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-2 text-xs">
-                            {h.before_data} → {h.after_data}
-                          </pre>
-                        </details>
-                      )}
-                    </div>
-                  ),
-                }))}
-              />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚無歷程" />
-            )}
-          </Space>
-        ) : (
+        ) : !ncDetail ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
@@ -1003,6 +1275,230 @@ export function DashboardPage({ profile }: { profile: UserProfile | null }) {
               </Flex>
             }
           />
+        ) : (
+          <Flex vertical gap={16} style={{ width: "100%" }}>
+            <Card
+              size="small"
+              title={
+                <Flex align="center" gap={8} wrap="wrap">
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    案件編號
+                  </Text>
+                  <Text strong>{ncDetail.case_no}</Text>
+                </Flex>
+              }
+              extra={
+                <Space wrap size={8}>
+                  <StatusBadge value={ncDetail.status} />
+                  <SeverityBadge value={ncDetail.severity} />
+                  <Tag>來源：{ncDetail.source}</Tag>
+                </Space>
+              }
+            >
+              <Flex wrap="wrap" align="flex-start" gap={32}>
+                <Flex vertical gap={2} style={{ minWidth: 0, flex: "1 1 260px" }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    案件標題
+                  </Text>
+                  <Text strong style={{ fontSize: 16 }}>
+                    {ncDetail.title}
+                  </Text>
+                </Flex>
+                <Statistic
+                  title="不良數量"
+                  value={ncDetail.defect_qty !== null ? Number(ncDetail.defect_qty) : EMPTY_TEXT}
+                />
+                <SummaryItem label="發現時間">
+                  <Text>{formatTaiwanDateTime(ncDetail.found_at)}</Text>
+                </SummaryItem>
+                <SummaryItem label="負責人">
+                  <Text>{ncOwnerText}</Text>
+                </SummaryItem>
+              </Flex>
+            </Card>
+
+            <Card size="small" title="關聯資料">
+              <Descriptions
+                size="small"
+                column={{ xs: 1, sm: 2 }}
+                items={[
+                  { key: "supplier", label: "供應商", children: ncSupplierText },
+                  { key: "material", label: "物料", children: ncMaterialText },
+                  {
+                    key: "receipt",
+                    label: "收料紀錄",
+                    children: ncDetail.receipt_id
+                      ? `收料單 #${ncDetail.receipt_id}`
+                      : EMPTY_TEXT,
+                  },
+                  {
+                    key: "supplier_lot",
+                    label: "供應商批號",
+                    children: ncDetail.supplier_lot_id
+                      ? `供應商批號 #${ncDetail.supplier_lot_id}`
+                      : EMPTY_TEXT,
+                  },
+                  {
+                    key: "internal_lot",
+                    label: "內部批號",
+                    children: ncDetail.internal_lot_id
+                      ? `內部批號 #${ncDetail.internal_lot_id}`
+                      : EMPTY_TEXT,
+                  },
+                  {
+                    key: "iqc_record",
+                    label: "IQC 檢驗紀錄",
+                    children: ncDetail.iqc_record_id
+                      ? `IQC-${ncDetail.iqc_record_id}`
+                      : EMPTY_TEXT,
+                  },
+                  {
+                    key: "found_at",
+                    label: "發現時間",
+                    children: formatTaiwanDateTime(ncDetail.found_at),
+                  },
+                  { key: "owner", label: "負責人", children: ncOwnerText },
+                ]}
+              />
+            </Card>
+
+            <Card size="small" title="異常描述">
+              <Text style={LONG_TEXT_STYLE}>{ncDetail.description || EMPTY_TEXT}</Text>
+            </Card>
+
+            <Card size="small" title="調查內容">
+              {ncDetail.investigation?.trim() ? (
+                <Text style={LONG_TEXT_STYLE}>{ncDetail.investigation}</Text>
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="尚無調查內容"
+                />
+              )}
+            </Card>
+
+            <Card size="small" title="圍堵與處置紀錄">
+              {ncDispositions.length > 0 ? (
+                <Timeline
+                  items={ncDispositions.map((disposition, index) => ({
+                    color: index % 2 === 0 ? "blue" : "green",
+                    children: (
+                      <Flex vertical gap={4}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {formatTaiwanDateTime(disposition.executed_at)} · 負責人 ID{" "}
+                          {disposition.owner_user_id}
+                        </Text>
+                        <Text strong>{disposition.content}</Text>
+                        <Text>處置結果：{disposition.result}</Text>
+                      </Flex>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="尚無圍堵與處置紀錄"
+                />
+              )}
+            </Card>
+
+            <Card size="small" title="附件">
+              {ncAttachmentError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="附件下載失敗"
+                  description={ncAttachmentError}
+                  style={{ marginBottom: 12 }}
+                />
+              )}
+              <List
+                dataSource={ncAttachments}
+                locale={{
+                  emptyText: (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="尚無附件"
+                    />
+                  ),
+                }}
+                renderItem={(attachment) => (
+                  <List.Item
+                    actions={[
+                      <Button
+                        key="download"
+                        type="link"
+                        size="small"
+                        onClick={() =>
+                          void handleDownloadAttachment(
+                            ncDetail.id,
+                            attachment.id,
+                            attachment.original_filename,
+                          )
+                        }
+                      >
+                        下載
+                      </Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      avatar={
+                        <PaperClipOutlined style={{ fontSize: 18, color: "#8c8c8c" }} />
+                      }
+                      title={attachment.original_filename}
+                      description={describeAttachment(attachment)}
+                    />
+                  </List.Item>
+                )}
+              />
+            </Card>
+
+            <Card size="small" title="案件歷程">
+              {ncHistory.length > 0 ? (
+                <Timeline
+                  items={ncHistory.map((entry) => {
+                    const beforeText = formatHistoryPayload(entry.before_data);
+                    const afterText = formatHistoryPayload(entry.after_data);
+                    const hasDiff = beforeText !== EMPTY_TEXT || afterText !== EMPTY_TEXT;
+                    return {
+                      children: (
+                        <Flex vertical gap={4}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {formatTaiwanDateTime(entry.created_at)} · 操作者 ID{" "}
+                            {entry.actor_user_id}
+                          </Text>
+                          <Text strong>{entry.action}</Text>
+                          {hasDiff && (
+                            <Collapse
+                              size="small"
+                              ghost
+                              items={[
+                                {
+                                  key: "before",
+                                  label: "異動前",
+                                  children: <pre style={DIFF_PRE_STYLE}>{beforeText}</pre>,
+                                },
+                                {
+                                  key: "after",
+                                  label: "異動後",
+                                  children: <pre style={DIFF_PRE_STYLE}>{afterText}</pre>,
+                                },
+                              ]}
+                            />
+                          )}
+                        </Flex>
+                      ),
+                    };
+                  })}
+                />
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="尚無案件歷程"
+                />
+              )}
+            </Card>
+          </Flex>
         )}
       </Modal>
     </section>

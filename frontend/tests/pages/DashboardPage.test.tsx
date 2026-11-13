@@ -1,5 +1,5 @@
 ﻿import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -133,10 +133,12 @@ describe("DashboardPage", () => {
     expect(screen.getByText("不合格案件統計")).toBeTruthy();
     expect(screen.getByText("批號狀態分布")).toBeTruthy();
 
-    // dynamic by_lot_status rows (status labels may be localized by StatusBadge)
-    const lotTable = screen.getAllByRole("table")[0];
-    expect(within(lotTable).getByText("2")).toBeTruthy();
-    expect(within(lotTable).getAllByText("1").length).toBeGreaterThanOrEqual(2);
+    // dynamic by_lot_status rows (status labels come from the summary payload)
+    expect(screen.getByText("available").parentElement?.textContent).toContain("2");
+    expect(screen.getByText("available").parentElement?.textContent).toContain("50%");
+    expect(screen.getByText("quarantine").parentElement?.textContent).toContain("25%");
+    expect(screen.getByText("rejected").parentElement?.textContent).toContain("25%");
+    expect(screen.getByText(/共 3 種狀態 · 狀態數量合計 4/)).toBeTruthy();
 
     // recent receipts preserved (separate query)
     expect(await screen.findByText("RCV-001")).toBeTruthy();

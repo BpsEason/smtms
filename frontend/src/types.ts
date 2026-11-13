@@ -17,7 +17,7 @@ export type Nonconformance = {
   closed_at: string | null; created_at: string; updated_at: string;
   dispositions?: { id: number; content: string; result: string; owner_user_id: number; executed_at: string }[];
   history?: { id: number; action: string; actor_user_id: number; before_data: string | null; after_data: string; created_at: string }[];
-  attachments?: { id: number; original_filename: string; media_type: string; size_bytes: number; sha256: string }[];
+  attachments?: { id: number; original_filename: string; media_type: string; size_bytes: number; sha256: string; created_at?: string }[];
 };
 
 export type NonconformanceCreatePayload = {
