@@ -1,10 +1,8 @@
 # SMTMS — Supplier Material Traceability Management System
 
-![CI](https://github.com/BpsEason/smtms/actions/workflows/ci.yml/badge.svg)
-
 SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。它把供應商及供料關係、供應商批號、收料、內部批號、IQC 檢驗與品質異常記錄連成可查詢的資料流程，協助使用者追查物料來源與品質處理歷程。
 
-此專案展示 FastAPI 後端、關聯式資料建模、流程與數量驗證、RBAC 權限控制，以及前後端測試和 CI。專案定位為可在本機操作的工程作品，不代表已完成正式生產環境認證或負載驗證。
+此專案展示 FastAPI 後端、關聯式資料建模、流程與數量驗證、RBAC 權限控制，以及前後端測試。專案定位為可在本機操作的工程作品，不代表已完成正式生產環境認證或負載驗證。
 
 ## Demo
 
@@ -14,17 +12,20 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 
 ## 功能與實作範圍
 
-| 功能 | 已實作內容 | 程式碼／驗證依據 |
-| --- | --- | --- |
-| 供應商與物料管理 | 供應商及物料主檔、供應商供料關聯；供應商資格文件與受控附件 API；另有供應商 Excel 匯入預覽與確認 API | `backend/app/api/routes/suppliers.py`、`materials.py`、`backend/tests/test_catalog_api.py`、`test_supplier_import.py` |
-| 收料與批號管理 | 建立供應商批號及收料；收料驗證批號關聯與申報剩餘量；收料可拆分為多個內部批號，並驗證可拆數量 | `backend/app/api/routes/quality.py`、`backend/tests/test_quality_workflow_api.py` |
-| 進料檢驗（IQC） | IQC 紀錄建立與更新、受規則限制的檢驗狀態；另提供品保審核清單、核准／退回及審核歷程，退回需理由 | `quality.py`、`backend/tests/test_quality_workflow_api.py` |
-| 品質異常管理 | 異常案件查詢、建立與更新、調查狀態流轉、處置紀錄、歷程及受控附件；可連結供應商、物料、收料、批號或 IQC | `backend/app/api/routes/nonconformances.py`、`backend/app/models/quality.py`、`backend/tests/test_quality_workflow_api.py` |
-| 物料追溯 | 以供應商批號、收料單、內部批號、IQC ID 或物料代碼查詢關聯流程；結果分頁，前端 CSV 匯出目前結果頁 | `quality.py` 的 `/traceability`、`frontend/src/pages/TraceabilityPage.tsx`、`test_quality_workflow_api.py` |
-| 稽核紀錄 | 記錄重要 ORM 建立／更新／刪除與成功登入；後台依 `audit:read` 權限查詢，支援操作者、操作類型、資源及時間範圍篩選、分頁、唯讀異動明細與 CSV 串流匯出 | `backend/app/services/audit.py`、`backend/app/api/routes/audit.py`、`frontend/src/pages/AuditLogPage.tsx`、`backend/tests/test_audit_api.py` |
-| 角色與權限管理 | 使用者、角色、權限及角色指派 API；前端依權限保護頁面，後端 API 另行授權；供應商帳號依綁定的供應商範圍隔離 | `backend/app/api/routes/access.py`、`backend/app/core/security.py`、`frontend/src/App.tsx`、`backend/tests/test_access_control_api.py`、`test_supplier_isolation.py` |
-| 認證與 Token | 登入核發 Access Token 與 Refresh Token；`/auth/refresh` 輪替 Refresh Token 並核發新 Access Token；`/auth/logout` 撤銷當前 Access Token；前端於 401 時自動刷新並重試請求 | `backend/app/api/routes/auth.py`、`backend/app/schemas/auth.py`、`frontend/src/api/client.ts`、`frontend/src/api/auth.ts` |
-以上列出程式碼與測試中可查證的範圍。附件目前存於後端設定的本機持久化目錄，限制格式與大小；尚未包含病毒掃描或外部物件儲存。追溯頁 CSV 僅匯出當前頁；Audit Log CSV 依目前篩選條件分批串流匯出所有符合紀錄。正式部署、長時間負載與合規認證尚未完成。
+下表僅列出程式碼與測試中可查證的範圍。每欄的「依據」指向實際檔案；測試狀態以 `docs/07_ACCEPTANCE.md` 與 `docs/06_CURRENT_STATE.md` 記錄為準，並區分「已自動化測試」、「部分測試」與「未自動化測試」。
+
+| 功能 | 已實作內容 | 程式碼／驗證依據 | 測試狀態 |
+| --- | --- | --- | --- |
+| 供應商與物料管理 | 供應商及物料主檔、供應商供料關聯；供應商資格文件與受控附件 API；供應商 Excel 匯入預覽與確認 API | `backend/app/api/routes/suppliers.py`、`materials.py`、`backend/tests/test_catalog_api.py`、`test_supplier_import.py` | 已自動化測試 |
+| 收料與批號管理 | 建立供應商批號及收料；收料驗證批號關聯與申報剩餘量；收料可拆分為多個內部批號，並驗證可拆數量 | `backend/app/api/routes/quality/receipts.py`、`backend/tests/test_quality_workflow_api.py` | 建立、清單、明細已測試；拆分超量及重複批號已測試，`qty<=0` 分支未單獨驗證 |
+| 進料檢驗（IQC） | IQC 紀錄建立與更新、受規則限制的檢驗狀態；品保審核清單、核准／退回及審核歷程，退回需理由 | `backend/app/api/routes/quality/iqc.py`、`backend/tests/test_quality_workflow_api.py` | 已自動化測試；`PATCH /iqc/{id}` 關聯一致性驗證缺失（CURRENT_STATE D4） |
+| 品質異常管理 | 異常案件查詢、建立與更新、調查狀態流轉、處置紀錄、歷程及受控附件；可連結供應商、物料、收料、批號或 IQC | `backend/app/api/routes/nonconformances.py`、`backend/app/models/quality.py`、`backend/tests/test_quality_workflow_api.py` | 基本流程已測試 |
+| 物料追溯 | 以供應商批號、收料單、內部批號、IQC ID 或物料代碼查詢關聯流程；結果分頁；前端僅匯出當前頁結果 | `backend/app/api/routes/quality/traceability.py`、`frontend/src/pages/TraceabilityPage.tsx`、`backend/tests/test_quality_workflow_api.py`、`test_supplier_isolation.py` | API 已測試；`GET /trace/{lot_no}` 規格存在於 `docs/04_API_CONTRACT.md` 但列為未實作，與實際路由需以程式碼為準 |
+| 稽核紀錄 | 記錄重要 ORM 建立／更新／刪除與成功登入；後台依 `audit:read` 權限查詢，支援操作者、操作類型、資源及時間範圍篩選、分頁、唯讀異動明細與 CSV 串流匯出 | `backend/app/services/audit.py`、`backend/app/api/routes/audit.py`、`frontend/src/pages/AuditLogPage.tsx`、`backend/tests/test_audit_api.py` | 核心交易／敏感欄位遮蔽／CSV 安全單元測試 2 項通過；Windows TestClient 權限及串流端對端測試待整合環境驗收 |
+| 角色與權限管理 | 使用者、角色、權限及角色指派 API；前端依權限保護頁面，後端 API 另行授權；供應商帳號依綁定的供應商範圍隔離 | `backend/app/api/routes/access.py`、`backend/app/core/security.py`、`frontend/src/App.tsx`、`backend/tests/test_access_control_api.py`、`test_supplier_isolation.py` | 已自動化測試 |
+| 認證與 Token | 登入核發 Access Token 與 Refresh Token；`/api/v1/auth/refresh` 輪替 Refresh Token 並核發新 Access Token；`/api/v1/auth/logout` 撤銷當前 Access Token；前端於 401 時自動刷新並重試請求；登入適用 Redis 固定視窗速率限制 | `backend/app/api/routes/auth.py`、`backend/app/schemas/auth.py`、`backend/app/core/login_rate_limit.py`、`frontend/src/api/client.ts`、`frontend/src/api/auth.ts`、`backend/tests/test_refresh_token_api.py`、`test_login_rate_limit_api.py` | 已自動化測試 |
+
+附件目前存於後端設定的本機持久化目錄，限制格式與大小；尚未包含病毒掃描或外部物件儲存。追溯頁 CSV 僅匯出當前頁；Audit Log CSV 依目前篩選條件分批串流匯出所有符合紀錄。正式部署、長時間負載與合規認證尚未完成。
 
 ## 核心設計
 
@@ -37,9 +38,10 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 
 - **Access Token：** 由 `/api/v1/auth/login` 核發，有效期限預設 60 分鐘（`access_token_expire_minutes`）；前端以 Bearer Token 呼叫 API。
 - **Refresh Token：** 登入同時核發，有效期限預設 30 天（`refresh_token_expire_days`），以 SHA-256 雜湊儲存於 `refresh_tokens` 資料表；JWT 類型為 `refresh`。
-- **更新流程：** 前端收到 401 時呼叫 `/api/v1/auth/refresh`，後端驗證 JWT 與資料庫紀錄（未撤銷、未過期），撤銷舊 Refresh Token 並核發新的 Access Token 與 Refresh Token（輪替）。
+- **更新流程：** 前端收到 401 時呼叫 `/api/v1/auth/refresh`，後端驗證 JWT 與資料庫紀錄（未撤銷、未過期、使用者仍啟用），撤銷舊 Refresh Token 並核發新的 Access Token 與 Refresh Token（輪替）。偵測到 Refresh Token 重複使用時會撤銷該帳號全部有效 Refresh Token。
 - **失效與登出：** Refresh Token 過期、撤銷或使用者停用時刷新失敗；`/api/v1/auth/logout` 撤銷當前 Access Token（Redis 撤銷狀態）。
-- **相關端點：** `POST /api/v1/auth/login`、`POST /api/v1/auth/refresh`、`POST /api/v1/auth/logout`、`GET /api/v1/auth/me`。
+- **登入速率限制：** 登入端點適用 Redis 固定視窗速率限制，分 IP 與帳號兩維度計數，Redis 不可用時失閉回 503；相關環境變數 `LOGIN_RATE_LIMIT_*` 見 `backend/.env.example`。
+- **相關端點：** `POST /api/v1/auth/login`、`POST /api/v1/auth/refresh`、`POST /api/v1/auth/logout`、`GET /api/v1/auth/me`、`POST /api/v1/auth/change-password`。
 - **資料庫遷移：** `alembic/versions/20261105_refresh_tokens.py` 建立 `refresh_tokens` 資料表；執行 `alembic upgrade head` 套用。
 - **環境設定：** `SECRET_KEY`（至少 32 字元）、`access_token_expire_minutes`、`refresh_token_expire_days` 由 `backend/.env` / Settings 設定。
 
@@ -48,7 +50,7 @@ SMTMS 是一個製造業供應商、物料與進料品質管理示範系統。�
 ```mermaid
 flowchart LR
     Browser[React 前端] --> Nginx[Nginx 反向代理 :8087]
-    Nginx --> Frontend_Service[前端容器 :5173]
+    Nginx --> Frontend_Service[前端容器 :5173（僅開發模式）]
     Nginx --> Backend_Service[FastAPI / Uvicorn :8000]
     Backend_Service --> MySQL[(外部 MySQL)]
     Backend_Service --> Redis[(Redis 容器)]
@@ -61,10 +63,19 @@ flowchart LR
     style Redis fill:#fc9,stroke:#333
 ```
 
-- **前端：** React 19、TypeScript、Vite 8、React Router 7、Tailwind CSS 4；測試使用 Vitest 與 Testing Library。
-- **後端：** Python `>=3.12,<3.14`、FastAPI、Pydantic 2、SQLAlchemy 2、Alembic、Uvicorn；依賴版本範圍及鎖定版本分別見 `backend/pyproject.toml`、`backend/uv.lock`。
-- **資料與認證：** MySQL（PyMySQL）、Redis、JWT（PyJWT）；Redis 用於 JWT 撤銷狀態。
-- **執行與品質：** Docker Compose 啟動 Redis、後端、前端及 Nginx；MySQL 必須外部提供。後端使用 pytest、Ruff、mypy；前端使用 Vitest、oxlint、TypeScript 與 Vite build。
+- **前端：** React 19.2.8、TypeScript ~6.0.2、Vite 8.3.0、React Router 7.18.4、Tailwind CSS 4.1.14、Ant Design 6.7.0、TanStack Query 5.105.0；測試使用 Vitest 5.0.5 與 Testing Library，Linter 為 oxlint 1.81.0；套件管理工具 pnpm 9.15.9，鎖定檔 `frontend/pnpm-lock.yaml`。
+- **後端：** Python `>=3.12,<3.14`（容器鏡像 `python:3.12-slim`）、FastAPI、Pydantic 2、SQLAlchemy 2、Alembic、Uvicorn；PyMySQL、Redis、PyJWT、bcrypt；Redis 用於 JWT 撤銷狀態與登入速率限制。依賴版本範圍及鎖定版本分別見 `backend/pyproject.toml`、`backend/uv.lock`。
+- **資料庫：** MySQL 8.x，為外部服務，**不在 `docker-compose.yml` 中建立**，需先行提供並讓後端可連線。
+- **執行與品質：** Docker Compose 啟動 Redis、後端、前端及 Nginx；後端使用 pytest、Ruff、mypy；前端使用 Vitest、oxlint、TypeScript 與 Vite build。
+
+### 關於 CI / GitHub Actions
+
+CI 工作流程定義於 `.github/workflows/ci.yml`，觸發時機為 push 或 pull request 到 `main` / `master` 分支：
+
+- **後端工作**：Python 3.12，`uv sync --locked --group dev` 安裝依賴；執行 `ruff check .`、`mypy app/`、`alembic upgrade head`，再以 `pytest -q` 執行測試。服務容器提供 MySQL 8.0 與 Redis 7（非記憶體 SQLite／假 Redis）。最後建置後端 Docker 映像並以 `curl` 驗證 `openapi.json` 可存取。
+- **前端工作**：Node.js 20，`pnpm install --frozen-lockfile` 安裝依賴；執行 `pnpm run lint`（oxlint）、`pnpm exec tsc --noEmit`、`pnpm test -- --run`（Vitest）、`pnpm run build`（生產建置）。
+
+相關本機重現指令詳見 `docs/github-actions.md`。CI 測試環境使用真實 MySQL 與 Redis 服務容器，與 `docs/06_CURRENT_STATE.md` 所記載的「記憶體 SQLite 與假 Redis」不一致，以 `.github/workflows/ci.yml` 實際內容為準。CI 徽章未加入，因無法確認 repository 名稱與當前執行狀態，避免過度宣稱。
 
 ## 本機啟動與 Demo 初始化
 
@@ -118,11 +129,11 @@ Seeder 僅允許在下列條件下執行：
 
 ### 啟動服務
 
-### 方式一：Docker Compose 完整棧（推薦 Demo 使用）
+#### 方式一：Docker Compose 完整棧（推薦 Demo 使用）
 
 MySQL 仍須由外部提供，Compose 只會啟動 Redis、後端、前端及 Nginx：
 
-#### 開發模式（保留 Vite Dev Server、HMR、原始碼掛載）
+##### 開發模式（保留 Vite Dev Server、HMR、原始碼掛載）
 ```powershell
 Set-Location C:\laragon\www\smtms
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
@@ -135,7 +146,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 - OpenAPI：`http://127.0.0.1:8087/openapi.json`
 - 健康檢查：`http://127.0.0.1:8087/health`
 
-#### 正式模式（使用 Nginx 靜態檔案、不啟動 Vite Dev Server）
+##### 正式模式（使用 Nginx 靜態檔案、不啟動 Vite Dev Server）
 ```powershell
 Set-Location C:\laragon\www\smtms
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
@@ -147,7 +158,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - OpenAPI：`http://127.0.0.1:8087/openapi.json`
 - 健康檢查：`http://127.0.0.1:8087/health`
 
-> 注意：開發與正式模式必須使用對應的 `-f docker-compose.yml -f docker-compose.dev.yml` 或 `-f docker-compose.yml -f docker-compose.prod.yml` 組合。
+> 注意：開發與正式模式必須使用對應的 `-f docker-compose.yml -f docker-compose.dev.yml` 或 `-f docker-compose.yml -f docker-compose.prod.yml` 組合。正式模式下前端容器以 `target: production` 建置並由 Nginx 靜態檔案服務；開發模式則啟動 Vite Dev Server。
 
 #### 方式二：本機開發伺服器（不使用 Docker，開發除錯適用）
 
@@ -177,23 +188,11 @@ Vite 開發伺服器預設在 `http://localhost:5173/`。前端 API Base URL 由
 ## 驗證與品質檢查
 
 ### 程式碼格式化與品質檢查
-本專案後端採用 **Ruff** 作為統一的程式碼格式化、Import 排序與 Lint 檢查工具，取代傳統的 black、flake8、isort 等多工具組合，提供快速且一致的程式碼品質控管。
 
-#### VS Code 自動化設定
-需先安裝並啟用 VS Code 的 [Ruff 擴充套件](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)，本機 `.vscode/settings.json` 已預設下列自動化行為，存檔時會自動執行：
-1. **自動格式化**：套用 Ruff 的格式化規則（對應 `editor.formatOnSave`）
-2. **Import 排序**：自動整理與排序 Python 匯入的模組（對應 `source.organizeImports`）
-3. **自動修正**：修復所有 Ruff 支援自動修正的 Lint 問題（對應 `source.fixAll`）
+後端採用 **Ruff** 作為程式碼格式化、Import 排序與 Lint 檢查工具；前端採用 **oxlint** 與 TypeScript `tsc --noEmit`。
 
-#### 無法自動修正的問題
-下列類型的問題無法由 Ruff 自動修正，仍需人工檢查與處理：
-- 型別錯誤（需透過 mypy 檢查）
-- 邏輯錯誤與業務規則違反
-- 複雜的程式碼結構問題
-- 部分 Lint 規則無法自動修復的警告
-- 資料庫關聯性與業務流程的一致性問題
+#### 手動執行指令（後端，於 backend 目錄下執行）
 
-#### 手動執行指令（需在 backend 目錄下執行）
 ```powershell
 # 僅檢查程式碼風格與 Lint 問題，不進行修正
 uv run ruff check .
@@ -204,49 +203,39 @@ uv run ruff check --fix .
 # 執行程式碼格式化
 uv run ruff format .
 
-# 合併執行：先修正 Lint 問題再格式化
-uv run ruff check --fix . ; uv run ruff format .
+# 靜態型別檢查
+uv run mypy app/
+
+# 功能測試
+uv run pytest -q
 ```
 
-#### Ruff 規則設定（backend/pyproject.toml）
-目前專案的 Ruff 設定完全對應 `backend/pyproject.toml` 中的實際配置：
-- **基礎設定**：
-  - 行寬：`line-length = 100`
-  - 檢查來源：僅針對 `app/` 與 `tests/` 目錄
-  - 排除目錄：`.venv`、`__pycache__`、`.pytest_cache`、`.ruff_cache`
-- **啟用的 Lint 規則**：
-  - `E`（pycodestyle 錯誤）
-  - `F`（Pyflakes 錯誤）
-  - `I`（Import 排序）
-  - `W`（pycodestyle 警告）
-  - `C4`（複雜度檢查）
-  - `RUF`（Ruff 自訂規則）
-- **忽略的規則**：
-  - `RUF012`（忽略非同步類別屬性相關警告）
-- **格式化設定**：
-  - 引號樣式：雙引號（`quote-style = "double"`）
-  - 縮排樣式：空格（`indent-style = "space"`）
-  - 換行符號：LF（`line-ending = "lf"`）
-
-### 完整驗證指令
-以下是專案設定及 CI 工作流程實際執行的完整檢查指令，清楚區分不同層級的驗證：
+#### 手動執行指令（前端，於 frontend 目錄下執行）
 
 ```powershell
-# 後端（backend 目錄；測試需可用的 MySQL、Redis 與測試環境設定）
-uv run ruff check .          # 程式碼風格檢查（Lint）
-uv run mypy app/             # 靜態型別檢查
-uv run pytest -q             # 功能測試驗證
+# oxlint 程式碼檢查
+pnpm run lint
 
-# 前端（frontend 目錄）
-pnpm run lint                 # oxlint 程式碼檢查
-pnpm exec tsc --noEmit        # TypeScript 型別檢查
-pnpm test -- --run            # Vitest 單元測試
-pnpm run build                # 生產建置驗證
+# TypeScript 型別檢查
+pnpm exec tsc --noEmit
+
+# Vitest 單元測試
+pnpm test -- --run
+
+# 生產建置驗證
+pnpm run build
 ```
 
-CI 工作流程與資料庫／Redis 測試服務定義見 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。完整後端環境設定及 Seeder 限制見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)。正式規格入口為 [`docs/01_SRS.md`](docs/01_SRS.md)，並包括[領域規則](docs/02_DOMAIN_RULES.md)、[API 契約](docs/04_API_CONTRACT.md)、[資料庫結構](docs/05_DATABASE_SCHEMA.md)、[目前實作狀態](docs/06_CURRENT_STATE.md)、[驗收標準](docs/07_ACCEPTANCE.md)及[開發路線圖](docs/08_ROADMAP.md)。
+### 測試現況（依 docs/07_ACCEPTANCE.md 記錄）
 
-目前文件記錄的驗收結果：前端 Vitest **32 項通過**（5 個測試檔），Audit Log 頁面測試 **3 項通過**，production build 通過；後端驗收相關測試 **42 項中 1 項略過，其餘通過**，另有 Audit Log 交易一致性／敏感欄位遮蔽與 CSV 安全單元測試 **2 項通過**。Audit Log API 的 Windows TestClient 權限及串流端對端測試、真實 MySQL／Redis 與大量資料吞吐仍待整合環境驗收。詳見[驗收標準](docs/07_ACCEPTANCE.md)與[目前實作狀態](docs/06_CURRENT_STATE.md)。
+以下結果來自專案文件記錄，未在此環境中重新執行，僅供參考：
+
+- 後端驗收相關測試：42 項中 1 項略過，其餘通過（exit code 0）；`tests/test_quality_workflow_api.py` 獨立執行 31 passed、0 failed。
+- Audit Log 後端單元測試（CSV 公式注入／引號、交易回滾與敏感欄位遮蔽）：2 項通過。
+- 前端 Vitest：32 項通過（測試檔位於 `frontend/tests/` 與 `frontend/src/lib/`）；Audit Log 頁面測試 3 項通過。
+- 前端 production build：記錄為通過。
+
+> 後端測試使用記憶體 SQLite 與假 Redis；外部故障測試以 mock 注入例外，並非實際中斷 MySQL／Redis。前端測試使用 mock API。未在真實 MySQL／Redis 或 Docker Compose 環境執行。Audit Log API 權限與串流端點未能在本機 Windows TestClient 環境完成端對端請求；大量資料實際串流吞吐及 MySQL cursor 行為仍待整合環境驗收。
 
 ## 統一 Logging
 
@@ -310,6 +299,10 @@ logger.exception("例外（包含完整 traceback）")
 backend/                 FastAPI API、模型、Alembic 遷移、Seeder 與測試
 frontend/                React/TypeScript UI 與前端測試
 docker/nginx/            Nginx 反向代理設定
-docker-compose.yml       Redis、backend、frontend、Nginx 服務定義
+docker-compose.yml       Redis、backend、frontend、Nginx 服務定義（MySQL 為外部服務）
+docker-compose.dev.yml   開發模式覆蓋（Vite Dev Server、原始碼掛載）
+docker-compose.prod.yml  正式模式覆蓋（前端靜態建置、Nginx 靜態服務）
 docs/                    領域規則、API 契約、資料庫結構、現況、驗收與路線圖
 ```
+
+相關文件：後端說明見 [`backend/README.md`](backend/README.md)，前端說明見 [`frontend/README.md`](frontend/README.md)。正式規格入口為 [`docs/01_SRS.md`](docs/01_SRS.md)，並包括[領域規則](docs/02_DOMAIN_RULES.md)、[API 契約](docs/04_API_CONTRACT.md)、[資料庫結構](docs/05_DATABASE_SCHEMA.md)、[目前實作狀態](docs/06_CURRENT_STATE.md)、[驗收標準](docs/07_ACCEPTANCE.md)及[開發路線圖](docs/08_ROADMAP.md)。
