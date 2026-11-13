@@ -153,3 +153,122 @@ describe("API Client Error Handling", () => {
     window.removeEventListener("smtms:unauthorized", unauthorizedHandler);
   });
 });
+
+describe("API Client Token Refresh", () => {
+  const refreshUrl = `${API_BASE_URL}/api/v1/auth/refresh`;
+
+  beforeEach(() => {
+    mockFetch.mockClear();
+    clearToken();
+    vi.clearAllMocks();
+  });
+
+  function refreshCallCount(): number {
+    return (mockFetch.mock.calls ?? []).filter((call) =>
+      String(call[0]).includes("/auth/refresh"),
+    ).length;
+  }
+
+  it("多個同時 401 僅執行一次 refresh (single-flight)", async () => {
+    saveToken("access-token");
+    localStorage.setItem("smtms_refresh_token", "refresh-token");
+    const unauthorizedHandler = vi.fn();
+    window.addEventListener("smtms:unauthorized", unauthorizedHandler);
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve(""),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve(""),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({ access_token: "new-access", refresh_token: "new-rt" }),
+          ),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve("{}"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve("{}"),
+      });
+
+    await Promise.all([api.listSuppliers(), api.listSuppliers()]);
+
+    expect(refreshCallCount()).toBe(1);
+    expect(readToken()).toBe("new-access");
+    expect(unauthorizedHandler).not.toHaveBeenCalled();
+
+    window.removeEventListener("smtms:unauthorized", unauthorizedHandler);
+  });
+
+  it("refresh 失敗時清除 token 且僅觸發一次 unauthorized", async () => {
+    saveToken("access-token");
+    localStorage.setItem("smtms_refresh_token", "refresh-token");
+    const unauthorizedHandler = vi.fn();
+    window.addEventListener("smtms:unauthorized", unauthorizedHandler);
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve(""),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(""),
+      });
+
+    await expect(api.listSuppliers()).rejects.toThrow("未授權，請重新登入");
+    expect(readToken()).toBeNull();
+    expect(localStorage.getItem("smtms_refresh_token")).toBeNull();
+    expect(refreshCallCount()).toBe(1);
+    expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener("smtms:unauthorized", unauthorizedHandler);
+  });
+
+  it("重試後再遇 401 僅刷新一次並清除 token", async () => {
+    saveToken("access-token");
+    localStorage.setItem("smtms_refresh_token", "refresh-token");
+    const unauthorizedHandler = vi.fn();
+    window.addEventListener("smtms:unauthorized", unauthorizedHandler);
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve(""),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({ access_token: "new-access" })),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve(""),
+      });
+
+    await expect(api.listSuppliers()).rejects.toThrow("未授權，請重新登入");
+    expect(readToken()).toBeNull();
+    expect(refreshCallCount()).toBe(1);
+    expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener("smtms:unauthorized", unauthorizedHandler);
+  });
+});
